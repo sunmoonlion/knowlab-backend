@@ -68,7 +68,7 @@ def _domain_dirs() -> list[Path]:
 
 
 # 只认**共享（模板）**的 Outbox 符号。实例仓可能有自己的领域 outbox
-# （如 info 的 DeliveryOutboxMessage，它是在用的），不能一见 "outbox" 就算命中。
+# （如 knowfeed 的 DeliveryOutboxMessage，它是在用的），不能一见 "outbox" 就算命中。
 # 词边界让 \bOutboxMessage\b 不会匹配到 DeliveryOutboxMessage。
 _SHARED_OUTBOX = re.compile(
     r"\b(OutboxPublisher|OutboxRepository|SqlOutboxRepository"

@@ -21,15 +21,15 @@ from app.main import app
 from core.config import Settings
 from tests.test_auth_routes_security import FakeAuthService, session
 
-KNOWN = frozenset({"investment", "knowledge"})
+KNOWN = frozenset({"investment", "knowbase"})
 SOURCES = (
     '{"investment": {"return_url": '
     '"https://investment.example.test/zh-CN/workbench/back?ref={ref}"},'
-    ' "knowledge": {}}'
+    ' "knowbase": {}}'
 )
 TARGETS = (
-    '{"info": {"web_base_url": "https://info.example.test/"},'
-    ' "knowledge": {"web_base_url": "https://knowledge.example.test"}}'
+    '{"knowfeed": {"web_base_url": "https://knowfeed.example.test/"},'
+    ' "knowbase": {"web_base_url": "https://knowbase.example.test"}}'
 )
 
 
@@ -43,7 +43,7 @@ TARGETS = (
             "01a0ed51-828f-7b13",
             Origin("investment", "01a0ed51-828f-7b13"),
         ),
-        ("knowledge", None, Origin("knowledge", None)),
+        ("knowbase", None, Origin("knowbase", None)),
         # 引用不合规则：应用还认，引用当作没带
         ("investment", "bad ref", Origin("investment", None)),
         ("investment", "a/b", Origin("investment", None)),
@@ -94,11 +94,11 @@ def test_the_way_back_comes_from_configuration_only():
         == "https://investment.example.test/zh-CN/workbench/back?ref="
     )
     # 没登记回跳地址的应用：没有「回到原处」
-    assert return_url(sources["knowledge"], Origin("knowledge", "x")) is None
+    assert return_url(sources["knowbase"], Origin("knowbase", "x")) is None
     assert return_url(None, Origin("investment", "x")) is None
     assert return_url(sources["investment"], None) is None
     # 张冠李戴：不给
-    assert return_url(sources["investment"], Origin("knowledge", "x")) is None
+    assert return_url(sources["investment"], Origin("knowbase", "x")) is None
 
 
 # ---------------- 配置 ----------------
@@ -108,11 +108,11 @@ def test_the_two_settings():
             "investment",
             "https://investment.example.test/zh-CN/workbench/back?ref={ref}",
         ),
-        "knowledge": Source("knowledge"),
+        "knowbase": Source("knowbase"),
     }
     assert parse_targets(TARGETS) == {
-        "info": Target("info", "https://info.example.test"),
-        "knowledge": Target("knowledge", "https://knowledge.example.test"),
+        "knowfeed": Target("knowfeed", "https://knowfeed.example.test"),
+        "knowbase": Target("knowbase", "https://knowbase.example.test"),
     }
     assert parse_sources("{}") == {} and parse_targets("") == {}
     blank = Settings(_env_file=None)
@@ -122,9 +122,9 @@ def test_the_two_settings():
         cross_app_sources_json=SOURCES,
         cross_app_targets_json=TARGETS,
     )
-    assert set(set_up.cross_app_sources()) == {"investment", "knowledge"}
+    assert set(set_up.cross_app_sources()) == {"investment", "knowbase"}
     assert (
-        set_up.cross_app_targets()["info"].web_base_url == "https://info.example.test"
+        set_up.cross_app_targets()["knowfeed"].web_base_url == "https://knowfeed.example.test"
     )
 
 
@@ -161,13 +161,13 @@ def test_a_wrong_list_of_sources_stops_the_start(bad):
     "bad",
     [
         "not json",
-        '{"info": {}}',
-        '{"info": {"web_base_url": ""}}',
-        '{"info": {"web_base_url": "info.example.test"}}',
-        '{"info": {"web_base_url": "https://info.example.test/?a=1"}}',
-        '{"info": {"web_base_url": "https://u:p@info.example.test"}}',
-        '{"info": {"web_base_url": "https://info.example.test", "token": "x"}}',
-        '{"INFO": {"web_base_url": "https://info.example.test"}}',
+        '{"knowfeed": {}}',
+        '{"knowfeed": {"web_base_url": ""}}',
+        '{"knowfeed": {"web_base_url": "knowfeed.example.test"}}',
+        '{"knowfeed": {"web_base_url": "https://knowfeed.example.test/?a=1"}}',
+        '{"knowfeed": {"web_base_url": "https://u:p@knowfeed.example.test"}}',
+        '{"knowfeed": {"web_base_url": "https://knowfeed.example.test", "token": "x"}}',
+        '{"INFO": {"web_base_url": "https://knowfeed.example.test"}}',
     ],
 )
 def test_a_wrong_list_of_targets_stops_the_start(bad):
@@ -211,8 +211,8 @@ async def test_where_this_application_takes_people(signed_in):
     assert got.json() == {
         "app": "tpl",
         "targets": {
-            "info": {"web_base_url": "https://info.example.test"},
-            "knowledge": {"web_base_url": "https://knowledge.example.test"},
+            "knowfeed": {"web_base_url": "https://knowfeed.example.test"},
+            "knowbase": {"web_base_url": "https://knowbase.example.test"},
         },
     }
 
@@ -232,8 +232,8 @@ async def test_where_this_application_takes_people(signed_in):
             },
         ),
         (
-            {"from": "knowledge", "ref": "x"},
-            {"app": "knowledge", "ref": "x", "return_url": None},
+            {"from": "knowbase", "ref": "x"},
+            {"app": "knowbase", "ref": "x", "return_url": None},
         ),
         (
             {"from": "investment", "ref": "bad ref"},
