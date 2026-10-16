@@ -2,23 +2,23 @@
   "apiVersion": "storage.sunmoonai.com/v1alpha1",
   "kind": "ObjectStorageAccess",
   "metadata": {
-    "name": "tpl-backend"
+    "name": "knowlab-backend"
   },
   "spec": {
     "provider": "platform-s3",
     "environment": "development",
-    "app": "tpl-app",
-    "backend": "tpl-backend",
+    "app": "knowlab-app",
+    "backend": "knowlab-backend",
     "namespace": "app-platform-dev",
-    "secretName": "tpl-backend-s3",
-    "configMapName": "tpl-backend-s3",
+    "secretName": "knowlab-backend-s3",
+    "configMapName": "knowlab-backend-s3",
     "region": "us-east-1",
     "forcePathStyle": true,
     "useTLS": false,
     "deletionPolicy": "Retain",
     "buckets": [
       {
-        "name": "development-tpl-backend-assets",
+        "name": "development-knowlab-backend-assets",
         "permissions": ["read", "write", "delete", "list"],
         "versioning": true,
         "objectLock": false
