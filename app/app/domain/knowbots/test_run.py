@@ -7,6 +7,10 @@ knowlab 管理端后端把一份草稿清单、验收用例、数据绑定、预
   同一个 run_id 重复提交是幂等的：内容相同回原状态，不同则 409。
 - `GET /api/internal/v1/knowbot-runtime/test-runs/{run_id}`：查状态与结果，
   knowlab 轮询。
+- `POST /api/internal/v1/knowbot-runtime/test-runs/{run_id}/answers`：回答待回答的
+  问题。有人值守（所有者 2026-10-16）：跑到要人决定的地方，状态是 waiting，结果里
+  列出问题；knowlab 这边运营答跑法、用户答投资判断，答完运行方接着跑。同一个问题
+  重复回答：内容相同回原状态，不同则 409。等人的时间不计入超时，最长 max_wait_seconds。
 
 结果只有每条用例通过与否、每步哪条验收没过、用户给的期望是否满足、花了多少；不含任何
 分析内容（测试产出不给用户，`C-L5`、0026「不替用户跑出结果」）。契约文件由 schema.py
@@ -72,7 +76,9 @@ class RunRequestV1(Strict):
     manifest: dict[str, Any]  # knowbot-manifest/v1 草稿；运行方核 runtime 是自己
     cases: tuple[RunCase, ...] = Field(min_length=1, max_length=50)
     budget: Budget
-    timeout_seconds: int = Field(ge=60, le=86400)
+    timeout_seconds: int = Field(ge=60, le=86400)  # 不含等人回答的时间
+    # 一个问题最多等多久；过了没人答，那条用例记 needs_human（所有者定 3 天）
+    max_wait_seconds: int = Field(default=259200, ge=60, le=604800)
 
     @model_validator(mode="after")
     def _unique_cases(self) -> RunRequestV1:
@@ -102,8 +108,35 @@ class Cost(Strict):
     currency: Literal["CNY"] = "CNY"
 
 
+class Option(Strict):
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=200)
+
+
+class PendingQuestion(Strict):
+    """跑到要人决定的地方。tool_approval：能不能做这件事（运营答）；question：Codex
+    反问；ask_before：开步前的提问（key 是清单里提问的 id，答案可记回用例）。"""
+
+    question_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+    case_id: str = Field(pattern=CASE_ID)
+    step_id: str | None = Field(default=None, max_length=128)
+    kind: Literal["tool_approval", "question", "ask_before"]
+    key: str | None = Field(default=None, max_length=64)
+    text: str = Field(min_length=1, max_length=4000)
+    options: tuple[Option, ...] = Field(default=(), max_length=20)
+    allow_free_text: bool = True
+    asked_at: str = Field(min_length=1, max_length=40)
+
+
 RunStatus = Literal[
-    "accepted", "running", "passed", "failed", "error", "timeout", "cancelled"
+    "accepted",
+    "running",
+    "waiting",
+    "passed",
+    "failed",
+    "error",
+    "timeout",
+    "cancelled",
 ]
 FINAL_STATUSES = frozenset({"passed", "failed", "error", "timeout", "cancelled"})
 
@@ -116,6 +149,14 @@ class RunResultV1(Strict):
     cost: Cost | None = None
     started_at: str | None = None
     finished_at: str | None = None
+    questions: tuple[PendingQuestion, ...] = Field(default=(), max_length=50)
+    waited_seconds: int = Field(default=0, ge=0)  # 到现在一共等了人多久
+
+    @model_validator(mode="after")
+    def _waiting_means_questions(self) -> RunResultV1:
+        if (self.status == "waiting") != bool(self.questions):
+            raise ValueError("waiting has questions and only waiting has questions")
+        return self
 
     @model_validator(mode="after")
     def _passed_means_every_case_passed(self) -> RunResultV1:
@@ -128,3 +169,25 @@ class RunResultV1(Strict):
     @property
     def final(self) -> bool:
         return self.status in FINAL_STATUSES
+
+
+class Answer(Strict):
+    """回答一个问题：tool_approval 给 decision；别的给选项或自己写的话。"""
+
+    question_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+    decision: Literal["approve", "deny"] | None = None
+    option_id: str | None = Field(default=None, max_length=64)
+    text: str | None = Field(default=None, min_length=1, max_length=4000)
+    answered_by: Literal["operator", "user"]
+
+    @model_validator(mode="after")
+    def _one_kind_of_answer(self) -> Answer:
+        given = [v for v in (self.decision, self.option_id, self.text) if v is not None]
+        if len(given) != 1 and not (self.option_id and self.text):
+            raise ValueError("give a decision, an option, or text")
+        return self
+
+
+class AnswersV1(Strict):
+    contract: Literal["knowbot-test-run/v1"]
+    answers: tuple[Answer, ...] = Field(min_length=1, max_length=50)

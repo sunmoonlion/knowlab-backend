@@ -11,8 +11,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.application.errors.exceptions import ServiceUnavailableError
-from app.application.ports.knowbots import DatasetRecord, DraftRecord, RequestRecord
-from app.domain.knowbots.test_run import CONTRACT, RunRequestV1, RunResultV1
+from app.application.ports.knowbots import (
+    DatasetRecord,
+    DraftRecord,
+    QuestionRecord,
+    RequestRecord,
+)
+from app.domain.knowbots.test_run import (
+    CONTRACT,
+    AnswersV1,
+    RunRequestV1,
+    RunResultV1,
+)
 
 OWNER = "user-123"  # 与 tests/test_auth_routes_security.session 的用户一致
 
@@ -99,6 +109,7 @@ class MemoryKnowlab:
         self.requests: dict[uuid.UUID, RequestRecord] = {}
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
         self.datasets: dict[uuid.UUID, DatasetRecord] = {}
+        self.questions: dict[uuid.UUID, QuestionRecord] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -109,12 +120,17 @@ class MemoryKnowlab:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
-        snapshot = (dict(self.requests), dict(self.drafts), dict(self.datasets))
+        snapshot = (
+            dict(self.requests),
+            dict(self.drafts),
+            dict(self.datasets),
+            dict(self.questions),
+        )
         try:
             yield
             self.commits += 1
         except BaseException:
-            self.requests, self.drafts, self.datasets = snapshot
+            self.requests, self.drafts, self.datasets, self.questions = snapshot
             self.rollbacks += 1
             raise
 
@@ -171,6 +187,55 @@ class MemoryKnowlab:
     async def update_draft(self, draft_id: uuid.UUID, **changes: Any) -> None:
         self.drafts[draft_id] = replace(self.drafts[draft_id], **changes)
 
+    async def update_request_cases(
+        self, request_id: uuid.UUID, cases: list[dict[str, Any]]
+    ) -> None:
+        self.requests[request_id] = replace(
+            self.requests[request_id], cases=copy.deepcopy(cases)
+        )
+
+    # ---------- 测试中的问题 ----------
+    async def add_questions(
+        self, draft_id: uuid.UUID, run_id: str, questions: list[dict[str, Any]]
+    ) -> None:
+        seen = {(q.draft_id, q.run_id, q.question_id) for q in self.questions.values()}
+        for q in questions:
+            if (draft_id, run_id, q["question_id"]) in seen:
+                continue
+            record = QuestionRecord(
+                id=uuid.uuid4(),
+                draft_id=draft_id,
+                run_id=run_id,
+                question_id=q["question_id"],
+                case_id=q["case_id"],
+                kind=q["kind"],
+                text=q["text"],
+                options=list(q.get("options") or []),
+                allow_free_text=bool(q.get("allow_free_text", True)),
+                asked_at=q["asked_at"],
+                step_id=q.get("step_id"),
+                key=q.get("key"),
+            )
+            self.questions[record.id] = record
+
+    async def get_question(
+        self, question: uuid.UUID, *, for_update: bool = False
+    ) -> QuestionRecord | None:
+        return self.questions.get(question)
+
+    async def list_questions(
+        self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
+    ) -> Sequence[QuestionRecord]:
+        return [
+            q
+            for q in self.questions.values()
+            if (draft_id is None or q.draft_id == draft_id)
+            and (not open_only or q.answer is None)
+        ]
+
+    async def update_question(self, question: uuid.UUID, **changes: Any) -> None:
+        self.questions[question] = replace(self.questions[question], **changes)
+
     # ---------- 用户的数据 ----------
     async def lock_owner_data(self, owner_subject: str) -> None:
         return None
@@ -213,6 +278,8 @@ class FakeRuntime:
         self.started: list[tuple[str, RunRequestV1]] = []
         self.results: dict[str, RunResultV1] = {}
         self.fail_start = False
+        self.answers: list[tuple[str, AnswersV1]] = []
+        self.fail_answer = False
 
     def registered(self) -> frozenset[str]:
         return self.names
@@ -224,6 +291,14 @@ class FakeRuntime:
         return self.results.get(request.run_id, result(request.run_id, "accepted"))
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1:
+        return self.results.get(run_id, result(run_id, "running"))
+
+    async def answer(
+        self, runtime: str, run_id: str, answers: AnswersV1
+    ) -> RunResultV1:
+        if self.fail_answer:
+            raise ServiceUnavailableError("down", code="investment_unavailable")
+        self.answers.append((run_id, answers))
         return self.results.get(run_id, result(run_id, "running"))
 
 
@@ -257,3 +332,43 @@ class MemoryDataStore:
 
     async def delete(self, *, object_key: str) -> None:
         self.deleted.append(object_key)
+
+
+def waiting(run_id: str) -> RunResultV1:
+    """跑到要人决定的地方：一个审批、一个开步前提问、一个 Codex 反问。"""
+    asked = "2026-10-17T00:00:00Z"
+    return RunResultV1.model_validate(
+        {
+            "contract": CONTRACT,
+            "run_id": run_id,
+            "status": "waiting",
+            "waited_seconds": 600,
+            "questions": [
+                {
+                    "question_id": "q-approve",
+                    "case_id": "c1",
+                    "step_id": "s1",
+                    "kind": "tool_approval",
+                    "text": "执行命令 python calc.py？",
+                    "asked_at": asked,
+                },
+                {
+                    "question_id": "q-scope",
+                    "case_id": "c1",
+                    "step_id": "s1",
+                    "kind": "ask_before",
+                    "key": "period",
+                    "text": "看哪几年？",
+                    "options": [{"id": "3y", "label": "近三年"}],
+                    "asked_at": asked,
+                },
+                {
+                    "question_id": "q-judge",
+                    "case_id": "c1",
+                    "kind": "question",
+                    "text": "毛利率按哪个口径？",
+                    "asked_at": asked,
+                },
+            ],
+        }
+    )

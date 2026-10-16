@@ -13,10 +13,16 @@ from typing import Any
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.ports.knowbots import DatasetRecord, DraftRecord, RequestRecord
+from app.application.ports.knowbots import (
+    DatasetRecord,
+    DraftRecord,
+    QuestionRecord,
+    RequestRecord,
+)
 from app.infrastructure.models.knowbots import (
     KnowbotDataset,
     KnowbotDraft,
+    KnowbotQuestion,
     KnowbotRequest,
 )
 
@@ -82,6 +88,34 @@ def _dataset(row: KnowbotDataset) -> DatasetRecord:
         version_id=row.version_id,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+    )
+
+
+QUESTION_FIELDS = frozenset(
+    {"route", "answer", "answered_by", "answered_at", "sent_at", "last_error"}
+)
+
+
+def _question(row: KnowbotQuestion) -> QuestionRecord:
+    return QuestionRecord(
+        id=row.id,
+        draft_id=row.draft_id,
+        run_id=row.run_id,
+        question_id=row.question_id,
+        case_id=row.case_id,
+        kind=row.kind,
+        text=row.text,
+        options=row.options,
+        allow_free_text=row.allow_free_text,
+        asked_at=row.asked_at,
+        step_id=row.step_id,
+        key=row.key,
+        route=row.route,
+        answer=row.answer,
+        answered_by=row.answered_by,
+        answered_at=row.answered_at,
+        sent_at=row.sent_at,
+        last_error=row.last_error,
     )
 
 
@@ -281,3 +315,74 @@ class SqlKnowlabRepository:
             .limit(1)
         )
         return found.first() is not None
+
+    async def update_request_cases(
+        self, request_id: uuid.UUID, cases: list[dict[str, Any]]
+    ) -> None:
+        await self.session.execute(
+            update(KnowbotRequest)
+            .where(KnowbotRequest.id == request_id)
+            .values(cases=cases)
+        )
+
+    # ---------- 测试中的问题 ----------
+    async def add_questions(
+        self, draft_id: uuid.UUID, run_id: str, questions: list[dict[str, Any]]
+    ) -> None:
+        from sqlalchemy.dialects.postgresql import insert
+
+        for q in questions:
+            await self.session.execute(
+                insert(KnowbotQuestion)
+                .values(
+                    id=uuid.uuid4(),
+                    draft_id=draft_id,
+                    run_id=run_id,
+                    question_id=q["question_id"],
+                    case_id=q["case_id"],
+                    step_id=q.get("step_id"),
+                    kind=q["kind"],
+                    key=q.get("key"),
+                    text=q["text"],
+                    options=list(q.get("options") or []),
+                    allow_free_text=bool(q.get("allow_free_text", True)),
+                    asked_at=q["asked_at"],
+                )
+                .on_conflict_do_nothing(constraint="uq_knowbot_question_once")
+            )
+
+    async def get_question(
+        self, question: uuid.UUID, *, for_update: bool = False
+    ) -> QuestionRecord | None:
+        query = select(KnowbotQuestion).where(KnowbotQuestion.id == question)
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _question(row)
+
+    async def list_questions(
+        self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
+    ) -> Sequence[QuestionRecord]:
+        query = select(KnowbotQuestion).order_by(
+            KnowbotQuestion.created_at, KnowbotQuestion.question_id
+        )
+        if draft_id is not None:
+            query = query.where(KnowbotQuestion.draft_id == draft_id)
+        if open_only:
+            query = query.where(KnowbotQuestion.answer.is_(None))
+        rows = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_question(r) for r in rows]
+
+    async def update_question(self, question: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - QUESTION_FIELDS
+        if unknown:
+            raise ValueError(f"unknown question fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotQuestion)
+            .where(KnowbotQuestion.id == question)
+            .values(**changes)
+        )

@@ -7,6 +7,7 @@ import pytest
 
 import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_data import KnowbotDataService
+from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.interfaces.endpoints import knowbot_routes
 from app.main import app
@@ -18,6 +19,7 @@ from tests.knowbot_fakes import (
     manifest,
     request_body,
     result,
+    waiting,
 )
 from tests.test_auth_routes_security import FakeAuthService, session
 
@@ -45,6 +47,8 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[knowbot_routes.service] = lambda: svc
     data = KnowbotDataService(repo, MemoryDataStore())
     app.dependency_overrides[knowbot_routes.data_service] = lambda: data
+    asks = KnowbotQuestionService(repo, runtime)
+    app.dependency_overrides[knowbot_routes.question_service] = lambda: asks
     yield svc, repo, runtime, knowmart
     app.dependency_overrides.clear()
 
@@ -206,3 +210,55 @@ async def test_my_data_upload_list_delete_and_admin_sees_metadata_only(wired) ->
         assert (await c.delete(url)).status_code == 403
         assert (await c.delete(url, headers=WEB)).status_code == 204
         assert (await c.delete(url, headers=WEB)).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_questions_through_the_api(wired) -> None:
+    svc, repo, runtime, _ = wired
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+
+    request = await svc.submit(
+        "user-123", KnowbotRequestIn.model_validate(request_body())
+    )
+    draft = await svc.add_draft(str(request.id), manifest())
+    await svc.review_rules(str(draft.id), "admin-1")
+    run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    runtime.results[run.run_id] = waiting(run.run_id)
+    await svc.refresh(str(draft.id))
+    async with client() as c:
+        c.cookies.set(ADMIN_SID, "admin")
+        listed = (await c.get("/api/admin/v1/knowbot-questions")).json()["questions"]
+        ids = {q["kind"]: q["question_id"] for q in listed}
+        assert set(ids) == {"tool_approval", "ask_before", "question"}
+        assert all(q["route"] is None for q in listed)
+        base = "/api/admin/v1/knowbot-questions"
+        assert (await c.post(f"{base}/{ids['question']}/to-user")).status_code == 403
+        moved = await c.post(f"{base}/{ids['question']}/to-user", headers=ADMIN)
+        assert moved.status_code == 204
+        approve = await c.post(
+            f"{base}/{ids['tool_approval']}/answer",
+            json={"decision": "approve"},
+            headers=ADMIN,
+        )
+        assert approve.status_code == 200 and approve.json()["sent"] is True
+        refused = await c.post(
+            f"{base}/{ids['question']}/answer", json={"text": "我替他答"}, headers=ADMIN
+        )
+        assert refused.status_code == 409
+
+        c.cookies.set(WEB_SID, "member")
+        mine = (await c.get("/api/web/v1/knowbot-questions")).json()["questions"]
+        assert [q["kind"] for q in mine] == ["question"]
+        assert "owner_subject" not in mine[0] and "route" not in mine[0]
+        url = f"/api/web/v1/knowbot-questions/{ids['question']}/answer"
+        assert (await c.post(url, json={"text": "按营业收入"})).status_code == 403
+        answered = await c.post(url, json={"text": "按营业收入"}, headers=WEB)
+        assert answered.status_code == 200 and answered.json()["sent"] is True
+
+        detail = (await c.get(f"/api/admin/v1/knowbot-requests/{request.id}")).json()[
+            "answered"
+        ]
+        assert {(a["kind"], a["answered_by"]) for a in detail} == {
+            ("tool_approval", "operator"),
+            ("question", "user"),
+        }

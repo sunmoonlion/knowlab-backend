@@ -18,7 +18,7 @@ from app.application.errors.exceptions import (
     BadRequestError,
     ServiceUnavailableError,
 )
-from app.domain.knowbots.test_run import RunRequestV1, RunResultV1
+from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
 from app.infrastructure.external.service_client import ServiceClient, service_relation
 
 RUNTIME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -82,6 +82,21 @@ class RuntimeTestClients:
             "GET", f"{TEST_RUNS}/{quote(run_id, safe='')}"
         )
         return _result(body)
+
+    async def answer(
+        self, runtime: str, run_id: str, answers: AnswersV1
+    ) -> RunResultV1:
+        _, body = await self._client(runtime).request(
+            "POST",
+            f"{TEST_RUNS}/{quote(run_id, safe='')}/answers",
+            json=answers.model_dump(mode="json", exclude_none=True),
+        )
+        result = _result(body)
+        if result.run_id != run_id:
+            raise BadGatewayError(
+                "The runtime answered another run", code="run_mismatch"
+            )
+        return result
 
 
 class KnowmartDeliveryClient:

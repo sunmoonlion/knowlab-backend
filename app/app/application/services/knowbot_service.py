@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -39,6 +39,8 @@ from app.domain.knowbots.test_run import CONTRACT, RunRequestV1, RunResultV1
 
 OWNER = re.compile(r"^[A-Za-z0-9._:@-]{1,512}$")
 STUCK_GRACE = timedelta(minutes=5)
+# 一个问题最多等多久（所有者定 3 天）；过了运行方把那条用例记 needs_human
+MAX_WAIT_SECONDS = 3 * 24 * 3600
 
 
 def _conflict(message: str, code: str) -> ConcurrencyConflictError:
@@ -62,11 +64,14 @@ class KnowbotCreationService:
         knowmart: KnowmartClient,
         *,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        on_refresh: Callable[[DraftRecord, RequestRecord], Awaitable[None]]
+        | None = None,
     ) -> None:
         self.repo = repo
         self.runtimes = runtimes
         self.knowmart = knowmart
         self.now = now
+        self.on_refresh = on_refresh
 
     # ---------- 用户：提交与查看 ----------
     async def submit(self, owner_subject: str, body: KnowbotRequestIn) -> RequestRecord:
@@ -198,6 +203,7 @@ class KnowbotCreationService:
                     "cases": request.cases,
                     "budget": {"limit": budget_limit},
                     "timeout_seconds": timeout_seconds,
+                    "max_wait_seconds": MAX_WAIT_SECONDS,
                 }
             )
             await self._move(
@@ -232,11 +238,15 @@ class KnowbotCreationService:
         if draft.status == "testing" and draft.run_id:
             request = await self.repo.get_request(draft.request_id)
             assert request is not None
+            if self.on_refresh is not None:
+                await self.on_refresh(draft, request)  # 先补送答过但没送到的答案
             result = await self.runtimes.status(request.runtime, draft.run_id)
             if result.run_id != draft.run_id:
                 raise _conflict("The runtime answered another run", "run_mismatch")
             if result.final:
                 await self._finish(draft.id, result)
+            else:
+                await self._progress(draft.id, result)
         draft = await self.repo.get_draft(draft.id)
         assert draft is not None
         if draft.status == "passed":
@@ -247,6 +257,22 @@ class KnowbotCreationService:
             draft = await self.repo.get_draft(draft.id)
             assert draft is not None
         return draft
+
+    async def _progress(self, draft_id: uuid.UUID, result: RunResultV1) -> None:
+        """还没结论：记下进度；在等人回答的，把问题记进待回答（有人值守）。"""
+        async with self.repo.transaction():
+            draft = await self._locked(draft_id)
+            if draft.status != "testing" or draft.run_id != result.run_id:
+                return
+            await self.repo.update_draft(
+                draft.id, report=result.model_dump(mode="json")
+            )
+            if result.questions:
+                await self.repo.add_questions(
+                    draft.id,
+                    result.run_id,
+                    [q.model_dump(mode="json") for q in result.questions],
+                )
 
     async def _finish(self, draft_id: uuid.UUID, result: RunResultV1) -> None:
         async with self.repo.transaction():
@@ -296,9 +322,14 @@ class KnowbotCreationService:
             draft = await self._locked(draft_id)
             if draft.status != "testing" or draft.run_started_at is None:
                 raise _conflict("Only a testing draft is reset", "draft_state")
+            # 等人回答的时间不计入超时：加上已经等的；正在等的，再给足最长等待
+            report = draft.report or {}
+            waited = int(report.get("waited_seconds") or 0)
+            if report.get("status") == "waiting":
+                waited += MAX_WAIT_SECONDS
             deadline = (
                 draft.run_started_at
-                + timedelta(seconds=draft.run_timeout_seconds or 0)
+                + timedelta(seconds=(draft.run_timeout_seconds or 0) + waited)
                 + STUCK_GRACE
             )
             if self.now() < deadline:

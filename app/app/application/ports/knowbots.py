@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
-from app.domain.knowbots.test_run import RunRequestV1, RunResultV1
+from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,33 @@ class DatasetRecord:
     deleted_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class QuestionRecord:
+    """测试中待人决定的一个问题（有人值守）。
+
+    route：None 在运营那里；"user" 已转给用户。
+    """
+
+    id: uuid.UUID
+    draft_id: uuid.UUID
+    run_id: str
+    question_id: str
+    case_id: str
+    kind: str
+    text: str = field(repr=False)
+    options: list[dict[str, Any]] = field(default_factory=list)
+    allow_free_text: bool = True
+    asked_at: str = ""
+    step_id: str | None = None
+    key: str | None = None
+    route: str | None = None
+    answer: dict[str, Any] | None = None
+    answered_by: str | None = None
+    answered_at: datetime | None = None
+    sent_at: datetime | None = None
+    last_error: str | None = None
+
+
 class KnowlabRepository(Protocol):
     def transaction(self) -> AbstractAsyncContextManager[None]: ...
 
@@ -104,6 +131,31 @@ class KnowlabRepository(Protocol):
         """串行化同一个分身的建草稿（版本号、修订号不重）。"""
         ...
 
+    async def update_request_cases(
+        self, request_id: uuid.UUID, cases: list[dict[str, Any]]
+    ) -> None:
+        """答过的开步前提问记回用例的预设答案。"""
+        ...
+
+    # ---------- 测试中的问题 ----------
+    async def add_questions(
+        self, draft_id: uuid.UUID, run_id: str, questions: list[dict[str, Any]]
+    ) -> None:
+        """同一次测试的同一个问题只记一次。"""
+        ...
+
+    async def get_question(
+        self, question: uuid.UUID, *, for_update: bool = False
+    ) -> QuestionRecord | None: ...
+
+    async def list_questions(
+        self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
+    ) -> Sequence[QuestionRecord]:
+        """open_only：还没回答的。"""
+        ...
+
+    async def update_question(self, question: uuid.UUID, **changes: Any) -> None: ...
+
     # ---------- 用户的数据 ----------
     async def lock_owner_data(self, owner_subject: str) -> None:
         """串行化同一个人的上传与删除（配额不超）。"""
@@ -137,6 +189,10 @@ class RuntimeTestClient(Protocol):
     async def start(self, runtime: str, request: RunRequestV1) -> RunResultV1: ...
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1: ...
+
+    async def answer(
+        self, runtime: str, run_id: str, answers: AnswersV1
+    ) -> RunResultV1: ...
 
 
 class DataStore(Protocol):

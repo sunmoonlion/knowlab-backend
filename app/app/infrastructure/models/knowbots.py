@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -87,4 +88,52 @@ class KnowbotDataset(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_knowbot_dataset_owner_subject", "owner_subject"),
         CheckConstraint("size_bytes > 0", name="ck_knowbot_dataset_size"),
+    )
+
+
+class KnowbotQuestion(TimestampMixin, Base):
+    """测试中待人决定的问题（有人值守，SDD 0027 §3.4）。"""
+
+    __tablename__ = "knowbot_question"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_draft.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    run_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    question_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    case_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    step_id: Mapped[str | None] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    key: Mapped[str | None] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    allow_free_text: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    asked_at: Mapped[str] = mapped_column(String(40), nullable=False)
+    route: Mapped[str | None] = mapped_column(String(16))
+    answer: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    answered_by: Mapped[str | None] = mapped_column(String(16))
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "draft_id", "run_id", "question_id", name="uq_knowbot_question_once"
+        ),
+        CheckConstraint(
+            "kind IN ('tool_approval', 'question', 'ask_before')",
+            name="ck_knowbot_question_kind",
+        ),
+        CheckConstraint(
+            "route IS NULL OR (route = 'user' AND kind <> 'tool_approval')",
+            name="ck_knowbot_question_route",
+        ),
+        CheckConstraint(
+            "answered_by IS NULL OR answered_by IN ('operator', 'user')",
+            name="ck_knowbot_question_answered_by",
+        ),
+        Index("ix_knowbot_question_draft", "draft_id"),
     )

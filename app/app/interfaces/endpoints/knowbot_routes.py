@@ -16,11 +16,18 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.ports.knowbots import DatasetRecord, DraftRecord, RequestRecord
+from app.application.ports.knowbots import (
+    DatasetRecord,
+    DraftRecord,
+    QuestionRecord,
+    RequestRecord,
+)
 from app.application.services.knowbot_data import KnowbotDataService
+from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.bootstrap.knowbots import (
     knowbot_data_service,
+    knowbot_question_service,
     knowbot_service,
     runtime_clients,
 )
@@ -52,7 +59,14 @@ def data_service(
     return knowbot_data_service(session)
 
 
+def question_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotQuestionService:
+    return knowbot_question_service(session)
+
+
 Service = Annotated[KnowbotCreationService, Depends(service)]
+Questions = Annotated[KnowbotQuestionService, Depends(question_service)]
 DataService = Annotated[KnowbotDataService, Depends(data_service)]
 User = Annotated[Principal, Depends(get_web_current_user)]
 Admin = Annotated[Principal, Depends(require_knowlab_admin)]
@@ -121,6 +135,57 @@ def _dataset_view(found: DatasetRecord) -> dict[str, Any]:
         "sha256": found.sha256,
         "created_at": _iso(found.created_at),
     }
+
+
+def _question_view(
+    q: QuestionRecord, draft: DraftRecord, request: RequestRecord, *, admin: bool
+) -> dict[str, Any]:
+    view: dict[str, Any] = {
+        "question_id": str(q.id),
+        "kind": q.kind,
+        "text": q.text,
+        "options": q.options,
+        "allow_free_text": q.allow_free_text,
+        "case_id": q.case_id,
+        "step_id": q.step_id,
+        "asked_at": q.asked_at,
+        "title": request.title,
+        "version": draft.version,
+        "revision": draft.revision,
+    }
+    if admin:
+        view |= {
+            "route": q.route,
+            "owner_subject": request.owner_subject,
+            "draft_id": str(draft.id),
+            "last_error": q.last_error,
+        }
+    return view
+
+
+def _answered_view(q: QuestionRecord) -> dict[str, Any]:
+    return {
+        "question_id": str(q.id),
+        "kind": q.kind,
+        "case_id": q.case_id,
+        "key": q.key,
+        "text": q.text,
+        "answer": q.answer,
+        "answered_by": q.answered_by,
+        "answered_at": _iso(q.answered_at),
+    }
+
+
+class AnswerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str | None = Field(default=None, pattern=r"^(approve|deny)$")
+    option_id: str | None = Field(default=None, max_length=64)
+    text: str | None = Field(default=None, max_length=4000)
+
+    def given(self) -> AnswerIn:
+        return AnswerIn(
+            decision=self.decision, option_id=self.option_id, text=self.text
+        )
 
 
 def _request_view(
@@ -193,6 +258,23 @@ async def delete_dataset(
     return Response(status_code=204, headers=NO_STORE)
 
 
+@web_router.get("/knowbot-questions")
+async def my_questions(principal: User, questions: Questions) -> JSONResponse:
+    """测试中转给我回答的问题（投资判断只能我自己答，C-L1）。"""
+    items = await questions.user_queue(principal.subject)
+    return _ok(
+        {"questions": [_question_view(q, d, r, admin=False) for q, d, r in items]}
+    )
+
+
+@web_router.post("/knowbot-questions/{question_id}/answer")
+async def answer_my_question(
+    principal: User, body: AnswerBody, questions: Questions, question_id: ItemId
+) -> JSONResponse:
+    found = await questions.answer_as_user(principal.subject, question_id, body.given())
+    return _ok({"question_id": str(found.id), "sent": found.sent_at is not None})
+
+
 # ---------- 管理端（我们的运营） ----------
 class DraftIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -213,7 +295,11 @@ async def all_requests(_: Admin, svc: Service) -> JSONResponse:
 
 @admin_router.get("/knowbot-requests/{request_id}")
 async def request_detail(
-    _: Admin, svc: Service, data: DataService, request_id: ItemId
+    _: Admin,
+    svc: Service,
+    data: DataService,
+    questions: Questions,
+    request_id: ItemId,
 ) -> JSONResponse:
     """建草稿要看的：用户的方法原文（六问或 skill）、验收用例、他的数据（只有元数据，
     清单的 data_bindings 照这里写：数据 id + 版本 + sha256）。"""
@@ -228,6 +314,10 @@ async def request_detail(
             "idea": request.idea,
             "cases": request.cases,
             "datasets": [_dataset_view(d) for d in found],
+            # 测试中答过的：用户确认的判断写进下一版草稿的规则出处（user_confirmed）
+            "answered": [
+                _answered_view(q) for q in await questions.answered(request.id)
+            ],
         }
     )
 
@@ -239,6 +329,32 @@ async def add_draft(
     """过渡做法：管理员上传清单建草稿（等「后端自动生成」定了再接）。"""
     draft = await svc.add_draft(request_id, body.manifest)
     return _ok({"draft_id": str(draft.id), "version": draft.version}, status_code=201)
+
+
+@admin_router.get("/knowbot-questions")
+async def open_questions(_: Admin, questions: Questions) -> JSONResponse:
+    """测试中还没回答的问题：在我们这里的，和转给用户、用户还没答的。"""
+    items = await questions.operator_queue()
+    return _ok(
+        {"questions": [_question_view(q, d, r, admin=True) for q, d, r in items]}
+    )
+
+
+@admin_router.post("/knowbot-questions/{question_id}/answer")
+async def answer_question(
+    _: Admin, body: AnswerBody, questions: Questions, question_id: ItemId
+) -> JSONResponse:
+    """工具审批与跑法层面的问题由我们答；投资判断要转给用户（C-L1）。"""
+    found = await questions.answer_as_operator(question_id, body.given())
+    return _ok({"question_id": str(found.id), "sent": found.sent_at is not None})
+
+
+@admin_router.post("/knowbot-questions/{question_id}/to-user", status_code=204)
+async def question_to_user(
+    _: Admin, questions: Questions, question_id: ItemId
+) -> Response:
+    await questions.to_user(question_id)
+    return Response(status_code=204, headers=NO_STORE)
 
 
 @admin_router.get("/knowbot-drafts")

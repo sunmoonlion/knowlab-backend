@@ -7,6 +7,7 @@ from functools import lru_cache
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.knowbot_data import KnowbotDataService
+from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.infrastructure.external.knowbot_clients import (
     KnowmartDeliveryClient,
@@ -26,9 +27,15 @@ def knowmart_client() -> KnowmartDeliveryClient:
     return KnowmartDeliveryClient()
 
 
+def knowbot_question_service(session: AsyncSession) -> KnowbotQuestionService:
+    return KnowbotQuestionService(SqlKnowlabRepository(session), runtime_clients())
+
+
 def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
+    repo = SqlKnowlabRepository(session)
+    questions = KnowbotQuestionService(repo, runtime_clients())
     return KnowbotCreationService(
-        SqlKnowlabRepository(session), runtime_clients(), knowmart_client()
+        repo, runtime_clients(), knowmart_client(), on_refresh=questions.resend
     )
 
 

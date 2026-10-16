@@ -34,6 +34,7 @@ from tests.knowbot_fakes import (
     manifest,
     request_body,
     result,
+    waiting,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -173,3 +174,49 @@ async def test_data_is_per_owner_and_bound_data_stays(db) -> None:
         data = KnowbotDataService(SqlKnowlabRepository(session), store)
         with pytest.raises(ConcurrencyConflictError):
             await data.delete(OWNER, str(mine.id))  # 在做的草稿绑着（JSONB 包含查询）
+
+
+@pytest.mark.asyncio
+async def test_questions_are_stored_once_and_routes_respect_their_kind(db) -> None:
+    from app.application.services.knowbot_questions import (
+        AnswerIn,
+        KnowbotQuestionService,
+    )
+
+    async with db() as session:
+        svc = service(session)
+        request = await svc.submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+        draft = await svc.add_draft(str(request.id), manifest())
+        await svc.review_rules(str(draft.id), "admin-1")
+        run = await svc.start_test(
+            str(draft.id), budget_limit="20", timeout_seconds=600
+        )
+    RUNTIME.results[run.run_id] = waiting(run.run_id)
+    for _ in range(2):
+        async with db() as session:
+            await service(session).refresh(str(draft.id))
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        found = await repo.list_questions(draft_id=draft.id, open_only=True)
+        assert sorted(q.question_id for q in found) == [
+            "q-approve",
+            "q-judge",
+            "q-scope",
+        ]
+        scope = next(q for q in found if q.key == "period")
+        approve = next(q for q in found if q.kind == "tool_approval")
+        asks = KnowbotQuestionService(repo, RUNTIME)
+        await asks.answer_as_operator(str(scope.id), AnswerIn(option_id="3y"))
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        stored = await repo.get_request(request.id)
+        assert stored and stored.cases[0]["input"]["answers"] == {"period": "3y"}
+    async with db() as session:
+        with pytest.raises(DBAPIError):
+            async with session.begin():
+                await session.execute(
+                    text("UPDATE knowbot_question SET route = 'user' WHERE id = :q"),
+                    {"q": str(approve.id)},
+                )
