@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.application.errors.exceptions import ServiceUnavailableError
-from app.application.ports.knowbots import DraftRecord, RequestRecord
+from app.application.ports.knowbots import DatasetRecord, DraftRecord, RequestRecord
 from app.domain.knowbots.test_run import CONTRACT, RunRequestV1, RunResultV1
 
 OWNER = "user-123"  # 与 tests/test_auth_routes_security.session 的用户一致
@@ -65,9 +65,7 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
             "version": version,
             "workflow": [{"step_id": "s1", "title": "读财报"}],
         },
-        "data_bindings": [
-            {"dataset_id": "ds-600519", "version": "3", "sha256": "a" * 64}
-        ],
+        "data_bindings": [],
         "rule_sources": [
             {"rule": "毛利率口径", "source": "user_text", "ref": "想法原文第 4 问"}
         ],
@@ -100,6 +98,7 @@ class MemoryKnowlab:
     def __init__(self) -> None:
         self.requests: dict[uuid.UUID, RequestRecord] = {}
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
+        self.datasets: dict[uuid.UUID, DatasetRecord] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -110,12 +109,12 @@ class MemoryKnowlab:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
-        snapshot = (dict(self.requests), dict(self.drafts))
+        snapshot = (dict(self.requests), dict(self.drafts), dict(self.datasets))
         try:
             yield
             self.commits += 1
         except BaseException:
-            self.requests, self.drafts = snapshot
+            self.requests, self.drafts, self.datasets = snapshot
             self.rollbacks += 1
             raise
 
@@ -172,6 +171,39 @@ class MemoryKnowlab:
     async def update_draft(self, draft_id: uuid.UUID, **changes: Any) -> None:
         self.drafts[draft_id] = replace(self.drafts[draft_id], **changes)
 
+    # ---------- 用户的数据 ----------
+    async def lock_owner_data(self, owner_subject: str) -> None:
+        return None
+
+    async def create_dataset(self, record: DatasetRecord) -> DatasetRecord:
+        stored = replace(record, created_at=self._now())
+        self.datasets[record.id] = stored
+        return stored
+
+    async def list_datasets(self, owner_subject: str) -> Sequence[DatasetRecord]:
+        mine = [
+            d
+            for d in self.datasets.values()
+            if d.owner_subject == owner_subject and d.deleted_at is None
+        ]
+        return sorted(mine, key=lambda d: d.created_at or 0, reverse=True)
+
+    async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None:
+        return self.datasets.get(dataset_id)
+
+    async def mark_dataset_deleted(self, dataset_id: uuid.UUID, at: Any) -> None:
+        self.datasets[dataset_id] = replace(self.datasets[dataset_id], deleted_at=at)
+
+    async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
+        for draft in self.drafts.values():
+            request = self.requests[draft.request_id]
+            if request.owner_subject != owner_subject or draft.status == "failed":
+                continue
+            bindings = draft.manifest.get("data_bindings") or []
+            if any(b.get("dataset_id") == str(dataset_id) for b in bindings):
+                return True
+        return False
+
 
 class FakeRuntime:
     """按 run_id 记下请求；start 回 accepted，结果由测试塞进 results。"""
@@ -205,3 +237,23 @@ class FakeKnowmart:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
         self.delivered.append(body)
         return {"knowbot_id": "kb-1", "version": body["manifest"]["version"]}
+
+
+class MemoryDataStore:
+    """假的对象存储：记下放进去的与删掉的。"""
+
+    def __init__(self, enabled: bool = True) -> None:
+        self.enabled = enabled
+        self.objects: dict[str, bytes] = {}
+        self.deleted: list[str] = []
+
+    async def put(
+        self, *, object_key: str, data: bytes, content_type: str
+    ) -> tuple[str, str]:
+        import hashlib
+
+        self.objects[object_key] = data
+        return f"v-{len(self.objects)}", hashlib.sha256(data).hexdigest()
+
+    async def delete(self, *, object_key: str) -> None:
+        self.deleted.append(object_key)

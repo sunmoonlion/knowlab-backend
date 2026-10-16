@@ -21,6 +21,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
@@ -29,6 +30,7 @@ from tests.knowbot_fakes import (
     OWNER,
     FakeKnowmart,
     FakeRuntime,
+    MemoryDataStore,
     manifest,
     request_body,
     result,
@@ -149,3 +151,25 @@ async def test_concurrent_drafts_for_one_request_leave_only_one(db) -> None:
             await session.execute(text("SELECT count(*) FROM knowbot_draft"))
         ).scalar()
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_data_is_per_owner_and_bound_data_stays(db) -> None:
+    store = MemoryDataStore()
+    async with db() as session:
+        data = KnowbotDataService(SqlKnowlabRepository(session), store)
+        mine = await data.upload(OWNER, "年报.pdf", b"%PDF-1.7 a")
+        await data.upload("someone-else", "别人的.pdf", b"%PDF-1.7 b")
+        found, used = await data.mine(OWNER)
+        assert [d.id for d in found] == [mine.id] and used == len(b"%PDF-1.7 a")
+    async with db() as session:
+        svc = service(session)
+        request = await svc.submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+        binding = [{"dataset_id": str(mine.id), "version": "1", "sha256": mine.sha256}]
+        await svc.add_draft(str(request.id), manifest(data_bindings=binding))
+    async with db() as session:
+        data = KnowbotDataService(SqlKnowlabRepository(session), store)
+        with pytest.raises(ConcurrencyConflictError):
+            await data.delete(OWNER, str(mine.id))  # 在做的草稿绑着（JSONB 包含查询）

@@ -43,6 +43,21 @@ class DraftRecord:
     created_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class DatasetRecord:
+    id: uuid.UUID
+    owner_subject: str
+    name: str
+    version: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    object_key: str
+    version_id: str
+    created_at: datetime | None = None
+    deleted_at: datetime | None = None
+
+
 class KnowlabRepository(Protocol):
     def transaction(self) -> AbstractAsyncContextManager[None]: ...
 
@@ -89,6 +104,27 @@ class KnowlabRepository(Protocol):
         """串行化同一个分身的建草稿（版本号、修订号不重）。"""
         ...
 
+    # ---------- 用户的数据 ----------
+    async def lock_owner_data(self, owner_subject: str) -> None:
+        """串行化同一个人的上传与删除（配额不超）。"""
+        ...
+
+    async def create_dataset(self, record: DatasetRecord) -> DatasetRecord: ...
+
+    async def list_datasets(self, owner_subject: str) -> Sequence[DatasetRecord]:
+        """这个人没删的数据，新的在前。"""
+        ...
+
+    async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None: ...
+
+    async def mark_dataset_deleted(
+        self, dataset_id: uuid.UUID, at: datetime
+    ) -> None: ...
+
+    async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
+        """这个人的草稿里，在做的或已交付的有没有绑着这份数据。"""
+        ...
+
 
 class RuntimeTestClient(Protocol):
     """调登记的运行方跑测试（契约 knowbot-test-run/v1）。
@@ -101,6 +137,21 @@ class RuntimeTestClient(Protocol):
     async def start(self, runtime: str, request: RunRequestV1) -> RunResultV1: ...
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1: ...
+
+
+class DataStore(Protocol):
+    """用户数据的对象存储（本应用自己的桶）。没接时 enabled 为 False。"""
+
+    @property
+    def enabled(self) -> bool: ...
+
+    async def put(
+        self, *, object_key: str, data: bytes, content_type: str
+    ) -> tuple[str, str]:
+        """存进去，回（版本号，sha256）。"""
+        ...
+
+    async def delete(self, *, object_key: str) -> None: ...
 
 
 class KnowmartClient(Protocol):

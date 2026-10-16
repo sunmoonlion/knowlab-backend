@@ -124,6 +124,17 @@ class Settings(BaseSettings):
     downstream_verify_ssl: bool = True
     downstream_http_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
 
+    # 用户数据（SDD 0027 决定 4）：只进本应用自己的对象存储桶，部署按 object_storage
+    # 注入 S3_*。没接 S3 时上传一律不收，不回退到容器本地目录。
+    storage_backend: str = "disabled"
+    s3_endpoint: str | None = None
+    s3_region: str = "us-east-1"
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+    s3_bucket: str = "knowlab-originals"
+    s3_force_path_style: bool = True
+    s3_use_tls: bool = True
+
     # Provider-signed workload identity accepted by /api/internal dependencies.
     # The JSON object maps an exact token subject to its maximum allowed scopes.
     service_auth_audience: str = ""

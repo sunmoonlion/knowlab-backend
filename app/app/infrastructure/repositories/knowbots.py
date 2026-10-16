@@ -10,11 +10,15 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.ports.knowbots import DraftRecord, RequestRecord
-from app.infrastructure.models.knowbots import KnowbotDraft, KnowbotRequest
+from app.application.ports.knowbots import DatasetRecord, DraftRecord, RequestRecord
+from app.infrastructure.models.knowbots import (
+    KnowbotDataset,
+    KnowbotDraft,
+    KnowbotRequest,
+)
 
 DRAFT_FIELDS = frozenset(
     {
@@ -62,6 +66,22 @@ def _draft(row: KnowbotDraft) -> DraftRecord:
         delivery=row.delivery,
         last_error=row.last_error,
         created_at=row.created_at,
+    )
+
+
+def _dataset(row: KnowbotDataset) -> DatasetRecord:
+    return DatasetRecord(
+        id=row.id,
+        owner_subject=row.owner_subject,
+        name=row.name,
+        version=row.version,
+        content_type=row.content_type,
+        size_bytes=row.size_bytes,
+        sha256=row.sha256,
+        object_key=row.object_key,
+        version_id=row.version_id,
+        created_at=row.created_at,
+        deleted_at=row.deleted_at,
     )
 
 
@@ -195,3 +215,69 @@ class SqlKnowlabRepository:
         await self.session.execute(
             update(KnowbotDraft).where(KnowbotDraft.id == draft_id).values(**changes)
         )
+
+    # ---------- 用户的数据 ----------
+    async def lock_owner_data(self, owner_subject: str) -> None:
+        await self.session.execute(
+            text("select pg_advisory_xact_lock(hashtextextended(:k, 0))"),
+            {"k": "knowbot_dataset:" + owner_subject},
+        )
+
+    async def create_dataset(self, record: DatasetRecord) -> DatasetRecord:
+        row = KnowbotDataset(
+            id=record.id,
+            owner_subject=record.owner_subject,
+            name=record.name,
+            version=record.version,
+            content_type=record.content_type,
+            size_bytes=record.size_bytes,
+            sha256=record.sha256,
+            object_key=record.object_key,
+            version_id=record.version_id,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        await self.session.refresh(row)
+        return _dataset(row)
+
+    async def list_datasets(self, owner_subject: str) -> Sequence[DatasetRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotDataset)
+                .where(
+                    KnowbotDataset.owner_subject == owner_subject,
+                    KnowbotDataset.deleted_at.is_(None),
+                )
+                .order_by(KnowbotDataset.created_at.desc(), KnowbotDataset.id)
+            )
+        ).scalars()
+        return [_dataset(r) for r in rows]
+
+    async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None:
+        row = await self.session.get(KnowbotDataset, dataset_id)
+        return None if row is None else _dataset(row)
+
+    async def mark_dataset_deleted(self, dataset_id: uuid.UUID, at: Any) -> None:
+        await self.session.execute(
+            update(KnowbotDataset)
+            .where(KnowbotDataset.id == dataset_id)
+            .values(deleted_at=at)
+        )
+
+    async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
+        binding = func.jsonb_build_array(
+            func.jsonb_build_object("dataset_id", str(dataset_id))
+        )
+        found = await self.session.execute(
+            select(KnowbotDraft.id)
+            .join(KnowbotRequest, KnowbotRequest.id == KnowbotDraft.request_id)
+            .where(
+                KnowbotRequest.owner_subject == owner_subject,
+                KnowbotDraft.status.in_(
+                    ("pending_test", "testing", "passed", "delivered")
+                ),
+                KnowbotDraft.manifest["data_bindings"].op("@>")(binding),
+            )
+            .limit(1)
+        )
+        return found.first() is not None

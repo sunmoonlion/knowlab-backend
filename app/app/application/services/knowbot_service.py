@@ -29,6 +29,7 @@ from app.application.ports.knowbots import (
     RequestRecord,
     RuntimeTestClient,
 )
+from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
     KnowbotRequestIn,
     can_move,
@@ -127,6 +128,14 @@ class KnowbotCreationService:
             problems = draft_manifest_problems(
                 manifest, runtime=request.runtime, version=version
             )
+            if not problems:
+                # 分身运行时只读这一版绑定的、这个用户自己的数据（C-L2）
+                assert isinstance(manifest, dict)
+                owned = {
+                    str(d.id): (d.version, d.sha256)
+                    for d in await self.repo.list_datasets(request.owner_subject)
+                }
+                problems = binding_problems(manifest.get("data_bindings"), owned)
             if problems:
                 raise BadRequestError("; ".join(problems), code="manifest_invalid")
             assert isinstance(manifest, dict)

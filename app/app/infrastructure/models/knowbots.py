@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -64,4 +65,26 @@ class KnowbotDraft(TimestampMixin, Base):
         UniqueConstraint("request_id", "revision", name="uq_knowbot_draft_revision"),
         CheckConstraint(f"status IN {DRAFT_STATUSES}", name="ck_knowbot_draft_status"),
         Index("ix_knowbot_draft_status", "status"),
+    )
+
+
+class KnowbotDataset(TimestampMixin, Base):
+    """用户上传的一份数据（SDD 0027 决定 4）。内容在对象存储，这里只有元数据。"""
+
+    __tablename__ = "knowbot_dataset"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    version: Mapped[str] = mapped_column(String(16), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    version_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("ix_knowbot_dataset_owner_subject", "owner_subject"),
+        CheckConstraint("size_bytes > 0", name="ck_knowbot_dataset_size"),
     )

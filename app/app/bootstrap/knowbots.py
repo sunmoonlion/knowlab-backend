@@ -6,12 +6,14 @@ from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.infrastructure.external.knowbot_clients import (
     KnowmartDeliveryClient,
     RuntimeTestClients,
 )
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
+from app.infrastructure.storage.data_store import S3DataStore
 
 
 @lru_cache(maxsize=1)
@@ -28,3 +30,12 @@ def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
     return KnowbotCreationService(
         SqlKnowlabRepository(session), runtime_clients(), knowmart_client()
     )
+
+
+@lru_cache(maxsize=1)
+def data_store() -> S3DataStore:
+    return S3DataStore()
+
+
+def knowbot_data_service(session: AsyncSession) -> KnowbotDataService:
+    return KnowbotDataService(SqlKnowlabRepository(session), data_store())

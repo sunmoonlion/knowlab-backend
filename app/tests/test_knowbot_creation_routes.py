@@ -6,12 +6,14 @@ import httpx
 import pytest
 
 import app.interfaces.http.middleware.auth as auth_middleware
+from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.interfaces.endpoints import knowbot_routes
 from app.main import app
 from tests.knowbot_fakes import (
     FakeKnowmart,
     FakeRuntime,
+    MemoryDataStore,
     MemoryKnowlab,
     manifest,
     request_body,
@@ -41,6 +43,8 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(auth_middleware, "admin_auth_service", admin)
     monkeypatch.setattr(knowbot_routes, "runtime_clients", lambda: runtime)
     app.dependency_overrides[knowbot_routes.service] = lambda: svc
+    data = KnowbotDataService(repo, MemoryDataStore())
+    app.dependency_overrides[knowbot_routes.data_service] = lambda: data
     yield svc, repo, runtime, knowmart
     app.dependency_overrides.clear()
 
@@ -162,3 +166,43 @@ async def test_unknown_ids_are_404(wired) -> None:
         )
         assert missing.status_code == 404
         assert (await c.get("/api/admin/v1/knowbot-requests/x")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_my_data_upload_list_delete_and_admin_sees_metadata_only(wired) -> None:
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        files = {"file": ("年报.pdf", b"%PDF-1.7 test", "application/pdf")}
+        no_csrf = await c.post("/api/web/v1/knowbot-datasets", files=files)
+        assert no_csrf.status_code == 403
+        made = await c.post("/api/web/v1/knowbot-datasets", files=files, headers=WEB)
+        assert made.status_code == 201, made.text
+        dataset = made.json()["dataset"]
+        assert dataset["name"] == "年报.pdf" and dataset["version"] == "1"
+        bad = await c.post(
+            "/api/web/v1/knowbot-datasets",
+            files={"file": ("x.exe", b"MZ", "application/octet-stream")},
+            headers=WEB,
+        )
+        assert (
+            bad.status_code == 400 and bad.json()["code"] == "dataset_type_not_allowed"
+        )
+        mine = (await c.get("/api/web/v1/knowbot-datasets")).json()
+        assert [d["dataset_id"] for d in mine["datasets"]] == [dataset["dataset_id"]]
+        assert mine["used_bytes"] == len(b"%PDF-1.7 test")
+        assert mine["quota_bytes"] == 1024**3
+
+        request_id = (
+            await c.post(
+                "/api/web/v1/knowbot-requests", json=request_body(), headers=WEB
+            )
+        ).json()["request_id"]
+        c.cookies.set(ADMIN_SID, "admin")
+        detail = (await c.get(f"/api/admin/v1/knowbot-requests/{request_id}")).json()
+        assert [d["dataset_id"] for d in detail["datasets"]] == [dataset["dataset_id"]]
+        assert "object_key" not in str(detail) and "version_id" not in str(detail)
+
+        url = f"/api/web/v1/knowbot-datasets/{dataset['dataset_id']}"
+        assert (await c.delete(url)).status_code == 403
+        assert (await c.delete(url, headers=WEB)).status_code == 204
+        assert (await c.delete(url, headers=WEB)).status_code == 404

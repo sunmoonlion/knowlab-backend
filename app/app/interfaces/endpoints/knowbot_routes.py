@@ -1,7 +1,7 @@
 """分身的创建与测试接口（SDD 0027）。
 
-网页端（用户会话）：提交想法、运行方、验收用例；看自己的提交、各版草稿与运行正确性
-报告。管理端（管理员会话，我们的运营）：看全部提交、建草稿（过渡做法：上传清单）、
+网页端（用户会话）：提交想法、运行方、验收用例；上传、列出、删除自己的数据；看自己的
+提交、各版草稿与运行正确性报告。管理端（管理员会话，我们的运营）：看全部提交、建草稿（过渡做法：上传清单）、
 核规则出处、发起测试、刷新结果、重试交付、超时退回。身份依赖写在服务前面：先认人，
 再开数据库会话。报告只有每条用例通过与否和出错处，不含分析内容（契约本身就不带）。
 """
@@ -11,14 +11,20 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, File, Path, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.ports.knowbots import DraftRecord, RequestRecord
+from app.application.ports.knowbots import DatasetRecord, DraftRecord, RequestRecord
+from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_service import KnowbotCreationService
-from app.bootstrap.knowbots import knowbot_service, runtime_clients
+from app.bootstrap.knowbots import (
+    knowbot_data_service,
+    knowbot_service,
+    runtime_clients,
+)
+from app.domain.knowbots.datasets import MAX_FILE_BYTES, QUOTA_BYTES
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session
@@ -40,7 +46,14 @@ def service(
     return knowbot_service(session)
 
 
+def data_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotDataService:
+    return knowbot_data_service(session)
+
+
 Service = Annotated[KnowbotCreationService, Depends(service)]
+DataService = Annotated[KnowbotDataService, Depends(data_service)]
 User = Annotated[Principal, Depends(get_web_current_user)]
 Admin = Annotated[Principal, Depends(require_knowlab_admin)]
 ItemId = Annotated[str, Path(max_length=64)]
@@ -98,6 +111,18 @@ def _draft_for_admin(draft: DraftRecord, request: RequestRecord) -> dict[str, An
     }
 
 
+def _dataset_view(found: DatasetRecord) -> dict[str, Any]:
+    return {
+        "dataset_id": str(found.id),
+        "name": found.name,
+        "version": found.version,
+        "content_type": found.content_type,
+        "size_bytes": found.size_bytes,
+        "sha256": found.sha256,
+        "created_at": _iso(found.created_at),
+    }
+
+
 def _request_view(
     request: RequestRecord, drafts: Sequence[DraftRecord], *, admin: bool
 ) -> dict[str, Any]:
@@ -133,6 +158,41 @@ async def my_requests(principal: User, svc: Service) -> JSONResponse:
     return _ok({"requests": [_request_view(r, d, admin=False) for r, d in items]})
 
 
+@web_router.get("/knowbot-datasets")
+async def my_datasets(principal: User, data: DataService) -> JSONResponse:
+    """我的数据：只有自己的、没删的，和用了多少。"""
+    found, used = await data.mine(principal.subject)
+    return _ok(
+        {
+            "datasets": [_dataset_view(d) for d in found],
+            "used_bytes": used,
+            "quota_bytes": QUOTA_BYTES,
+            "max_file_bytes": MAX_FILE_BYTES,
+        }
+    )
+
+
+@web_router.post("/knowbot-datasets")
+async def upload_dataset(
+    principal: User,
+    data: DataService,
+    file: Annotated[UploadFile, File()],
+) -> JSONResponse:
+    """上传一份数据。只收 PDF、Excel、CSV、文本；单个不超过 50 MB，每人不超过 1 GB。"""
+    body = await file.read(MAX_FILE_BYTES + 1)
+    found = await data.upload(principal.subject, file.filename, body)
+    return _ok({"dataset": _dataset_view(found)}, status_code=201)
+
+
+@web_router.delete("/knowbot-datasets/{dataset_id}", status_code=204)
+async def delete_dataset(
+    principal: User, data: DataService, dataset_id: ItemId
+) -> Response:
+    """删一份数据。在做的或已交付的分身绑着的不能删（先停用那一版）。"""
+    await data.delete(principal.subject, dataset_id)
+    return Response(status_code=204, headers=NO_STORE)
+
+
 # ---------- 管理端（我们的运营） ----------
 class DraftIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -152,9 +212,13 @@ async def all_requests(_: Admin, svc: Service) -> JSONResponse:
 
 
 @admin_router.get("/knowbot-requests/{request_id}")
-async def request_detail(_: Admin, svc: Service, request_id: ItemId) -> JSONResponse:
-    """建草稿要看的：用户的方法原文（六问或 skill）与验收用例。"""
+async def request_detail(
+    _: Admin, svc: Service, data: DataService, request_id: ItemId
+) -> JSONResponse:
+    """建草稿要看的：用户的方法原文（六问或 skill）、验收用例、他的数据（只有元数据，
+    清单的 data_bindings 照这里写：数据 id + 版本 + sha256）。"""
     request = await svc.request_detail(request_id)
+    found, _used = await data.mine(request.owner_subject)
     return _ok(
         {
             "request_id": str(request.id),
@@ -163,6 +227,7 @@ async def request_detail(_: Admin, svc: Service, request_id: ItemId) -> JSONResp
             "runtime": request.runtime,
             "idea": request.idea,
             "cases": request.cases,
+            "datasets": [_dataset_view(d) for d in found],
         }
     )
 
