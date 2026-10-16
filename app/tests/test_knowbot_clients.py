@@ -1,0 +1,207 @@
+"""出站客户端：运行方登记、令牌缓存、错误映射、契约核对（假 Casdoor 与假目标）。"""
+
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from app.application.errors.exceptions import (
+    BadGatewayError,
+    BadRequestError,
+    ServiceUnavailableError,
+)
+from app.domain.knowbots.test_run import CONTRACT, RunRequestV1
+from app.infrastructure.external.knowbot_clients import (
+    KnowmartDeliveryClient,
+    RuntimeTestClients,
+    registered_runtimes,
+)
+from app.infrastructure.external.service_client import service_relation
+from tests.knowbot_fakes import manifest, request_body, result
+
+
+def relation_env(target: str, relation: str, url: str) -> dict[str, str]:
+    p = f"{target.upper()}_{relation.upper()}_SERVICE_"
+    return {
+        f"{target.upper()}_INTERNAL_URL": url,
+        p + "CLIENT_ID": f"{target}-{relation}-client",
+        p + "CLIENT_SECRET": "not-a-real-secret",
+        p + "SCOPE": f"{target}:{relation}",
+        p
+        + "DISCOVERY_URL": "https://casdoor.example.test/.well-known/openid-configuration",
+        p + "BACKCHANNEL_ENDPOINT": "https://casdoor-internal.example.test",
+    }
+
+
+INVESTMENT = relation_env(
+    "investment",
+    "testrun",
+    "https://investment-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime",
+)
+KNOWMART = relation_env(
+    "knowmart",
+    "deliver",
+    "https://knowmart-tls.ns.svc.cluster.local/api/internal/v1/knowmart",
+)
+
+
+class FakeOidc:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    async def exchange_client_credentials(self, **kw: str) -> dict:
+        self.calls.append(kw)
+        return {"access_token": f"token-{len(self.calls)}", "expires_in": 300}
+
+
+def run_request() -> RunRequestV1:
+    return RunRequestV1.model_validate(
+        {
+            "contract": CONTRACT,
+            "run_id": "knowlab-run-0001",
+            "owner_subject": "user-123",
+            "manifest": manifest(),
+            "cases": request_body()["cases"],
+            "budget": {"limit": "20"},
+            "timeout_seconds": 600,
+        }
+    )
+
+
+def test_only_fully_configured_https_relations_count() -> None:
+    assert registered_runtimes(INVESTMENT) == frozenset({"investment"})
+    assert registered_runtimes({}) == frozenset()
+    partial = dict(INVESTMENT)
+    partial.pop("INVESTMENT_TESTRUN_SERVICE_CLIENT_SECRET")
+    assert registered_runtimes(partial) == frozenset()
+    wrong_scope = INVESTMENT | {"INVESTMENT_TESTRUN_SERVICE_SCOPE": "investment:x"}
+    assert registered_runtimes(wrong_scope) == frozenset()
+    plain = INVESTMENT | {"INVESTMENT_INTERNAL_URL": "http://investment/api"}
+    assert service_relation("investment", "testrun", plain) is None
+
+
+@pytest.mark.asyncio
+async def test_start_and_status_use_the_registered_runtime_with_a_cached_token():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.method == "POST":
+            body = json.loads(request.content)
+            return httpx.Response(
+                202, json=result(body["run_id"], "accepted").model_dump(mode="json")
+            )
+        return httpx.Response(
+            200, json=result("knowlab-run-0001", "running").model_dump(mode="json")
+        )
+
+    oidc = FakeOidc()
+    clients = RuntimeTestClients(
+        INVESTMENT, oidc_client=oidc, transport=httpx.MockTransport(handler)
+    )
+    started = await clients.start("investment", run_request())
+    assert started.status == "accepted"
+    assert (await clients.status("investment", "knowlab-run-0001")).status == "running"
+    assert [str(r.url) for r in seen] == [
+        "https://investment-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime/test-runs",
+        "https://investment-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime/test-runs/knowlab-run-0001",
+    ]
+    assert all(r.headers["authorization"] == "Bearer token-1" for r in seen)
+    assert oidc.calls == [
+        {
+            "scope": "investment:testrun",
+            "client_id": "investment-testrun-client",
+            "client_secret": "not-a-real-secret",
+        }
+    ]
+    with pytest.raises(BadRequestError):
+        await clients.start("nowhere", run_request())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response", "error", "code"),
+    [
+        (httpx.Response(503), ServiceUnavailableError, "investment_unavailable"),
+        (
+            httpx.Response(409, json={"code": "run_conflict"}),
+            BadGatewayError,
+            "run_conflict",
+        ),
+        (
+            httpx.Response(202, json={"status": "made-up"}),
+            BadGatewayError,
+            "test_run_contract_invalid",
+        ),
+        (
+            httpx.Response(
+                202, json=result("another-run-01", "accepted").model_dump(mode="json")
+            ),
+            BadGatewayError,
+            "run_mismatch",
+        ),
+    ],
+)
+async def test_runtime_errors_are_mapped(response, error, code) -> None:
+    clients = RuntimeTestClients(
+        INVESTMENT,
+        oidc_client=FakeOidc(),
+        transport=httpx.MockTransport(lambda _: response),
+    )
+    with pytest.raises(error) as raised:
+        await clients.start("investment", run_request())
+    assert raised.value.code == code
+
+
+@pytest.mark.asyncio
+async def test_unreachable_runtime_is_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    clients = RuntimeTestClients(
+        INVESTMENT, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+    )
+    with pytest.raises(ServiceUnavailableError):
+        await clients.status("investment", "knowlab-run-0001")
+
+
+@pytest.mark.asyncio
+async def test_knowmart_delivery() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            201,
+            json={
+                "contract_version": 1,
+                "knowbot_id": "kb-1",
+                "version": "1",
+                "digest": "sha256:" + "b" * 64,
+                "replayed": False,
+            },
+        )
+
+    client = KnowmartDeliveryClient(
+        KNOWMART, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+    )
+    delivered = await client.deliver(
+        delivery_id="knowlab-draft-1",
+        owner_subject="user-123",
+        knowbot_ref="knowlab-r1",
+        manifest=manifest(),
+    )
+    assert delivered == {
+        "knowbot_id": "kb-1",
+        "version": "1",
+        "digest": "sha256:" + "b" * 64,
+    }
+    assert str(seen[0].url).endswith("/api/internal/v1/knowmart/deliveries")
+    assert json.loads(seen[0].content)["owner_subject"] == "user-123"
+    with pytest.raises(ServiceUnavailableError) as raised:
+        await KnowmartDeliveryClient({}).deliver(
+            delivery_id="x", owner_subject="u", knowbot_ref="r", manifest={}
+        )
+    assert raised.value.code == "knowmart_unconfigured"
