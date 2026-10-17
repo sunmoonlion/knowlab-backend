@@ -1,8 +1,12 @@
-"""运行方读用户数据（SDD 0027 §3.5，knowbot-data/v1）：knowlab 这一道核与抽文字。"""
+"""运行方读用户数据（SDD 0027 §3.5，knowbot-data/v1）。
+
+knowlab 这一道核、抽文字与按格子读（0030 §3.1）。
+"""
 
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import hashlib
 import io
 import json
@@ -14,19 +18,29 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.application.errors.exceptions import NotFoundError
+from app.application.errors.exceptions import NotFoundError, ValidationError
 from app.application.ports.knowbots import DatasetRecord
 from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.domain.knowbots.data_read import (
     PAGE_CHARS,
+    CellsRequestV1,
     Extracted,
     ListRequestV1,
     ReadRequestV1,
+    Sheet,
+    TableRequestV1,
+    TableUnreadable,
     paginate,
+    table_page,
 )
 from app.domain.knowbots.data_schema import DOCUMENTS, render
 from app.domain.knowbots.datasets import XLSX
-from app.infrastructure.documents import text_extract
+from app.infrastructure.documents import table_extract, text_extract
+from app.infrastructure.documents.table_extract import (
+    CachedTableExtractor,
+    extract_tables,
+    number_of,
+)
 from app.infrastructure.documents.text_extract import (
     NO_TEXT,
     UNREADABLE,
@@ -52,7 +66,9 @@ class World:
     def __init__(self) -> None:
         self.repo = MemoryKnowlab()
         self.store = MemoryDataStore()
-        self.reader = KnowbotDataReader(self.repo, self.store, CachedTextExtractor())
+        self.reader = KnowbotDataReader(
+            self.repo, self.store, CachedTextExtractor(), CachedTableExtractor()
+        )
 
     async def setup(self) -> None:
         self.bound = await self._dataset(
@@ -89,8 +105,10 @@ class World:
             self.testing.id, status="testing", run_id="knowlab-run-0002"
         )
 
-    async def _dataset(self, name: str, content_type: str, text: str) -> DatasetRecord:
-        data = text.encode("utf-8")
+    async def _dataset(
+        self, name: str, content_type: str, text: str | bytes
+    ) -> DatasetRecord:
+        data = text.encode("utf-8") if isinstance(text, str) else text
         record_id = uuid.uuid4()
         key = f"users/x/{record_id}"
         version_id, sha = await self.store.put(
@@ -134,6 +152,32 @@ class World:
                 "purpose": purpose,
                 "dataset_id": dataset,
                 "page": page,
+            }
+        )
+
+    def table(
+        self, purpose: dict[str, str], dataset: str, sheet: str | None = None
+    ) -> TableRequestV1:
+        return TableRequestV1.model_validate(
+            {
+                "contract": "knowbot-data/v1",
+                "purpose": purpose,
+                "dataset_id": dataset,
+                "sheet": sheet,
+            }
+        )
+
+    def cells(
+        self, purpose: dict[str, str], *refs: tuple[str, str, str, str]
+    ) -> CellsRequestV1:
+        return CellsRequestV1.model_validate(
+            {
+                "contract": "knowbot-data/v1",
+                "purpose": purpose,
+                "cells": [
+                    {"dataset_id": d, "sheet": s, "row": r, "column": c}
+                    for d, s, r, c in refs
+                ],
             }
         )
 
@@ -226,6 +270,73 @@ async def test_pages_beyond_the_end_say_so(world: World) -> None:
     )
     assert (read.page, read.pages, read.text) == (3, 1, "")
     assert read.note == "There are only 1 pages."
+
+
+async def test_a_bound_csv_reads_as_a_table_and_by_cell(world: World) -> None:
+    dataset = str(world.bound.id)
+    table = await world.reader.table("knowbench", world.table(world.knowbot(), dataset))
+    assert (table.sheets, table.sheet, table.columns) == (("data",), "data", ("营收",))
+    assert [(r.label, r.values) for r in table.rows] == [("A", {"营收": "100"})]
+    assert table.citation.sha256 == world.bound.sha256
+    got = await world.reader.cells(
+        "knowbench",
+        world.cells(
+            world.knowbot(),
+            (dataset, "data", "A", "营收"),
+            (dataset, "data", "B", "营收"),
+            (dataset, "data", "A", "利润"),
+            (dataset, "表2", "A", "营收"),
+        ),
+    )
+    assert [(c.found, c.raw, c.number) for c in got.cells] == [
+        (True, "100", "100"),
+        (False, None, None),
+        (False, None, None),
+        (False, None, None),
+    ]
+    assert {c.version for c in got.cells} == {"1"}
+
+
+async def test_tables_and_cells_keep_the_same_two_checks(world: World) -> None:
+    loose = str(world.loose.id)
+    with pytest.raises(NotFoundError):
+        await world.reader.table("knowbench", world.table(world.knowbot(), loose))
+    bound = str(world.bound.id)
+    with pytest.raises(NotFoundError):
+        await world.reader.cells(
+            "knowbench",
+            world.cells(
+                world.knowbot(), (bound, "data", "A", "营收"), (loose, "x", "y", "z")
+            ),
+        )
+    with pytest.raises(NotFoundError):
+        await world.reader.cells(
+            "otherapp", world.cells(world.knowbot(), (bound, "data", "A", "营收"))
+        )
+    test = {"kind": "test", "run_id": "knowlab-run-0002"}
+    got = await world.reader.cells(
+        "knowbench", world.cells(test, (bound, "data", "A", "营收"))
+    )
+    assert got.cells[0].number == "100"
+
+
+async def test_text_data_or_a_missing_sheet_is_not_a_table(world: World) -> None:
+    text = await world._dataset("说明.txt", "text/plain; charset=utf-8", "就是字")
+    binding = {"dataset_id": str(text.id), "version": "1", "sha256": text.sha256}
+    draft = await world.repo.get_draft(world.testing.id)
+    assert draft is not None
+    doc = dict(draft.manifest)
+    doc["data_bindings"] = [*doc["data_bindings"], binding]
+    await world.repo.update_draft(world.testing.id, manifest=doc)
+    test = {"kind": "test", "run_id": "knowlab-run-0002"}
+    with pytest.raises(ValidationError) as caught:
+        await world.reader.table("knowbench", world.table(test, str(text.id)))
+    assert caught.value.code == "knowbot_data_not_a_table"
+    with pytest.raises(ValidationError) as caught:
+        await world.reader.table(
+            "knowbench", world.table(test, str(world.bound.id), "表2")
+        )
+    assert caught.value.code == "knowbot_data_no_sheet"
 
 
 def test_paginate_splits_at_the_page_size() -> None:
@@ -357,6 +468,152 @@ async def test_the_same_content_is_extracted_once(
     assert [g.text for g in got] == ["abc"] * 3 and calls == ["text/plain"]
 
 
+# ---------- 按格子读 ----------
+
+
+def _statements() -> bytes:
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.title = "利润表"
+    sheet.append(["科目", dt.date(2024, 3, 31), dt.datetime(2024, 6, 30), None])
+    sheet.append(["营业收入", 46485000000.12, "1,234.50", None])
+    sheet.append(["营业成本", "(3,000)", "−12", None])
+    sheet.append([None, None, None, None])
+    sheet.append(["其中：利息", 0.1, "-", None])
+    sheet.append(["其中：利息", "12.5%", "", None])
+    book.create_sheet("说明").append(["单位：元"])
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def test_excel_becomes_labelled_cells_per_sheet() -> None:
+    tables = extract_tables(_statements(), XLSX)
+    sheet = tables.sheet("利润表")
+    assert sheet is not None and tables.sheet(None) == sheet
+    assert sheet.columns == ("2024-03-31", "2024-06-30")
+    assert [r.label for r in sheet.rows] == [
+        "营业收入",
+        "营业成本",
+        "其中：利息",
+        "其中：利息#2",
+    ]
+    income = sheet.row("营业收入")
+    assert income is not None
+    assert income.cells["2024-03-31"].number == "46485000000.12"
+    assert (income.cells["2024-06-30"].raw, income.cells["2024-06-30"].number) == (
+        "1,234.50",
+        "1234.5",
+    )
+    cost = sheet.row("营业成本")
+    assert cost is not None
+    assert [c.number for c in cost.cells.values()] == ["-3000", "-12"]
+    interest = sheet.row("其中：利息")
+    assert interest is not None and interest.cells["2024-03-31"].number == "0.1"
+    assert interest.cells["2024-06-30"].number is None
+    second = sheet.row("其中：利息#2")
+    assert (
+        second is not None and second.cells["2024-03-31"].number is None
+    )  # 百分号不猜
+    assert [s.name for s in tables.sheets] == ["利润表", "说明"]
+
+
+def test_csv_is_one_table_named_data() -> None:
+    tables = extract_tables(
+        "\ufeff科目,2024\n营收,100\n".encode(), "text/csv; charset=utf-8"
+    )
+    assert [(s.name, s.columns) for s in tables.sheets] == [("data", ("2024",))]
+
+
+@pytest.mark.parametrize(
+    ("value", "number"),
+    [
+        (100, "100"),
+        (1.5, "1.5"),
+        (float("nan"), None),
+        (float("inf"), None),
+        (True, None),
+        ("1e400", None),
+        ("0.00", "0"),
+        ("-0", "0"),
+        ("（12）", None),
+        ("abc", None),
+        ("--", None),
+        (dt.date(2024, 1, 1), None),
+    ],
+)
+def test_numbers_are_read_conservatively(value: object, number: str | None) -> None:
+    assert number_of(value) == number
+
+
+def test_non_tables_and_broken_files_are_unreadable() -> None:
+    for data, kind in [
+        (b"x", "text/plain"),
+        (b"PK\x03\x04junk", XLSX),
+        (b"junk", "application/vnd.ms-excel"),
+        (b"%PDF-1.4", "application/pdf"),
+    ]:
+        with pytest.raises(TableUnreadable):
+            extract_tables(data, kind)
+
+
+def test_tables_have_size_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(table_extract, "MAX_XLSX_UNZIPPED", 10)
+    with pytest.raises(TableUnreadable):
+        extract_tables(_statements(), XLSX)
+    monkeypatch.setattr(table_extract, "MAX_ROWS", 1)
+    with pytest.raises(TableUnreadable):
+        extract_tables(b"k,v\na,1\nb,2\n", "text/csv")
+
+
+def test_a_table_page_holds_about_four_thousand_cells() -> None:
+    from app.domain.knowbots.data_read import Row
+
+    rows = tuple(Row(label=str(i), cells={}) for i in range(450))
+    sheet = Sheet(name="s", columns=tuple(str(i) for i in range(10)), rows=rows)
+    first, pages = table_page(sheet, 1)
+    assert (len(first), pages) == (400, 2)
+    assert len(table_page(sheet, 2)[0]) == 50 and table_page(sheet, 3)[0] == ()
+    assert table_page(Sheet(name="e", columns=(), rows=()), 1) == ((), 1)
+
+
+async def test_the_same_table_is_parsed_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    real = table_extract.extract_tables
+
+    def counting(data: bytes, content_type: str):  # type: ignore[no-untyped-def]
+        calls.append(content_type)
+        return real(data, content_type)
+
+    monkeypatch.setattr(table_extract, "extract_tables", counting)
+    extractor = CachedTableExtractor()
+    data = b"k,v\na,1\n"
+    sha = hashlib.sha256(data).hexdigest()
+    for _ in range(3):
+        await extractor.tables(data=data, content_type="text/csv", sha256=sha)
+    assert calls == ["text/csv"]
+
+
+def test_cell_requests_are_bounded() -> None:
+    ref = {"dataset_id": KNOWBOT, "sheet": "s", "row": "r", "column": "c"}
+    base = {
+        "contract": "knowbot-data/v1",
+        "purpose": {"kind": "test", "run_id": "knowlab-run-0002"},
+    }
+    with pytest.raises(ValueError):
+        CellsRequestV1.model_validate(base | {"cells": []})
+    with pytest.raises(ValueError):
+        CellsRequestV1.model_validate(base | {"cells": [ref] * 501})
+    with pytest.raises(ValueError):
+        CellsRequestV1.model_validate(base | {"cells": [ref | {"row": ""}]})
+    assert (
+        len(CellsRequestV1.model_validate(base | {"cells": [ref] * 500}).cells) == 500
+    )
+
+
 # ---------- 契约文件 ----------
 
 
@@ -438,6 +695,29 @@ async def test_the_runtime_lists_and_reads_through_the_internal_entry(
                     "dataset_id": str(world.loose.id),
                 },
             )
+            table = await h.post(
+                f"{INTERNAL}/table",
+                json={
+                    "contract": "knowbot-data/v1",
+                    "purpose": purpose,
+                    "dataset_id": str(world.bound.id),
+                },
+            )
+            cells = await h.post(
+                f"{INTERNAL}/cells",
+                json={
+                    "contract": "knowbot-data/v1",
+                    "purpose": purpose,
+                    "cells": [
+                        {
+                            "dataset_id": str(world.bound.id),
+                            "sheet": "data",
+                            "row": "A",
+                            "column": "营收",
+                        }
+                    ],
+                },
+            )
             bad = await h.post(f"{INTERNAL}/list", json={"purpose": purpose})
     finally:
         app.dependency_overrides.clear()
@@ -445,4 +725,7 @@ async def test_the_runtime_lists_and_reads_through_the_internal_entry(
     assert [d["name"] for d in listed.json()["datasets"]] == ["年报.csv"]
     assert read.json()["text"] == "公司,营收\nA,100\n"
     assert other.status_code == 404 and other.json()["code"] == "knowbot_data_not_found"
+    assert table.json()["rows"] == [{"label": "A", "values": {"营收": "100"}}]
+    assert cells.headers["cache-control"] == "no-store"
+    assert cells.json()["cells"][0]["number"] == "100"
     assert bad.status_code == 422

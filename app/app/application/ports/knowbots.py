@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
-from app.domain.knowbots.data_read import Extracted
+from app.domain.knowbots.data_read import Extracted, Tables
 from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
 
 
@@ -236,6 +236,17 @@ class TextExtractor(Protocol):
     async def extract(
         self, *, data: bytes, content_type: str, sha256: str
     ) -> Extracted: ...
+
+
+class TableExtractor(Protocol):
+    """把 CSV、Excel 解析成带行标签、列标签的格子（0030 §3.1）。
+
+    不是表格抛 TableUnreadable。
+    """
+
+    async def tables(
+        self, *, data: bytes, content_type: str, sha256: str
+    ) -> Tables: ...
 
 
 class KnowmartClient(Protocol):

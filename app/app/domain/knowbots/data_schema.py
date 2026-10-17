@@ -12,10 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from app.domain.knowbots.data_read import (
+    CellsRequestV1,
+    CellsResultV1,
     ListRequestV1,
     ListResultV1,
     ReadRequestV1,
     ReadResultV1,
+    TableRequestV1,
+    TableResultV1,
 )
 
 BASE = "https://contracts.sunmoonai.com/knowlab/knowbot-data/v1/"
@@ -24,6 +28,10 @@ DOCUMENTS = {
     "data-list-result.schema.json": (ListResultV1, "knowbot-data v1 list result"),
     "data-read-request.schema.json": (ReadRequestV1, "knowbot-data v1 read request"),
     "data-read-result.schema.json": (ReadResultV1, "knowbot-data v1 read result"),
+    "data-table-request.schema.json": (TableRequestV1, "knowbot-data v1 table request"),
+    "data-table-result.schema.json": (TableResultV1, "knowbot-data v1 table result"),
+    "data-cells-request.schema.json": (CellsRequestV1, "knowbot-data v1 cells request"),
+    "data-cells-result.schema.json": (CellsResultV1, "knowbot-data v1 cells result"),
 }
 
 

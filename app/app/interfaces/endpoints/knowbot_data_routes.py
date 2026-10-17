@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.errors.exceptions import AppException
 from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.bootstrap.knowbots import knowbot_data_reader
-from app.domain.knowbots.data_read import ListRequestV1, ReadRequestV1
+from app.domain.knowbots.data_read import (
+    CellsRequestV1,
+    ListRequestV1,
+    ReadRequestV1,
+    TableRequestV1,
+)
 from app.infrastructure.security.relation_auth import (
     ServiceCaller,
     require_read_service,
@@ -64,4 +69,24 @@ async def read_data(caller: Caller, body: dict[str, Any], svc: Reader) -> JSONRe
     except ValidationError as exc:
         raise _invalid(exc) from exc
     result = await svc.read(caller.caller, request)
+    return JSONResponse(result.model_dump(mode="json"), headers=NO_STORE)
+
+
+@router.post("/knowbot-data/table")
+async def read_table(caller: Caller, body: dict[str, Any], svc: Reader) -> JSONResponse:
+    try:
+        request = TableRequestV1.model_validate(body)
+    except ValidationError as exc:
+        raise _invalid(exc) from exc
+    result = await svc.table(caller.caller, request)
+    return JSONResponse(result.model_dump(mode="json"), headers=NO_STORE)
+
+
+@router.post("/knowbot-data/cells")
+async def read_cells(caller: Caller, body: dict[str, Any], svc: Reader) -> JSONResponse:
+    try:
+        request = CellsRequestV1.model_validate(body)
+    except ValidationError as exc:
+        raise _invalid(exc) from exc
+    result = await svc.cells(caller.caller, request)
     return JSONResponse(result.model_dump(mode="json"), headers=NO_STORE)

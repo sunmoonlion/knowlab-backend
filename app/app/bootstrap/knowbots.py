@@ -10,6 +10,7 @@ from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.infrastructure.documents.table_extract import CachedTableExtractor
 from app.infrastructure.documents.text_extract import CachedTextExtractor
 from app.infrastructure.external.knowbot_clients import (
     KnowmartDeliveryClient,
@@ -55,8 +56,16 @@ def text_extractor() -> CachedTextExtractor:
     return CachedTextExtractor()
 
 
+@lru_cache(maxsize=1)
+def table_extractor() -> CachedTableExtractor:
+    return CachedTableExtractor()
+
+
 def knowbot_data_reader(session: AsyncSession) -> KnowbotDataReader:
-    """运行方读用户数据（0027 §3.5）。"""
+    """运行方读用户数据（0027 §3.5；按格子读 0030 §3.1）。"""
     return KnowbotDataReader(
-        SqlKnowlabRepository(session), data_store(), text_extractor()
+        SqlKnowlabRepository(session),
+        data_store(),
+        text_extractor(),
+        table_extractor(),
     )
