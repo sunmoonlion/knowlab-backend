@@ -28,7 +28,7 @@ def test_a_complete_request_is_accepted() -> None:
         {"idea": {"kind": "skill"}},
         {"idea": {"kind": "six_questions", "skill": "x"}},
         {"cases": []},
-        {"runtime": "Investment"},
+        {"runtime": "Knowbench"},
         {"title": ""},
         {"extra": 1},
     ],
@@ -45,20 +45,20 @@ def test_case_ids_must_be_unique() -> None:
 
 
 def test_manifest_checks() -> None:
-    assert draft_manifest_problems(manifest(), runtime="investment", version="1") == []
+    assert draft_manifest_problems(manifest(), runtime="knowbench", version="1") == []
     assert draft_manifest_problems(
-        manifest(runtime="other"), runtime="investment", version="1"
-    ) == ["runtime must be investment"]
-    assert draft_manifest_problems(manifest(), runtime="investment", version="2")
+        manifest(runtime="other"), runtime="knowbench", version="1"
+    ) == ["runtime must be knowbench"]
+    assert draft_manifest_problems(manifest(), runtime="knowbench", version="2")
     assert draft_manifest_problems(
-        manifest(rule_sources=[]), runtime="investment", version="1"
+        manifest(rule_sources=[]), runtime="knowbench", version="1"
     ) == ["every rule needs a source (rule_sources is empty)"]
     # 出处只能是用户原文或用户确认过的（C-L1），不能是我们或模型补的
     invented = [{"rule": "x", "source": "model", "ref": "r"}]
     assert draft_manifest_problems(
-        manifest(rule_sources=invented), runtime="investment", version="1"
+        manifest(rule_sources=invented), runtime="knowbench", version="1"
     )
-    assert draft_manifest_problems([], runtime="investment", version="1")
+    assert draft_manifest_problems([], runtime="knowbench", version="1")
 
 
 def test_only_listed_moves_are_allowed() -> None:

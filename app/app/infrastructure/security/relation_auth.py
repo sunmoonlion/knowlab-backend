@@ -1,6 +1,6 @@
 """按关系校验其他应用的服务令牌（SDD 0027 §3.5；机制同 knowmart 的 relation_auth）。
 
-knowlab 接受一种关系：运行方来读分身绑定的用户数据（read，现在只有 investment）。一种
+knowlab 接受一种关系：运行方来读分身绑定的用户数据（read，现在只有 knowbench）。一种
 关系可以有多个调用方：`SERVICE_AUTH_<关系>_CALLERS` 列出调用方，每个调用方一组
 `SERVICE_AUTH_<关系>_<调用方>_AUDIENCE`（调用方的 client_id）、`_SUBJECT_ALLOWLIST`
 （`admin/<调用方服务应用>`）、`_REQUIRED_SCOPE`（`knowlab:<关系>`），都由部署从调用方

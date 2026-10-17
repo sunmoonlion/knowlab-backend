@@ -30,7 +30,7 @@ OWNER = "user-123"  # 与 tests/test_auth_routes_security.session 的用户一�
 def request_body(**overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "title": "财务分析与预测",
-        "runtime": "investment",
+        "runtime": "knowbench",
         "idea": {
             "kind": "six_questions",
             "answers": {
@@ -69,7 +69,7 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
         "name": "财务分析与预测",
         "tagline": "按我的方法分析一家公司的财报",
         "version": version,
-        "runtime": "investment",
+        "runtime": "knowbench",
         "pack": {
             "pack_id": "fin-forecast",
             "version": version,
@@ -292,7 +292,7 @@ class MemoryKnowlab:
 class FakeRuntime:
     """按 run_id 记下请求；start 回 accepted，结果由测试塞进 results。"""
 
-    def __init__(self, names: frozenset[str] = frozenset({"investment"})) -> None:
+    def __init__(self, names: frozenset[str] = frozenset({"knowbench"})) -> None:
         self.names = names
         self.started: list[tuple[str, RunRequestV1]] = []
         self.results: dict[str, RunResultV1] = {}
@@ -305,7 +305,7 @@ class FakeRuntime:
 
     async def start(self, runtime: str, request: RunRequestV1) -> RunResultV1:
         if self.fail_start:
-            raise ServiceUnavailableError("down", code="investment_unavailable")
+            raise ServiceUnavailableError("down", code="knowbench_unavailable")
         self.started.append((runtime, request))
         return self.results.get(request.run_id, result(request.run_id, "accepted"))
 
@@ -316,7 +316,7 @@ class FakeRuntime:
         self, runtime: str, run_id: str, answers: AnswersV1
     ) -> RunResultV1:
         if self.fail_answer:
-            raise ServiceUnavailableError("down", code="investment_unavailable")
+            raise ServiceUnavailableError("down", code="knowbench_unavailable")
         self.answers.append((run_id, answers))
         return self.results.get(run_id, result(run_id, "running"))
 

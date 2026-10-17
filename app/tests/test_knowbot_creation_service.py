@@ -66,7 +66,7 @@ async def test_happy_path_tests_then_delivers_exactly_the_tested_manifest(parts)
     )
     assert started.status == "accepted"
     sent_runtime, sent = runtime.started[0]
-    assert sent_runtime == "investment"
+    assert sent_runtime == "knowbench"
     assert sent.owner_subject == OWNER
     assert sent.manifest == manifest()
     assert [c.case_id for c in sent.cases] == ["c1"]
@@ -158,7 +158,7 @@ async def test_runtime_down_returns_the_draft_to_pending(parts):
         await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     back = repo.drafts[draft.id]
     assert back.status == "pending_test"
-    assert back.last_error == "start failed: investment_unavailable"
+    assert back.last_error == "start failed: knowbench_unavailable"
     assert back.rules_reviewed_by == "admin-1"
     runtime.fail_start = False
     retried = await svc.start_test(

@@ -84,7 +84,7 @@ async def test_we_answer_approvals_and_the_answer_reaches_the_runtime(testing) -
         )
 
 
-async def test_investment_judgements_go_to_the_user_only(testing) -> None:
+async def test_knowbench_judgements_go_to_the_user_only(testing) -> None:
     _, asks, _, runtime, _, _, _, by_key = testing
     judge = str(by_key["q-judge"].id)
     with pytest.raises(ConcurrencyConflictError) as raised:
@@ -126,7 +126,7 @@ async def test_unsent_answers_are_resent_on_refresh(testing) -> None:
     )
     assert (
         kept.sent_at is None
-        and kept.last_error == "send failed: investment_unavailable"
+        and kept.last_error == "send failed: knowbench_unavailable"
     )
     runtime.fail_answer = False
     await svc.refresh(str(draft.id))

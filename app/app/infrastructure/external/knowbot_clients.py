@@ -1,7 +1,7 @@
 """knowlab 的两个外部调用（SDD 0027）：调运行方跑测试、交付 knowmart。
 
 运行方是「登记」出来的：本应用 service_clients 里每个 relation=testrun 的目标就是一个运
-行方，部署生成对应的环境变量（见 service_client.py）。现在只有 investment；加运行方只加
+行方，部署生成对应的环境变量（见 service_client.py）。现在只有 knowbench；加运行方只加
 配置。
 """
 

@@ -65,7 +65,7 @@ async def test_web_needs_a_session_and_csrf(wired) -> None:
         assert (await c.get("/api/web/v1/knowbot-requests")).status_code == 401
         c.cookies.set(WEB_SID, "member")
         assert (await c.get("/api/web/v1/knowbot-runtimes")).json()["runtimes"] == [
-            "investment"
+            "knowbench"
         ]
         no_csrf = await c.post("/api/web/v1/knowbot-requests", json=request_body())
         assert no_csrf.status_code == 403

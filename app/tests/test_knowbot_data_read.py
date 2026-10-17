@@ -67,7 +67,7 @@ class World:
             "sha256": self.bound.sha256,
         }
         self.request = await self.repo.create_request(
-            owner_subject=OWNER, title="t", runtime="investment", idea={}, cases=[]
+            owner_subject=OWNER, title="t", runtime="knowbench", idea={}, cases=[]
         )
         doc = manifest("1", data_bindings=[binding])
         self.digest = "sha256:" + "a" * 64
@@ -148,10 +148,10 @@ async def world() -> World:
 async def test_a_delivered_knowbot_lists_and_reads_only_its_bound_data(
     world: World,
 ) -> None:
-    listed = await world.reader.list("investment", world.listing(world.knowbot()))
+    listed = await world.reader.list("knowbench", world.listing(world.knowbot()))
     assert [d.dataset_id for d in listed.datasets] == [str(world.bound.id)]
     read = await world.reader.read(
-        "investment", world.reading(world.knowbot(), str(world.bound.id))
+        "knowbench", world.reading(world.knowbot(), str(world.bound.id))
     )
     assert read.text == "公司,营收\nA,100\n"
     assert (read.page, read.pages, read.truncated, read.note) == (1, 1, False, None)
@@ -161,7 +161,7 @@ async def test_a_delivered_knowbot_lists_and_reads_only_its_bound_data(
 async def test_a_running_test_reads_the_same_way(world: World) -> None:
     purpose = {"kind": "test", "run_id": "knowlab-run-0002"}
     read = await world.reader.read(
-        "investment", world.reading(purpose, str(world.bound.id))
+        "knowbench", world.reading(purpose, str(world.bound.id))
     )
     assert read.name == "年报.csv"
 
@@ -179,7 +179,7 @@ async def test_anything_off_from_the_delivery_is_not_found(
     world: World, change: dict[str, str]
 ) -> None:
     with pytest.raises(NotFoundError) as caught:
-        await world.reader.list("investment", world.listing(world.knowbot(**change)))
+        await world.reader.list("knowbench", world.listing(world.knowbot(**change)))
     assert caught.value.code == "knowbot_data_not_found"
 
 
@@ -191,22 +191,22 @@ async def test_another_runtime_cannot_read(world: World) -> None:
 async def test_unbound_or_deleted_or_changed_data_is_not_found(world: World) -> None:
     with pytest.raises(NotFoundError):
         await world.reader.read(
-            "investment", world.reading(world.knowbot(), str(world.loose.id))
+            "knowbench", world.reading(world.knowbot(), str(world.loose.id))
         )
     world.repo.datasets[world.bound.id] = replace(world.bound, sha256="c" * 64)
     with pytest.raises(NotFoundError):
         await world.reader.read(
-            "investment", world.reading(world.knowbot(), str(world.bound.id))
+            "knowbench", world.reading(world.knowbot(), str(world.bound.id))
         )
     world.repo.datasets[world.bound.id] = replace(
         world.bound, deleted_at=world.repo._now()
     )
     with pytest.raises(NotFoundError):
         await world.reader.read(
-            "investment", world.reading(world.knowbot(), str(world.bound.id))
+            "knowbench", world.reading(world.knowbot(), str(world.bound.id))
         )
     assert (
-        await world.reader.list("investment", world.listing(world.knowbot()))
+        await world.reader.list("knowbench", world.listing(world.knowbot()))
     ).datasets == ()
 
 
@@ -216,13 +216,13 @@ async def test_a_finished_or_other_test_cannot_read(world: World) -> None:
             await world.repo.update_draft(world.testing.id, status="passed")
         with pytest.raises(NotFoundError):
             await world.reader.list(
-                "investment", world.listing({"kind": "test", "run_id": run_id})
+                "knowbench", world.listing({"kind": "test", "run_id": run_id})
             )
 
 
 async def test_pages_beyond_the_end_say_so(world: World) -> None:
     read = await world.reader.read(
-        "investment", world.reading(world.knowbot(), str(world.bound.id), page=3)
+        "knowbench", world.reading(world.knowbot(), str(world.bound.id), page=3)
     )
     assert (read.page, read.pages, read.text) == (3, 1, "")
     assert read.note == "There are only 1 pages."
@@ -411,7 +411,7 @@ async def test_the_runtime_lists_and_reads_through_the_internal_entry(
     world: World,
 ) -> None:
     app.dependency_overrides[require_read_service] = lambda: ServiceCaller(
-        caller="investment",
+        caller="knowbench",
         principal=None,  # type: ignore[arg-type]
     )
     app.dependency_overrides[knowbot_data_routes.reader] = lambda: world.reader

@@ -46,5 +46,5 @@ def test_a_manifest_knowlab_accepts_satisfies_the_provider_schema() -> None:
     schema = _provider_schema(_lock())
     jsonschema = pytest.importorskip("jsonschema")
     doc = manifest()
-    assert draft_manifest_problems(doc, runtime="investment", version="1") == []
+    assert draft_manifest_problems(doc, runtime="knowbench", version="1") == []
     jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))

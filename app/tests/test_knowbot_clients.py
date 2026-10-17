@@ -35,10 +35,10 @@ def relation_env(target: str, relation: str, url: str) -> dict[str, str]:
     }
 
 
-INVESTMENT = relation_env(
-    "investment",
+KNOWBENCH = relation_env(
+    "knowbench",
     "testrun",
-    "https://investment-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime",
+    "https://knowbench-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime",
 )
 KNOWMART = relation_env(
     "knowmart",
@@ -71,15 +71,15 @@ def run_request() -> RunRequestV1:
 
 
 def test_only_fully_configured_https_relations_count() -> None:
-    assert registered_runtimes(INVESTMENT) == frozenset({"investment"})
+    assert registered_runtimes(KNOWBENCH) == frozenset({"knowbench"})
     assert registered_runtimes({}) == frozenset()
-    partial = dict(INVESTMENT)
-    partial.pop("INVESTMENT_TESTRUN_SERVICE_CLIENT_SECRET")
+    partial = dict(KNOWBENCH)
+    partial.pop("KNOWBENCH_TESTRUN_SERVICE_CLIENT_SECRET")
     assert registered_runtimes(partial) == frozenset()
-    wrong_scope = INVESTMENT | {"INVESTMENT_TESTRUN_SERVICE_SCOPE": "investment:x"}
+    wrong_scope = KNOWBENCH | {"KNOWBENCH_TESTRUN_SERVICE_SCOPE": "knowbench:x"}
     assert registered_runtimes(wrong_scope) == frozenset()
-    plain = INVESTMENT | {"INVESTMENT_INTERNAL_URL": "http://investment/api"}
-    assert service_relation("investment", "testrun", plain) is None
+    plain = KNOWBENCH | {"KNOWBENCH_INTERNAL_URL": "http://knowbench/api"}
+    assert service_relation("knowbench", "testrun", plain) is None
 
 
 @pytest.mark.asyncio
@@ -99,20 +99,20 @@ async def test_start_and_status_use_the_registered_runtime_with_a_cached_token()
 
     oidc = FakeOidc()
     clients = RuntimeTestClients(
-        INVESTMENT, oidc_client=oidc, transport=httpx.MockTransport(handler)
+        KNOWBENCH, oidc_client=oidc, transport=httpx.MockTransport(handler)
     )
-    started = await clients.start("investment", run_request())
+    started = await clients.start("knowbench", run_request())
     assert started.status == "accepted"
-    assert (await clients.status("investment", "knowlab-run-0001")).status == "running"
+    assert (await clients.status("knowbench", "knowlab-run-0001")).status == "running"
     assert [str(r.url) for r in seen] == [
-        "https://investment-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime/test-runs",
-        "https://investment-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime/test-runs/knowlab-run-0001",
+        "https://knowbench-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime/test-runs",
+        "https://knowbench-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime/test-runs/knowlab-run-0001",
     ]
     assert all(r.headers["authorization"] == "Bearer token-1" for r in seen)
     assert oidc.calls == [
         {
-            "scope": "investment:testrun",
-            "client_id": "investment-testrun-client",
+            "scope": "knowbench:testrun",
+            "client_id": "knowbench-testrun-client",
             "client_secret": "not-a-real-secret",
         }
     ]
@@ -124,7 +124,7 @@ async def test_start_and_status_use_the_registered_runtime_with_a_cached_token()
 @pytest.mark.parametrize(
     ("response", "error", "code"),
     [
-        (httpx.Response(503), ServiceUnavailableError, "investment_unavailable"),
+        (httpx.Response(503), ServiceUnavailableError, "knowbench_unavailable"),
         (
             httpx.Response(409, json={"code": "run_conflict"}),
             BadGatewayError,
@@ -146,12 +146,12 @@ async def test_start_and_status_use_the_registered_runtime_with_a_cached_token()
 )
 async def test_runtime_errors_are_mapped(response, error, code) -> None:
     clients = RuntimeTestClients(
-        INVESTMENT,
+        KNOWBENCH,
         oidc_client=FakeOidc(),
         transport=httpx.MockTransport(lambda _: response),
     )
     with pytest.raises(error) as raised:
-        await clients.start("investment", run_request())
+        await clients.start("knowbench", run_request())
     assert raised.value.code == code
 
 
@@ -161,10 +161,10 @@ async def test_unreachable_runtime_is_unavailable() -> None:
         raise httpx.ConnectError("refused", request=request)
 
     clients = RuntimeTestClients(
-        INVESTMENT, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+        KNOWBENCH, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
     )
     with pytest.raises(ServiceUnavailableError):
-        await clients.status("investment", "knowlab-run-0001")
+        await clients.status("knowbench", "knowlab-run-0001")
 
 
 @pytest.mark.asyncio
