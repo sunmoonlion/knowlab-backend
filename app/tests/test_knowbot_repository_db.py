@@ -113,7 +113,10 @@ async def test_submit_draft_test_and_deliver_round_trip(db) -> None:
 
 @pytest.mark.asyncio
 async def test_runtimes_find_the_delivered_and_the_testing_draft(db) -> None:
-    """运行方读数据时按交付记录与 run_id 找草稿（0027 §3.5）：JSONB 取值的查询在真库上对。"""
+    """运行方读数据时按交付记录与 run_id 找草稿（0027 §3.5）。
+
+    JSONB 取值的查询在真库上对。
+    """
     async with db() as session:
         request = await service(session).submit(
             OWNER, KnowbotRequestIn.model_validate(request_body())
