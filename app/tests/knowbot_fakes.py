@@ -269,6 +269,25 @@ class MemoryKnowlab:
                 return True
         return False
 
+    async def find_delivered_draft(
+        self, knowbot_id: str, version: str
+    ) -> DraftRecord | None:
+        for draft in sorted(self.drafts.values(), key=lambda d: d.created_at or 0):
+            delivery = draft.delivery or {}
+            if (
+                draft.status == "delivered"
+                and delivery.get("knowbot_id") == knowbot_id
+                and draft.version == version
+            ):
+                return draft
+        return None
+
+    async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
+        for draft in self.drafts.values():
+            if draft.status == "testing" and draft.run_id == run_id:
+                return draft
+        return None
+
 
 class FakeRuntime:
     """按 run_id 记下请求；start 回 accepted，结果由测试塞进 results。"""
@@ -332,6 +351,16 @@ class MemoryDataStore:
 
     async def delete(self, *, object_key: str) -> None:
         self.deleted.append(object_key)
+
+    async def get(
+        self, *, object_key: str, version_id: str, sha256: str, max_bytes: int
+    ) -> bytes:
+        import hashlib
+
+        data = self.objects[object_key]
+        if hashlib.sha256(data).hexdigest() != sha256 or len(data) > max_bytes:
+            raise RuntimeError("stored_object_digest_mismatch")
+        return data
 
 
 def waiting(run_id: str) -> RunResultV1:

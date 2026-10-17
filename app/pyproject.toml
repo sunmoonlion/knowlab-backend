@@ -17,6 +17,9 @@ dependencies = [
     "celery>=5.5.0",
     "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.35.0",
+    "pdfplumber>=0.11,<0.12",
+    "openpyxl>=3.1,<4",
+    "xlrd>=2.0,<3",
 ]
 
 [dependency-groups]

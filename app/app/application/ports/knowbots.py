@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from app.domain.knowbots.data_read import Extracted
 from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
 
 
@@ -177,6 +178,19 @@ class KnowlabRepository(Protocol):
         """这个人的草稿里，在做的或已交付的有没有绑着这份数据。"""
         ...
 
+    async def find_delivered_draft(
+        self, knowbot_id: str, version: str
+    ) -> DraftRecord | None:
+        """交付后 knowmart 给的分身 id 与版本对应的那份草稿。
+
+        运行方读数据时核（0027 §3.5）。
+        """
+        ...
+
+    async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
+        """正在测试、run_id 是这一次的草稿。"""
+        ...
+
 
 class RuntimeTestClient(Protocol):
     """调登记的运行方跑测试（契约 knowbot-test-run/v1）。
@@ -208,6 +222,20 @@ class DataStore(Protocol):
         ...
 
     async def delete(self, *, object_key: str) -> None: ...
+
+    async def get(
+        self, *, object_key: str, version_id: str, sha256: str, max_bytes: int
+    ) -> bytes:
+        """按版本读回，核 sha256；对不上抛错，不返回内容。"""
+        ...
+
+
+class TextExtractor(Protocol):
+    """把用户的数据抽成文字（CSV、文本原样；Excel 每张表转 CSV；PDF 逐页抽字）。"""
+
+    async def extract(
+        self, *, data: bytes, content_type: str, sha256: str
+    ) -> Extracted: ...
 
 
 class KnowmartClient(Protocol):

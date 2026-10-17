@@ -112,6 +112,39 @@ async def test_submit_draft_test_and_deliver_round_trip(db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtimes_find_the_delivered_and_the_testing_draft(db) -> None:
+    """运行方读数据时按交付记录与 run_id 找草稿（0027 §3.5）：JSONB 取值的查询在真库上对。"""
+    async with db() as session:
+        request = await service(session).submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+    async with db() as session:
+        draft = await service(session).add_draft(str(request.id), manifest())
+    async with db() as session:
+        svc = service(session)
+        await svc.review_rules(str(draft.id), "admin-1")
+        run = await svc.start_test(
+            str(draft.id), budget_limit="20", timeout_seconds=600
+        )
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        testing = await repo.find_testing_draft(run.run_id)
+        assert testing is not None and testing.id == draft.id
+        assert await repo.find_testing_draft("knowlab-run-none") is None
+        assert await repo.find_delivered_draft("kb-1", "1") is None
+    RUNTIME.results[run.run_id] = result(run.run_id, "passed")
+    async with db() as session:
+        await service(session).refresh(str(draft.id))
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        assert await repo.find_testing_draft(run.run_id) is None
+        found = await repo.find_delivered_draft("kb-1", "1")
+        assert found is not None and found.id == draft.id
+        assert await repo.find_delivered_draft("kb-1", "2") is None
+        assert await repo.find_delivered_draft("kb-2", "1") is None
+
+
+@pytest.mark.asyncio
 async def test_the_database_refuses_unknown_states_and_duplicate_revisions(
     db,
 ) -> None:

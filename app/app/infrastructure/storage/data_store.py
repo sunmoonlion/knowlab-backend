@@ -32,3 +32,14 @@ class S3DataStore:
 
     async def delete(self, *, object_key: str) -> None:
         await asyncio.to_thread(self._storage.delete, object_key=object_key)
+
+    async def get(
+        self, *, object_key: str, version_id: str, sha256: str, max_bytes: int
+    ) -> bytes:
+        return await asyncio.to_thread(
+            self._storage.get_bytes,
+            object_key=object_key,
+            version_id=version_id,
+            expected_sha256=sha256,
+            max_bytes=max_bytes,
+        )

@@ -316,6 +316,33 @@ class SqlKnowlabRepository:
         )
         return found.first() is not None
 
+    async def find_delivered_draft(
+        self, knowbot_id: str, version: str
+    ) -> DraftRecord | None:
+        row = (
+            await self.session.execute(
+                select(KnowbotDraft)
+                .where(
+                    KnowbotDraft.status == "delivered",
+                    KnowbotDraft.delivery["knowbot_id"].astext == knowbot_id,
+                    KnowbotDraft.version == version,
+                )
+                .order_by(KnowbotDraft.created_at)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _draft(row)
+
+    async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
+        row = (
+            await self.session.execute(
+                select(KnowbotDraft)
+                .where(KnowbotDraft.status == "testing", KnowbotDraft.run_id == run_id)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _draft(row)
+
     async def update_request_cases(
         self, request_id: uuid.UUID, cases: list[dict[str, Any]]
     ) -> None:
