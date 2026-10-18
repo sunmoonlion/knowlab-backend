@@ -28,10 +28,15 @@ from app.infrastructure.security.relation_auth import (
     require_read_service,
 )
 from app.infrastructure.storage.postgres import get_db_session
+from app.interfaces.http.internal.host_guard import internal_host_only
 
 NO_STORE = {"Cache-Control": "no-store"}
 
-router = APIRouter(prefix="/internal/v1/knowlab", tags=["Knowbot data"])
+router = APIRouter(
+    prefix="/internal/v1/knowlab",
+    tags=["Knowbot data"],
+    dependencies=[Depends(internal_host_only)],  # 公网地址来的当没有（审读第 1 条）
+)
 Caller = Annotated[ServiceCaller, Depends(require_read_service)]
 
 

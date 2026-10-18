@@ -35,7 +35,12 @@ from app.domain.knowbots.drafts import (
     can_move,
     draft_manifest_problems,
 )
-from app.domain.knowbots.test_run import CONTRACT, RunRequestV1, RunResultV1
+from app.domain.knowbots.test_run import (
+    CONTRACT,
+    RunRequestV1,
+    RunResultV1,
+    first_route,
+)
 
 OWNER = re.compile(r"^[A-Za-z0-9._:@-]{1,512}$")
 STUCK_GRACE = timedelta(minutes=5)
@@ -271,7 +276,10 @@ class KnowbotCreationService:
                 await self.repo.add_questions(
                     draft.id,
                     result.run_id,
-                    [q.model_dump(mode="json") for q in result.questions],
+                    [
+                        q.model_dump(mode="json") | {"route": first_route(q.kind)}
+                        for q in result.questions
+                    ],
                 )
 
     async def _finish(self, draft_id: uuid.UUID, result: RunResultV1) -> None:

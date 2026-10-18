@@ -37,7 +37,9 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     web = FakeAuthService({"member": session("web", "profile:read")})
     admin = FakeAuthService(
         {
-            "admin": session("admin", "knowlab:admin"),
+            "admin": session("admin", "knowlab:admin", "knowlab:release"),
+            # 运营：只有基本权限（白名单角色 operator 换算出来的就是这个，见 auth）
+            "operator": session("admin", "knowlab:admin"),
             "no-scope": session("admin", "profile:read"),
         }
     )
@@ -94,6 +96,39 @@ async def test_admin_routes_need_the_admin_scope_and_not_a_web_session(wired) ->
         assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 200
         bad_status = await c.get("/api/admin/v1/knowbot-drafts?status=nope")
         assert bad_status.status_code in {400, 422}
+
+
+@pytest.mark.asyncio
+async def test_operators_cannot_draft_review_deliver_or_reset(wired) -> None:
+    """运营只能看、发起测试、答跑法问题；建草稿、核出处、交付、退回只留给 admin。"""
+    svc, *_ = wired
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+
+    request = await svc.submit(
+        "user-123", KnowbotRequestIn.model_validate(request_body())
+    )
+    draft = await svc.add_draft(str(request.id), manifest())
+    async with client() as c:
+        c.cookies.set(ADMIN_SID, "operator")
+        assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 200
+        base = f"/api/admin/v1/knowbot-drafts/{draft.id}"
+        for path, body in [
+            (f"/api/admin/v1/knowbot-requests/{request.id}/drafts", manifest()),
+            (f"{base}/rules-review", None),
+            (f"{base}/deliver", None),
+            (f"{base}/reset", None),
+        ]:
+            json = {"manifest": body} if body else None
+            refused = await c.post(path, json=json, headers=ADMIN)
+            assert refused.status_code == 403, path
+        # 核过出处之后，发起测试运营可以做
+        await svc.review_rules(str(draft.id), "admin-1")
+        started = await c.post(
+            f"{base}/test",
+            json={"budget_limit": "20", "timeout_seconds": 600},
+            headers=ADMIN,
+        )
+        assert started.status_code == 200, started.text
 
 
 @pytest.mark.asyncio
@@ -230,11 +265,24 @@ async def test_questions_through_the_api(wired) -> None:
         listed = (await c.get("/api/admin/v1/knowbot-questions")).json()["questions"]
         ids = {q["kind"]: q["question_id"] for q in listed}
         assert set(ids) == {"tool_approval", "ask_before", "question"}
-        assert all(q["route"] is None for q in listed)
+        # 审批归我们；判断与开步前的提问建出来就归用户（审读第 2 条）
+        assert {q["kind"]: q["route"] for q in listed} == {
+            "tool_approval": None,
+            "ask_before": "user",
+            "question": "user",
+        }
         base = "/api/admin/v1/knowbot-questions"
-        assert (await c.post(f"{base}/{ids['question']}/to-user")).status_code == 403
-        moved = await c.post(f"{base}/{ids['question']}/to-user", headers=ADMIN)
-        assert moved.status_code == 204
+        take = f"{base}/{ids['ask_before']}/take"
+        assert (await c.post(take, json={"reason": "x"})).status_code == 403
+        assert (
+            await c.post(take, json={"reason": ""}, headers=ADMIN)
+        ).status_code == 422
+        taken = await c.post(take, json={"reason": "跑法：取几年"}, headers=ADMIN)
+        assert taken.status_code == 204
+        back = await c.post(f"{base}/{ids['ask_before']}/to-user", headers=ADMIN)
+        assert back.status_code == 204
+        relisted = (await c.get(base)).json()["questions"]
+        assert {q["kind"]: q["route_reason"] for q in relisted}["ask_before"] is None
         approve = await c.post(
             f"{base}/{ids['tool_approval']}/answer",
             json={"decision": "approve"},
@@ -248,8 +296,8 @@ async def test_questions_through_the_api(wired) -> None:
 
         c.cookies.set(WEB_SID, "member")
         mine = (await c.get("/api/web/v1/knowbot-questions")).json()["questions"]
-        assert [q["kind"] for q in mine] == ["question"]
-        assert "owner_subject" not in mine[0] and "route" not in mine[0]
+        assert sorted(q["kind"] for q in mine) == ["ask_before", "question"]
+        assert all("owner_subject" not in q and "route" not in q for q in mine)
         url = f"/api/web/v1/knowbot-questions/{ids['question']}/answer"
         assert (await c.post(url, json={"text": "按营业收入"})).status_code == 403
         answered = await c.post(url, json={"text": "按营业收入"}, headers=WEB)

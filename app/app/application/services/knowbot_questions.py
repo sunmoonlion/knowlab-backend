@@ -1,11 +1,12 @@
 """测试中待人决定的问题（SDD 0027 §3.4，有人值守）。
 
-运行方跑到要人决定的地方就停下，问题记在这里。谁来答（C-L1）：工具审批与跑法层面的由
-我们的运营在管理端答；投资判断的由运营转给用户本人，在网页端「我在做的分身」里答，
-拿不准的一律转给用户。转给用户的，运营不能再答。
+运行方跑到要人决定的地方就停下，问题记在这里。谁来答（C-L1，审读第 2 条）：工具审批
+由我们的运营在管理端答；开步前的提问与要人判断的提问建出来就归用户本人，在网页端
+「我在做的分身」里答。运营认为某一条只是跑法问题，要写一句理由改派给自己才能答，
+答完记成「运营答的」，不算用户确认，不写回用例、不进规则出处；改派后还能转回用户。
 
-先记下答案（同一个事务里，开步前的提问同时记回用例的预设答案，重测不再问），再交给
-运行方；交不到的记下错误，下次刷新时补送。运行方按问题 id 幂等，补送安全。
+先记下答案（同一个事务里，用户答的开步前提问同时记回用例的预设答案，重测不再问），
+再交给运行方；交不到的记下错误，下次刷新时补送。运行方按问题 id 幂等，补送安全。
 """
 
 from __future__ import annotations
@@ -110,13 +111,33 @@ class KnowbotQuestionService:
         return out
 
     async def to_user(self, question_id: str) -> None:
+        """改派给自己的，转回用户。"""
         async with self.repo.transaction():
             question = await self._open(question_id)
-            if question.route is not None:
-                raise _conflict("Already with the user", "question_routed")
             if question.kind == "tool_approval":
                 raise _conflict("Approvals are answered by us", "question_kind")
-            await self.repo.update_question(question.id, route="user")
+            if question.route == "user":
+                raise _conflict("Already with the user", "question_routed")
+            await self.repo.update_question(
+                question.id, route="user", route_reason=None
+            )
+
+    async def take(self, question_id: str, reason: str) -> None:
+        """运营认为这条只是跑法问题：写一句理由，改派给自己答。"""
+        reason = (reason or "").strip()
+        if not reason or len(reason) > 200:
+            raise BadRequestError(
+                "Say in one line why this is ours to answer", code="reason_required"
+            )
+        async with self.repo.transaction():
+            question = await self._open(question_id)
+            if question.kind == "tool_approval":
+                raise _conflict("Approvals are answered by us", "question_kind")
+            if question.route != "user":
+                raise _conflict("Already ours", "question_taken")
+            await self.repo.update_question(
+                question.id, route="operator", route_reason=reason
+            )
 
     async def answer_as_operator(
         self, question_id: str, given: AnswerIn
@@ -142,7 +163,8 @@ class KnowbotQuestionService:
         return await self._answer(question_id, given, by="user", owner=owner_subject)
 
     async def answered(self, request_id: uuid.UUID) -> Sequence[QuestionRecord]:
-        """这个分身测试中答过的问题（建下一版草稿时看：用户确认的判断记进规则出处）。"""
+        """这个分身测试中答过的问题（建下一版草稿时看：只有用户答的记进规则出处，
+        运营答的另看，带改派理由）。"""
         out: list[QuestionRecord] = []
         for draft in await self.repo.list_drafts(request_id=request_id):
             out += [
@@ -181,7 +203,8 @@ class KnowbotQuestionService:
             await self.repo.update_question(
                 question.id, answer=answer, answered_by=by, answered_at=self.now()
             )
-            if question.kind == "ask_before" and question.key:
+            # 只有用户答的才算他确认过：运营答的不写回用例，重测还会问
+            if by == "user" and question.kind == "ask_before" and question.key:
                 await self._remember(request, question, answer)
         await self._send(draft, request, [question.id])
         found = await self.repo.get_question(question.id)

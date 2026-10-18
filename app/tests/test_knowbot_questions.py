@@ -64,6 +64,12 @@ async def test_waiting_questions_are_recorded_once(testing) -> None:
     await svc.refresh(str(draft.id))
     assert len(repo.questions) == 3
     assert len(await asks.operator_queue()) == 3
+    # 先归谁（C-L1，审读第 2 条）：审批归我们，判断与开步前的提问归用户
+    assert {k: q.route for k, q in by_key.items()} == {
+        "q-approve": None,
+        "q-scope": "user",
+        "q-judge": "user",
+    }
 
 
 async def test_we_answer_approvals_and_the_answer_reaches_the_runtime(testing) -> None:
@@ -90,11 +96,16 @@ async def test_knowbench_judgements_go_to_the_user_only(testing) -> None:
     with pytest.raises(ConcurrencyConflictError) as raised:
         await asks.to_user(str(by_key["q-approve"].id))
     assert raised.value.code == "question_kind"
-    await asks.to_user(judge)
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await asks.to_user(judge)
+    assert raised.value.code == "question_routed"  # 建出来就在用户那里
     with pytest.raises(ConcurrencyConflictError) as raised:
         await asks.answer_as_operator(judge, AnswerIn(text="按营业收入"))
     assert raised.value.code == "question_routed"
-    assert [q.question_id for q, _, _ in await asks.user_queue(OWNER)] == ["q-judge"]
+    assert {q.question_id for q, _, _ in await asks.user_queue(OWNER)} == {
+        "q-scope",
+        "q-judge",
+    }
     assert await asks.user_queue("someone-else") == []
     with pytest.raises(NotFoundError):
         await asks.answer_as_user("someone-else", judge, AnswerIn(text="x"))
@@ -105,17 +116,54 @@ async def test_knowbench_judgements_go_to_the_user_only(testing) -> None:
     assert runtime.answers[-1][1].answers[0].answered_by == "user"
 
 
-async def test_ask_before_answers_are_remembered_on_the_case(testing) -> None:
+async def test_user_answers_to_ask_before_are_remembered_on_the_case(testing) -> None:
     _, asks, repo, _, _, draft, _, by_key = testing
+    scope = str(by_key["q-scope"].id)
     with pytest.raises(BadRequestError):
-        await asks.answer_as_operator(
-            str(by_key["q-scope"].id), AnswerIn(option_id="9y")
-        )
-    await asks.answer_as_operator(str(by_key["q-scope"].id), AnswerIn(option_id="3y"))
+        await asks.answer_as_user(OWNER, scope, AnswerIn(option_id="9y"))
+    await asks.answer_as_user(OWNER, scope, AnswerIn(option_id="3y"))
     request = repo.requests[draft.request_id]
     assert request.cases[0]["input"]["answers"] == {"period": "3y"}  # 重测不再问
     answered = await asks.answered(request.id)
-    assert [q.question_id for q in answered] == ["q-scope"]
+    assert [(q.question_id, q.answered_by) for q in answered] == [("q-scope", "user")]
+
+
+async def test_we_answer_a_judgement_only_after_taking_it_with_a_reason(
+    testing,
+) -> None:
+    _, asks, repo, runtime, _, draft, _, by_key = testing
+    scope = str(by_key["q-scope"].id)
+    for reason in ("", "   ", "长" * 201):
+        with pytest.raises(BadRequestError) as bad:
+            await asks.take(scope, reason)
+        assert bad.value.code == "reason_required"
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await asks.take(str(by_key["q-approve"].id), "审批")
+    assert raised.value.code == "question_kind"
+    await asks.take(scope, "只是问取几年的数，按用例写的三年")
+    taken = repo.questions[by_key["q-scope"].id]
+    assert taken.route == "operator" and taken.route_reason.startswith("只是问")
+    assert "q-scope" not in {q.question_id for q, _, _ in await asks.user_queue(OWNER)}
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await asks.take(scope, "再来一次")
+    assert raised.value.code == "question_taken"
+    done = await asks.answer_as_operator(scope, AnswerIn(option_id="3y"))
+    assert done.answered_by == "operator"
+    assert runtime.answers[-1][1].answers[0].answered_by == "operator"
+    # 运营答的不算用户确认：不写回用例，重测还会问
+    assert not repo.requests[draft.request_id].cases[0]["input"].get("answers")
+
+
+async def test_a_taken_question_can_go_back_to_the_user(testing) -> None:
+    _, asks, repo, _, _, _, _, by_key = testing
+    judge = str(by_key["q-judge"].id)
+    await asks.take(judge, "以为是跑法问题")
+    await asks.to_user(judge)
+    back = repo.questions[by_key["q-judge"].id]
+    assert back.route == "user" and back.route_reason is None
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await asks.answer_as_operator(judge, AnswerIn(text="x"))
+    assert raised.value.code == "question_routed"
 
 
 async def test_unsent_answers_are_resent_on_refresh(testing) -> None:
@@ -125,8 +173,7 @@ async def test_unsent_answers_are_resent_on_refresh(testing) -> None:
         str(by_key["q-approve"].id), AnswerIn(decision="deny")
     )
     assert (
-        kept.sent_at is None
-        and kept.last_error == "send failed: knowbench_unavailable"
+        kept.sent_at is None and kept.last_error == "send failed: knowbench_unavailable"
     )
     runtime.fail_answer = False
     await svc.refresh(str(draft.id))

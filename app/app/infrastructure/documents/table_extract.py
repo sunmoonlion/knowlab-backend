@@ -1,10 +1,11 @@
 """把用户的表格数据转成带地址的格子（SDD 0030 §3.1）。
 
 CSV 是一张表（表名 `data`）；Excel 每张工作表一张表（xlsx 用 openpyxl，xls 用 xlrd）。
-第一行是列标签（日期写成 YYYY-MM-DD），第一列是行标签（科目名），重名的行按出现次序
-加 `#2`、`#3`。每格给原文与能读成数的十进制字符串（千分位、括号负数、全角负号都认；
-`-`、空白读成空）。文件是用户传的，当作不可信：xlsx 先看解压后的大小，行数、列数、
-格子数都有上限。同一份内容（sha256）只解析一次。
+第一行是列标签（日期写成 YYYY-MM-DD，xls 里的日期格也一样），第一列是行标签
+（科目名）。重名的行、重名的列都按出现次序加 `#2`、`#3`（财报常把合并与母公司
+并排，同一报告期出现两次；审读第 5 条）。每格给原文与能读成数的十进制字符串
+（千分位、括号负数、全角负号都认；`-`、空白读成空）。文件是用户传的，当作不可信：
+xlsx 先看解压后的大小，行数、列数、格子数都有上限。同一份内容（sha256）只解析一次。
 
 端口是 application/ports/knowbots.TableExtractor。
 """
@@ -22,7 +23,7 @@ import zipfile
 from collections import OrderedDict
 from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 
 from app.domain.knowbots.data_read import Cell, Row, Sheet, Tables, TableUnreadable
 
@@ -83,13 +84,26 @@ def number_of(value: Any) -> str | None:
     return _decimal(-number if negative else number)
 
 
+def _numbered(labels: Iterable[str]) -> list[str]:
+    """重名的按出现次序加 `#2`、`#3`；空的留空（那一列不要）。"""
+    seen: dict[str, int] = {}
+    out = []
+    for label in labels:
+        if label:
+            seen[label] = seen.get(label, 0) + 1
+            if seen[label] > 1:
+                label = f"{label}#{seen[label]}"
+        out.append(label)
+    return out
+
+
 def _sheet(name: str, rows: Iterable[Iterable[Any]]) -> Sheet:
     it = iter(rows)
     header = next(it, None)
     if header is None:
         return Sheet(name=name, columns=(), rows=())
     labels = [_label(v) for v in list(header)[:MAX_COLUMNS]]
-    columns = tuple(labels[1:])
+    columns = tuple(_numbered(labels[1:]))
     seen: dict[str, int] = {}
     out: list[Row] = []
     cells = 0
@@ -113,6 +127,18 @@ def _sheet(name: str, rows: Iterable[Iterable[Any]]) -> Sheet:
             raise TableUnreadable("the table is too large")
         out.append(Row(label=label, cells=row_cells))
     return Sheet(name=name, columns=tuple(c for c in columns if c), rows=tuple(out))
+
+
+def _xls_value(cell: Any, datemode: Literal[0, 1]) -> Any:
+    """xls 的日期格存的是序列号：转回日期，列标签才是 2024-12-31 而不是 45657。"""
+    import xlrd
+
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        try:
+            return xlrd.xldate_as_datetime(cell.value, datemode)
+        except (ValueError, OverflowError, xlrd.xldate.XLDateError):
+            return cell.value
+    return cell.value
 
 
 def extract_tables(data: bytes, content_type: str) -> Tables:
@@ -145,7 +171,10 @@ def extract_tables(data: bytes, content_type: str) -> Tables:
                 sheets = []
                 for index in range(book.nsheets):
                     sheet = book.sheet_by_index(index)
-                    rows = (sheet.row_values(r) for r in range(sheet.nrows))
+                    rows = (
+                        [_xls_value(c, book.datemode) for c in sheet.row(r)]
+                        for r in range(sheet.nrows)
+                    )
                     sheets.append(_sheet(sheet.name, rows))
                     book.unload_sheet(index)
                 return Tables(sheets=tuple(sheets))

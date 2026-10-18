@@ -243,16 +243,87 @@ async def test_questions_are_stored_once_and_routes_respect_their_kind(db) -> No
         ]
         scope = next(q for q in found if q.key == "period")
         approve = next(q for q in found if q.kind == "tool_approval")
+        # 先归谁（审读第 2 条）：审批归我们，别的建出来就归用户
+        assert approve.route is None and scope.route == "user"
         asks = KnowbotQuestionService(repo, RUNTIME)
-        await asks.answer_as_operator(str(scope.id), AnswerIn(option_id="3y"))
+        await asks.answer_as_user(OWNER, str(scope.id), AnswerIn(option_id="3y"))
     async with db() as session:
         repo = SqlKnowlabRepository(session)
         stored = await repo.get_request(request.id)
         assert stored and stored.cases[0]["input"]["answers"] == {"period": "3y"}
+        judge = next(
+            q
+            for q in await repo.list_questions(draft_id=draft.id, open_only=True)
+            if q.question_id == "q-judge"
+        )
+        await KnowbotQuestionService(repo, RUNTIME).take(str(judge.id), "跑法问题")
     async with db() as session:
-        with pytest.raises(DBAPIError):
-            async with session.begin():
-                await session.execute(
-                    text("UPDATE knowbot_question SET route = 'user' WHERE id = :q"),
-                    {"q": str(approve.id)},
-                )
+        taken = await SqlKnowlabRepository(session).get_question(judge.id)
+        assert taken and (taken.route, taken.route_reason) == ("operator", "跑法问题")
+    # 库里的约束兜底：审批不能转给谁；改派给我们必须写理由
+    for sql, q in [
+        ("UPDATE knowbot_question SET route = 'user' WHERE id = :q", approve.id),
+        (
+            "UPDATE knowbot_question SET route_reason = NULL WHERE id = :q",
+            judge.id,
+        ),
+        ("UPDATE knowbot_question SET route = NULL WHERE id = :q", judge.id),
+    ]:
+        async with db() as session:
+            with pytest.raises(DBAPIError):
+                async with session.begin():
+                    await session.execute(text(sql), {"q": str(q)})
+
+
+def _step(name: str, direction: str):
+    """只跑一条迁移的 upgrade 或 downgrade。"""
+
+    def run(connection) -> None:
+        path = ROOT / "alembic/versions" / f"{name}.py"
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with Operations.context(MigrationContext.configure(connection)):
+            getattr(module, direction)()
+
+    return run
+
+
+@pytest.mark.asyncio
+async def test_the_route_migration_moves_rows_that_were_already_there(db) -> None:
+    """0007 上线时库里已有的问题：没答的转给用户，运营直接答过的记成运营改派的。"""
+    async with db() as session:
+        svc = service(session)
+        request = await svc.submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+        draft = await svc.add_draft(str(request.id), manifest())
+        await svc.review_rules(str(draft.id), "admin-1")
+        run = await svc.start_test(
+            str(draft.id), budget_limit="20", timeout_seconds=600
+        )
+    RUNTIME.results[run.run_id] = waiting(run.run_id)
+    async with db() as session:
+        await service(session).refresh(str(draft.id))
+    name = "20261018_0007_question_route"
+    async with db() as session, session.begin():
+        connection = await session.connection()
+        await connection.run_sync(_step(name, "downgrade"))
+        # 0006 时的样子：路由都空着，有一条是运营直接答的
+        await session.execute(text("UPDATE knowbot_question SET route = NULL"))
+        await session.execute(
+            text(
+                'UPDATE knowbot_question SET answer = \'{"option_id": "3y"}\','
+                " answered_by = 'operator' WHERE question_id = 'q-scope'"
+            )
+        )
+        await connection.run_sync(_step(name, "upgrade"))
+    async with db() as session:
+        rows = await session.execute(
+            text("SELECT question_id, route, route_reason FROM knowbot_question")
+        )
+        assert {r[0]: (r[1], r[2]) for r in rows} == {
+            "q-approve": (None, None),
+            "q-scope": ("operator", "迁移前运营直接答的"),
+            "q-judge": ("user", None),
+        }

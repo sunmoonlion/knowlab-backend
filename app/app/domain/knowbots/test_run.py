@@ -128,6 +128,12 @@ class PendingQuestion(Strict):
     asked_at: str = Field(min_length=1, max_length=40)
 
 
+def first_route(kind: str) -> str | None:
+    """问题先归谁（C-L1，审读第 2 条）：工具审批归我们（空）；投资判断与开步前的提问
+    归用户本人，运营要写理由改派给自己才能答。"""
+    return None if kind == "tool_approval" else "user"
+
+
 RunStatus = Literal[
     "accepted",
     "running",

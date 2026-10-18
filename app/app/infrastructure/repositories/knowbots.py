@@ -92,7 +92,15 @@ def _dataset(row: KnowbotDataset) -> DatasetRecord:
 
 
 QUESTION_FIELDS = frozenset(
-    {"route", "answer", "answered_by", "answered_at", "sent_at", "last_error"}
+    {
+        "route",
+        "route_reason",
+        "answer",
+        "answered_by",
+        "answered_at",
+        "sent_at",
+        "last_error",
+    }
 )
 
 
@@ -111,6 +119,7 @@ def _question(row: KnowbotQuestion) -> QuestionRecord:
         step_id=row.step_id,
         key=row.key,
         route=row.route,
+        route_reason=row.route_reason,
         answer=row.answer,
         answered_by=row.answered_by,
         answered_at=row.answered_at,
@@ -374,6 +383,7 @@ class SqlKnowlabRepository:
                     options=list(q.get("options") or []),
                     allow_free_text=bool(q.get("allow_free_text", True)),
                     asked_at=q["asked_at"],
+                    route=q.get("route"),
                 )
                 .on_conflict_do_nothing(constraint="uq_knowbot_question_once")
             )

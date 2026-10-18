@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -80,6 +81,21 @@ class KnowbotRequestIn(Strict):
         return self
 
 
+# 与 knowmart 交付时的上限一致（审读第 10 条）：草稿测过了、交付才被拒，白测一轮
+MAX_MANIFEST_BYTES = 1_000_000
+MAX_RULE_SOURCES = 500
+MAX_DATA_BINDINGS = 64
+
+
+def _size(document: dict[str, Any]) -> int:
+    """按 knowmart 算摘要的写法量大小（紧凑、键排序、不转义中文）。"""
+    return len(
+        json.dumps(
+            document, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    )
+
+
 def draft_manifest_problems(
     manifest: object, *, runtime: str, version: str
 ) -> list[str]:
@@ -90,6 +106,8 @@ def draft_manifest_problems(
     if not isinstance(manifest, dict):
         return ["manifest must be an object"]
     doc: dict[str, Any] = manifest
+    if _size(doc) > MAX_MANIFEST_BYTES:
+        return [f"manifest is larger than {MAX_MANIFEST_BYTES} bytes"]
     problems: list[str] = []
     if doc.get("schema") != MANIFEST_SCHEMA:
         problems.append(f"schema must be {MANIFEST_SCHEMA}")
@@ -110,6 +128,8 @@ def draft_manifest_problems(
     sources = doc.get("rule_sources")
     if not isinstance(sources, list) or not sources:
         problems.append("every rule needs a source (rule_sources is empty)")
+    elif len(sources) > MAX_RULE_SOURCES:
+        problems.append(f"at most {MAX_RULE_SOURCES} rule sources")
     elif any(
         not isinstance(s, dict)
         or s.get("source") not in RULE_SOURCES
@@ -119,4 +139,13 @@ def draft_manifest_problems(
         problems.append(
             "each rule source must be user_text or user_confirmed with a ref"
         )
+    bindings = doc.get("data_bindings", [])
+    if not isinstance(bindings, list):
+        problems.append("data_bindings must be a list")
+    elif len(bindings) > MAX_DATA_BINDINGS:
+        problems.append(f"at most {MAX_DATA_BINDINGS} data bindings")
+    else:
+        ids = [b.get("dataset_id") for b in bindings if isinstance(b, dict)]
+        if len(ids) != len(set(ids)):
+            problems.append("a dataset may be bound only once per version")
     return problems

@@ -113,6 +113,7 @@ class KnowbotQuestion(TimestampMixin, Base):
     allow_free_text: Mapped[bool] = mapped_column(Boolean, nullable=False)
     asked_at: Mapped[str] = mapped_column(String(40), nullable=False)
     route: Mapped[str | None] = mapped_column(String(16))
+    route_reason: Mapped[str | None] = mapped_column(Text)
     answer: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     answered_by: Mapped[str | None] = mapped_column(String(16))
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -128,7 +129,10 @@ class KnowbotQuestion(TimestampMixin, Base):
             name="ck_knowbot_question_kind",
         ),
         CheckConstraint(
-            "route IS NULL OR (route = 'user' AND kind <> 'tool_approval')",
+            "(kind = 'tool_approval' AND route IS NULL)"
+            " OR (kind <> 'tool_approval' AND route IS NOT NULL"
+            " AND (route = 'user'"
+            " OR (route = 'operator' AND route_reason IS NOT NULL)))",
             name="ck_knowbot_question_route",
         ),
         CheckConstraint(

@@ -61,6 +61,26 @@ def test_manifest_checks() -> None:
     assert draft_manifest_problems([], runtime="knowbench", version="1")
 
 
+def test_manifest_limits_match_knowmart() -> None:
+    """knowmart 交付时拒的，草稿时就拒（审读第 10 条）。"""
+    ok = {"rule": "r", "source": "user_text", "ref": "x"}
+    assert draft_manifest_problems(
+        manifest(rule_sources=[ok] * 501), runtime="knowbench", version="1"
+    ) == ["at most 500 rule sources"]
+    binding = {"dataset_id": "d", "version": "1", "sha256": "0" * 64}
+    assert draft_manifest_problems(
+        manifest(data_bindings=[binding, binding]), runtime="knowbench", version="1"
+    ) == ["a dataset may be bound only once per version"]
+    many = [binding | {"dataset_id": f"d{i}"} for i in range(65)]
+    assert draft_manifest_problems(
+        manifest(data_bindings=many), runtime="knowbench", version="1"
+    ) == ["at most 64 data bindings"]
+    huge = manifest(tagline="长" * 400_000)
+    assert draft_manifest_problems(huge, runtime="knowbench", version="1") == [
+        "manifest is larger than 1000000 bytes"
+    ]
+
+
 def test_only_listed_moves_are_allowed() -> None:
     assert can_move("pending_test", "testing")
     assert can_move("testing", "pending_test")

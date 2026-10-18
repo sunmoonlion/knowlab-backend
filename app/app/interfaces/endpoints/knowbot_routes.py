@@ -38,6 +38,7 @@ from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.http.middleware.auth import (
     get_web_current_user,
     require_knowlab_admin,
+    require_knowlab_release,
 )
 
 CONTRACT_VERSION = 1
@@ -70,6 +71,8 @@ Questions = Annotated[KnowbotQuestionService, Depends(question_service)]
 DataService = Annotated[KnowbotDataService, Depends(data_service)]
 User = Annotated[Principal, Depends(get_web_current_user)]
 Admin = Annotated[Principal, Depends(require_knowlab_admin)]
+# 运营（operator）只能看、发起测试、答跑法问题；下面这几步只有 admin 能做
+Releaser = Annotated[Principal, Depends(require_knowlab_release)]
 ItemId = Annotated[str, Path(max_length=64)]
 
 
@@ -156,6 +159,7 @@ def _question_view(
     if admin:
         view |= {
             "route": q.route,
+            "route_reason": q.route_reason,
             "owner_subject": request.owner_subject,
             "draft_id": str(draft.id),
             "last_error": q.last_error,
@@ -172,6 +176,7 @@ def _answered_view(q: QuestionRecord) -> dict[str, Any]:
         "text": q.text,
         "answer": q.answer,
         "answered_by": q.answered_by,
+        "route_reason": q.route_reason,
         "answered_at": _iso(q.answered_at),
     }
 
@@ -186,6 +191,11 @@ class AnswerBody(BaseModel):
         return AnswerIn(
             decision=self.decision, option_id=self.option_id, text=self.text
         )
+
+
+class TakeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=200)
 
 
 def _request_view(
@@ -324,7 +334,7 @@ async def request_detail(
 
 @admin_router.post("/knowbot-requests/{request_id}/drafts")
 async def add_draft(
-    _: Admin, body: DraftIn, svc: Service, request_id: ItemId
+    _: Releaser, body: DraftIn, svc: Service, request_id: ItemId
 ) -> JSONResponse:
     """过渡做法：管理员上传清单建草稿（等「后端自动生成」定了再接）。"""
     draft = await svc.add_draft(request_id, body.manifest)
@@ -344,9 +354,18 @@ async def open_questions(_: Admin, questions: Questions) -> JSONResponse:
 async def answer_question(
     _: Admin, body: AnswerBody, questions: Questions, question_id: ItemId
 ) -> JSONResponse:
-    """工具审批与跑法层面的问题由我们答；投资判断要转给用户（C-L1）。"""
+    """工具审批，和写了理由改派给我们的跑法问题，由我们答；别的归用户（C-L1）。"""
     found = await questions.answer_as_operator(question_id, body.given())
     return _ok({"question_id": str(found.id), "sent": found.sent_at is not None})
+
+
+@admin_router.post("/knowbot-questions/{question_id}/take", status_code=204)
+async def question_take(
+    _: Admin, body: TakeBody, questions: Questions, question_id: ItemId
+) -> Response:
+    """运营写一句理由，把一条归用户的问题改派给自己（只限跑法问题）。"""
+    await questions.take(question_id, body.reason)
+    return Response(status_code=204, headers=NO_STORE)
 
 
 @admin_router.post("/knowbot-questions/{question_id}/to-user", status_code=204)
@@ -371,7 +390,7 @@ async def drafts(
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/rules-review", status_code=204)
-async def review_rules(admin: Admin, svc: Service, draft_id: ItemId) -> Response:
+async def review_rules(admin: Releaser, svc: Service, draft_id: ItemId) -> Response:
     """逐条核过规则出处（C-L1）；记下是谁核的。"""
     await svc.review_rules(draft_id, admin.subject)
     return Response(status_code=204, headers=NO_STORE)
@@ -394,12 +413,12 @@ async def refresh(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/deliver")
-async def deliver(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
+async def deliver(_: Releaser, svc: Service, draft_id: ItemId) -> JSONResponse:
     draft = await svc.deliver(draft_id)
     return _ok(_draft_for_user(draft))
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/reset", status_code=204)
-async def reset(_: Admin, svc: Service, draft_id: ItemId) -> Response:
+async def reset(_: Releaser, svc: Service, draft_id: ItemId) -> Response:
     await svc.reset_stuck(draft_id)
     return Response(status_code=204, headers=NO_STORE)

@@ -38,6 +38,8 @@ from app.domain.knowbots.datasets import XLSX
 from app.infrastructure.documents import table_extract, text_extract
 from app.infrastructure.documents.table_extract import (
     CachedTableExtractor,
+    _sheet,
+    _xls_value,
     extract_tables,
     number_of,
 )
@@ -521,6 +523,43 @@ def test_excel_becomes_labelled_cells_per_sheet() -> None:
     assert [s.name for s in tables.sheets] == ["利润表", "说明"]
 
 
+def test_repeated_column_labels_are_numbered_not_overwritten() -> None:
+    """合并与母公司并排、同一报告期出现两次：后一列不能盖掉前一列（审读第 5 条）。"""
+    tables = extract_tables(
+        "科目,2024-12-31,2024-12-31,,2023-12-31\n营收,100,60,x,90\n".encode(),
+        "text/csv",
+    )
+    sheet = tables.sheet(None)
+    assert sheet is not None
+    assert sheet.columns == ("2024-12-31", "2024-12-31#2", "2023-12-31")
+    row = sheet.row("营收")
+    assert row is not None
+    assert {k: c.number for k, c in row.cells.items()} == {
+        "2024-12-31": "100",
+        "2024-12-31#2": "60",
+        "2023-12-31": "90",
+    }
+
+
+def test_xls_date_cells_become_dates_not_serial_numbers() -> None:
+    import xlrd
+
+    class XlsCell:
+        def __init__(self, ctype: int, value: object) -> None:
+            self.ctype, self.value = ctype, value
+
+    assert _xls_value(XlsCell(xlrd.XL_CELL_DATE, 45657.0), 0) == dt.datetime(
+        2024, 12, 31
+    )
+    assert _xls_value(XlsCell(xlrd.XL_CELL_NUMBER, 45657.0), 0) == 45657.0
+    assert _xls_value(XlsCell(xlrd.XL_CELL_DATE, 1e20), 0) == 1e20  # 坏日期照原值
+    header = [_xls_value(XlsCell(xlrd.XL_CELL_TEXT, "科目"), 0)] + [
+        _xls_value(XlsCell(xlrd.XL_CELL_DATE, 45657.0), 0)
+    ]
+    sheet = _sheet("利润表", [header, ["营收", 100.0]])
+    assert sheet.columns == ("2024-12-31",)
+
+
 def test_csv_is_one_table_named_data() -> None:
     tables = extract_tables(
         "\ufeff科目,2024\n营收,100\n".encode(), "text/csv; charset=utf-8"
@@ -639,10 +678,18 @@ def test_contract_manifest_digests_match_the_schemas() -> None:
 # ---------- 内部接口 ----------
 
 
-def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-    )
+def _client(base_url: str = "http://127.0.0.1") -> httpx.AsyncClient:
+    # 内部接口只认集群内与回环地址（审读第 1 条）
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=base_url)
+
+
+async def test_public_hosts_do_not_see_the_internal_entry() -> None:
+    body = {"contract": "knowbot-data/v1", "purpose": {"kind": "test"}}
+    async with _client("http://testserver") as h:
+        hidden = await h.post(
+            f"{INTERNAL}/list", json=body, headers={"Authorization": "Bearer x"}
+        )
+    assert hidden.status_code == 404
 
 
 async def test_without_the_relation_configured_everything_is_refused(

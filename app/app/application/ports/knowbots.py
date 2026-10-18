@@ -79,6 +79,7 @@ class QuestionRecord:
     step_id: str | None = None
     key: str | None = None
     route: str | None = None
+    route_reason: str | None = None
     answer: dict[str, Any] | None = None
     answered_by: str | None = None
     answered_at: datetime | None = None

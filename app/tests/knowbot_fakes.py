@@ -215,6 +215,7 @@ class MemoryKnowlab:
                 asked_at=q["asked_at"],
                 step_id=q.get("step_id"),
                 key=q.get("key"),
+                route=q.get("route"),
             )
             self.questions[record.id] = record
 
