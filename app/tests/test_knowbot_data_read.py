@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import os
+import threading
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -468,6 +469,37 @@ async def test_the_same_content_is_extracted_once(
         ]
     )
     assert [g.text for g in got] == ["abc"] * 3 and calls == ["text/plain"]
+
+
+async def test_a_reader_that_gives_up_still_leaves_the_text_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """抽得慢、读的那头先超时走了：抽取照样做完进缓存，下一次直接拿到（K19 预演）。"""
+    calls: list[str] = []
+    gate = threading.Event()
+
+    def slow(data: bytes, content_type: str) -> Extracted:
+        calls.append(content_type)
+        gate.wait(5)
+        return Extracted(text=data.decode())
+
+    monkeypatch.setattr(text_extract, "extract_text", slow)
+    extractor = CachedTextExtractor()
+    sha = hashlib.sha256(b"abc").hexdigest()
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(
+            extractor.extract(data=b"abc", content_type="application/pdf", sha256=sha),
+            timeout=0.05,
+        )
+    gate.set()
+    for _ in range(100):  # 等后台那次抽完
+        if not extractor._pending:
+            break
+        await asyncio.sleep(0.01)
+    got = await extractor.extract(
+        data=b"abc", content_type="application/pdf", sha256=sha
+    )
+    assert got.text == "abc" and calls == ["application/pdf"]
 
 
 # ---------- 按格子读 ----------

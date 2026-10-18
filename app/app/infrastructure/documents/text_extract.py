@@ -167,14 +167,19 @@ def extract_text(data: bytes, content_type: str) -> Extracted:
 
 
 class CachedTextExtractor:
-    """按 sha256 缓存抽取结果；同一份内容并发来读只抽一次。"""
+    """按 sha256 缓存抽取结果；同一份内容并发来读只抽一次。
+
+    抽取单独跑成一个任务，来读的人只是等它：读的那头先超时走了（一份两百页的年报要抽十几、
+    二十秒，调用方的超时可能更短），抽取照样做完、进缓存，下一次来读直接拿到，不会每次都从头抽、
+    每次都超时（K19 预演发现）。
+    """
 
     def __init__(self, cache_chars: int = CACHE_CHARS) -> None:
         self._cache: OrderedDict[str, Extracted] = OrderedDict()
         self._chars = 0
         self._limit = cache_chars
         self._lock = threading.Lock()
-        self._pending: dict[str, asyncio.Future[Extracted]] = {}
+        self._pending: dict[str, asyncio.Task[Extracted]] = {}
 
     async def extract(
         self, *, data: bytes, content_type: str, sha256: str
@@ -185,20 +190,17 @@ class CachedTextExtractor:
             if hit is not None:
                 self._cache.move_to_end(key)
                 return hit
-        pending = self._pending.get(key)
-        if pending is not None:
-            return await asyncio.shield(pending)
-        future: asyncio.Future[Extracted] = asyncio.get_running_loop().create_future()
-        self._pending[key] = future
+        task = self._pending.get(key)
+        if task is None:
+            task = asyncio.create_task(self._extract(key, data, content_type))
+            self._pending[key] = task
+        return await asyncio.shield(task)
+
+    async def _extract(self, key: str, data: bytes, content_type: str) -> Extracted:
         try:
             result = await asyncio.to_thread(extract_text, data, content_type)
             self._remember(key, result)
-            future.set_result(result)
             return result
-        except BaseException as exc:
-            future.set_exception(exc)
-            future.exception()  # 没人等也不报「未取回的异常」
-            raise
         finally:
             self._pending.pop(key, None)
 
