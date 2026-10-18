@@ -125,6 +125,10 @@ def _draft_for_admin(draft: DraftRecord, request: RequestRecord) -> dict[str, An
         "run_attempts": draft.run_attempts,
         "run_started_at": _iso(draft.run_started_at),
         "last_error": draft.last_error,
+        # 测试中：跑着的那条走到哪了（待办账 135）。只给管理端，用户的结果格式不变
+        "progress": (draft.report or {}).get("progress")
+        if draft.status == "testing"
+        else None,
     }
 
 

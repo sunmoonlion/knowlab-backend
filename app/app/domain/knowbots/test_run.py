@@ -139,6 +139,25 @@ def first_route(kind: str) -> str | None:
     return None if kind == "tool_approval" else "user"
 
 
+class Progress(Strict):
+    """跑着的那条用例走到哪了（待办账 135）。
+
+    只有编号、计数、步名和钱，不含交回物内容（C-L5）。
+    v1 冻结后加的可选字段：运行方不给也收。
+    """
+
+    case_id: str = Field(pattern=CASE_ID)
+    cases_done: int = Field(ge=0, le=50)  # 已经跑完几条
+    cases_total: int = Field(ge=1, le=50)
+    step: int = Field(ge=0, le=200)  # 第几步（从 1 起；0 = 还没开第一步）
+    steps_total: int = Field(ge=0, le=200)
+    step_title: str = Field(default="", max_length=200)
+    attempt: int = Field(default=0, ge=0, le=100)  # 这一步第几次做（重做会加）
+    spent: str = Field(
+        pattern=r"^[0-9]{1,9}(\.[0-9]{1,6})?$"
+    )  # 到现在花了多少，含跑着的这条
+
+
 RunStatus = Literal[
     "accepted",
     "running",
@@ -162,6 +181,7 @@ class RunResultV1(Strict):
     finished_at: str | None = None
     questions: tuple[PendingQuestion, ...] = Field(default=(), max_length=50)
     waited_seconds: int = Field(default=0, ge=0)  # 到现在一共等了人多久
+    progress: Progress | None = None  # 没结论时：跑着的那条走到哪了
 
     @model_validator(mode="after")
     def _waiting_means_questions(self) -> RunResultV1:

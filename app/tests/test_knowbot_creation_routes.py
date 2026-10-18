@@ -186,6 +186,43 @@ async def test_full_flow_through_the_api(wired) -> None:
 
 
 @pytest.mark.asyncio
+async def test_admin_sees_how_far_a_running_test_got_and_users_do_not(wired) -> None:
+    """测试中看进度（待办账 135）：管理端草稿上带进度，跑完就没有；用户的结果不变。"""
+    svc, repo, runtime, _ = wired
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+
+    request = await svc.submit(
+        "user-123", KnowbotRequestIn.model_validate(request_body())
+    )
+    draft = await svc.add_draft(str(request.id), manifest())
+    await svc.review_rules(str(draft.id), "admin-1")
+    run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    progress = {
+        "case_id": "c1",
+        "cases_done": 0,
+        "cases_total": 1,
+        "step": 2,
+        "steps_total": 2,
+        "step_title": "回答",
+        "attempt": 1,
+        "spent": "0.120000",
+    }
+    runtime.results[run.run_id] = result(run.run_id, "running", progress=progress)
+    await svc.refresh(str(draft.id))
+    async with client() as c:
+        c.cookies.set(ADMIN_SID, "admin")
+        [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
+        assert shown["status"] == "testing" and shown["progress"] == progress
+        c.cookies.set(WEB_SID, "member")
+        mine = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
+        assert "progress" not in str(mine)
+        runtime.results[run.run_id] = result(run.run_id, "passed")
+        await svc.refresh(str(draft.id))
+        [done] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
+        assert done["status"] == "delivered" and done["progress"] is None
+
+
+@pytest.mark.asyncio
 async def test_users_only_see_their_own_requests(wired) -> None:
     svc, *_ = wired
     from app.domain.knowbots.drafts import KnowbotRequestIn

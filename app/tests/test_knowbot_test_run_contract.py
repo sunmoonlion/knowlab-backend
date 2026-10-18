@@ -75,3 +75,37 @@ def test_step_results_may_say_why_a_check_failed() -> None:
     assert said.details == ("取数: says 150, data 100",)
     with pytest.raises(ValidationError):
         StepResult.model_validate(base | {"details": ["长" * 201]})
+
+
+def test_a_running_result_may_say_how_far_it_got() -> None:
+    """v1 冻结后加的可选字段 progress（待办账 135）：带了收、不带也收，只收计数和钱。"""
+    from pydantic import ValidationError
+
+    from app.domain.knowbots.test_run import RunResultV1
+
+    base = {
+        "contract": "knowbot-test-run/v1",
+        "run_id": "knowlab-run-0001",
+        "status": "running",
+    }
+    assert RunResultV1.model_validate(base).progress is None
+    progress = {
+        "case_id": "c1",
+        "cases_done": 0,
+        "cases_total": 3,
+        "step": 3,
+        "steps_total": 8,
+        "step_title": "勾稽",
+        "attempt": 1,
+        "spent": "12.403100",
+    }
+    got = RunResultV1.model_validate(base | {"progress": progress})
+    assert got.progress is not None and got.progress.step == 3
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(
+        got.model_dump(mode="json"), _schema("test-run-result.schema.json")
+    )
+    with pytest.raises(ValidationError):
+        RunResultV1.model_validate(
+            base | {"progress": progress | {"answer": "不许带内容"}}
+        )
