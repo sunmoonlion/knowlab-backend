@@ -61,3 +61,17 @@ def test_examples_satisfy_the_published_schemas() -> None:
             answer | {"analysis": "不许带分析内容"},
             _schema("test-run-result.schema.json"),
         )
+
+
+def test_step_results_may_say_why_a_check_failed() -> None:
+    """v1 冻结后加的可选字段 details（审读第 3 条）：带了收、不带也收、超长拒。"""
+    from pydantic import ValidationError
+
+    from app.domain.knowbots.test_run import StepResult
+
+    base = {"step_id": "answer", "accepted": False, "failed_checks": ["取数"]}
+    assert StepResult.model_validate(base).details == ()
+    said = StepResult.model_validate(base | {"details": ["取数: says 150, data 100"]})
+    assert said.details == ("取数: says 150, data 100",)
+    with pytest.raises(ValidationError):
+        StepResult.model_validate(base | {"details": ["长" * 201]})

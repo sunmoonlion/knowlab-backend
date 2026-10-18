@@ -19,7 +19,7 @@ knowlab 管理端后端把一份草稿清单、验收用例、数据绑定、预
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -92,6 +92,11 @@ class StepResult(Strict):
     step_id: str = Field(min_length=1, max_length=128)
     accepted: bool
     failed_checks: tuple[str, ...] = Field(default=(), max_length=64)  # 没过的验收名
+    # 没过的为什么没过，一条一句（哪一格、说了多少、实际多少）；v1 冻结后加的可选字段
+    # （审读第 3 条）。数是用户自己数据里的，不是分析内容（C-L5）
+    details: tuple[Annotated[str, Field(max_length=200)], ...] = Field(
+        default=(), max_length=64
+    )
 
 
 class CaseResult(Strict):
