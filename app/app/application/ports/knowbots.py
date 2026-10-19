@@ -87,6 +87,20 @@ class QuestionRecord:
     last_error: str | None = None
 
 
+@dataclass(frozen=True)
+class AmendmentRecord:
+    """用户给自己的想法写的一条补充方法（SDD 0035）。原话写下后不改、不删。"""
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    owner_subject: str
+    text: str = field(repr=False)
+    created_at: datetime | None = None
+    declined_reason: str | None = None
+    declined_by: str | None = None
+    declined_at: datetime | None = None
+
+
 class KnowlabRepository(Protocol):
     def transaction(self) -> AbstractAsyncContextManager[None]: ...
 
@@ -137,6 +151,25 @@ class KnowlabRepository(Protocol):
         self, request_id: uuid.UUID, cases: list[dict[str, Any]]
     ) -> None:
         """答过的开步前提问记回用例的预设答案。"""
+        ...
+
+    # ---------- 补充方法 ----------
+    async def create_amendment(
+        self, *, request_id: uuid.UUID, owner_subject: str, text: str
+    ) -> AmendmentRecord: ...
+
+    async def list_amendments(self, request_id: uuid.UUID) -> Sequence[AmendmentRecord]:
+        """这个想法的补充，先提交的在前。"""
+        ...
+
+    async def get_amendment(
+        self, amendment_id: uuid.UUID, *, for_update: bool = False
+    ) -> AmendmentRecord | None: ...
+
+    async def decline_amendment(
+        self, amendment_id: uuid.UUID, *, reason: str, by: str, at: datetime
+    ) -> None:
+        """只记「不照做」的理由、谁、何时；原话不动。"""
         ...
 
     # ---------- 测试中的问题 ----------

@@ -5,11 +5,18 @@
 
 版本号在建草稿时定为「这个分身已交付几次 + 1」：测的是哪份清单，交付的就是哪份（摘要要对
 得上）。一次没测过、改出的新草稿沿用同一个版本号，修订号递增。
+
+补充方法（SDD 0035）：用户对自己的想法写的改动，原话进规则出处——来源仍是 `user_text`，
+`ref` 以 `amendment:<补充 id>` 开头。状态从各稿清单推：没被哪一稿引、也没「不照做」就是
+待处理；建稿之前提交的补充，这一稿要么引了、要么不照做，才能核对出处。
 """
 
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Iterable
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -28,6 +35,15 @@ TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
 )
 MANIFEST_SCHEMA = "knowbot-manifest/v1"
 RULE_SOURCES = frozenset({"user_text", "user_confirmed"})
+
+
+MAX_AMENDMENT_CHARS = 4000
+MAX_AMENDMENTS = 200  # 一个想法最多这么多条补充
+MAX_DECLINE_CHARS = 500
+AMENDMENT_PREFIX = "amendment:"
+_AMENDMENT_REF = re.compile(
+    r"^amendment:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])"
+)
 
 
 def can_move(current: str, target: str) -> bool:
@@ -149,3 +165,75 @@ def draft_manifest_problems(
         if len(ids) != len(set(ids)):
             problems.append("a dataset may be bound only once per version")
     return problems
+
+
+def amendment_refs(manifest: object) -> tuple[set[str], list[str]]:
+    """清单的规则出处引了哪几条补充（id），以及写坏了的 `amendment:` 引用。"""
+    found: set[str] = set()
+    broken: list[str] = []
+    sources = manifest.get("rule_sources") if isinstance(manifest, dict) else None
+    for source in sources if isinstance(sources, list) else []:
+        ref = source.get("ref") if isinstance(source, dict) else None
+        if not isinstance(ref, str) or not ref.startswith(AMENDMENT_PREFIX):
+            continue
+        match = _AMENDMENT_REF.match(ref)
+        if match and source.get("source") == "user_text":
+            found.add(match.group(1))
+        else:
+            broken.append(ref[:80])
+    return found, broken
+
+
+def amendment_ref_problems(manifest: object, amendments: dict[str, bool]) -> list[str]:
+    """建草稿时核：引的补充必须是这个想法的、没被「不照做」。
+
+    amendments：这个想法的补充 id → 是否已不照做。
+    """
+    cited, broken = amendment_refs(manifest)
+    problems = [
+        f"rule source {ref!r} must be user_text with amendment:<id>" for ref in broken
+    ]
+    for amendment_id in sorted(cited):
+        if amendment_id not in amendments:
+            problems.append(f"amendment {amendment_id} is not one of this request's")
+        elif amendments[amendment_id]:
+            problems.append(f"amendment {amendment_id} was declined")
+    return problems
+
+
+def amendment_status(
+    amendment_id: str, declined: bool, drafts: Iterable[tuple[int, object]]
+) -> tuple[str, int | None]:
+    """（open / used / declined，用进的最新一稿的修订号）。drafts：（修订号，清单）。"""
+    if declined:
+        return "declined", None
+    used = [
+        rev for rev, manifest in drafts if amendment_id in amendment_refs(manifest)[0]
+    ]
+    return ("used", max(used)) if used else ("open", None)
+
+
+def amendments_to_handle(
+    manifest: object,
+    draft_created_at: datetime | None,
+    amendments: Iterable[tuple[str, datetime | None, bool]],
+) -> tuple[list[str], int]:
+    """（这一稿核对出处前要处理的补充 id，这一稿建好之后才提交的条数）。
+
+    amendments：（id，提交时间，是否已不照做）。建稿之前（含同一刻）提交的、没不照做的，
+    这一稿的出处必须引它；上一稿引过不算（改版不许悄悄丢掉用户的补充，SDD 0035 §二.5）。
+    """
+    cited = amendment_refs(manifest)[0]
+    blocking: list[str] = []
+    newer = 0
+    for amendment_id, created_at, declined in amendments:
+        before = (
+            created_at is None
+            or draft_created_at is None
+            or created_at <= draft_created_at
+        )
+        if not before:
+            newer += 0 if declined else 1
+        elif not declined and amendment_id not in cited:
+            blocking.append(amendment_id)
+    return blocking, newer

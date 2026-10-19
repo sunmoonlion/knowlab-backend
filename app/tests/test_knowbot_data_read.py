@@ -27,11 +27,15 @@ from app.domain.knowbots.data_read import (
     CellsRequestV1,
     Extracted,
     ListRequestV1,
+    QuotesRequestV1,
     ReadRequestV1,
     Sheet,
     TableRequestV1,
     TableUnreadable,
+    find_quote,
+    normalize_quote,
     paginate,
+    pdf_pages,
     table_page,
 )
 from app.domain.knowbots.data_schema import DOCUMENTS, render
@@ -732,6 +736,130 @@ def test_cell_requests_are_bounded() -> None:
     )
 
 
+# ---------- 核引文（SDD 0036） ----------
+
+REPORT = (
+    "## Page 1\n封面\n\n"
+    "## Page 2\n第三节 管理层讨论与分析\n"
+    "报告期内，公司营业收入同比增长\n15.7%，主要\n\n"
+    "## Page 3\n得益于系列酒销量增加；毛利率略有下降。\n\n"
+)
+
+
+def test_pdf_pages_follow_the_extraction_markers() -> None:
+    pages = pdf_pages(REPORT)
+    assert sorted(pages) == [1, 2, 3]
+    assert "管理层讨论与分析" in pages[2] and "封面" not in pages[2]
+    assert pdf_pages("没有页的文字") == {}
+
+
+def test_quotes_match_after_normalizing_spaces_and_widths() -> None:
+    pages = pdf_pages(REPORT)
+    assert (
+        normalize_quote(" 营业收入 同比\n增长　１５．７％ ") == "营业收入同比增长15.7%"
+    )
+    assert find_quote(pages, 2, "公司营业收入同比增长 15.7%") is None
+    assert find_quote(pages, 2, "公司营业收入同比增长１５．７％") is None  # 全角
+    assert (
+        find_quote(pages, 2, "公司营业收入同比增长 15.8%") == "not_found"
+    )  # 改了一个字
+    assert find_quote(pages, 3, "公司营业收入同比增长 15.7%") == "not_found"  # 页码不对
+
+
+def test_a_quote_may_run_onto_the_next_page_but_must_start_on_its_own() -> None:
+    pages = pdf_pages(REPORT)
+    assert find_quote(pages, 2, "15.7%，主要得益于系列酒销量增加") is None
+    # 整段都在第 3 页：写成第 2 页不算
+    assert find_quote(pages, 2, "得益于系列酒销量增加；毛利率略有下降") == "not_found"
+    assert find_quote(pages, 3, "得益于系列酒销量增加；毛利率略有下降") is None
+
+
+def test_quote_misses_say_why() -> None:
+    pages = pdf_pages(REPORT)
+    assert find_quote(pages, 2, "营业收入") == "too_short"
+    assert find_quote(pages, 2, "字" * 1001) == "too_long"
+    assert find_quote({}, 1, "公司营业收入同比增长") == "no_pages"
+    assert find_quote(pages, 9, "公司营业收入同比增长") == "page_out_of_range"
+
+
+def test_quote_requests_are_bounded() -> None:
+    quote = {"dataset_id": KNOWBOT, "page": 1, "text": "公司营业收入同比增长"}
+    base = {
+        "contract": "knowbot-data/v1",
+        "purpose": {"kind": "test", "run_id": "knowlab-run-0002"},
+    }
+    with pytest.raises(ValueError):
+        QuotesRequestV1.model_validate(base | {"quotes": []})
+    with pytest.raises(ValueError):
+        QuotesRequestV1.model_validate(base | {"quotes": [quote] * 101})
+    with pytest.raises(ValueError):
+        QuotesRequestV1.model_validate(base | {"quotes": [quote | {"page": 0}]})
+    assert len(QuotesRequestV1.model_validate(base | {"quotes": [quote] * 100}).quotes)
+
+
+def _quotes(purpose: dict[str, str], *refs: tuple[str, int, str]) -> QuotesRequestV1:
+    return QuotesRequestV1.model_validate(
+        {
+            "contract": "knowbot-data/v1",
+            "purpose": purpose,
+            "quotes": [{"dataset_id": d, "page": p, "text": t} for d, p, t in refs],
+        }
+    )
+
+
+async def _bind(world: World, record: DatasetRecord) -> None:
+    """把这份数据也绑进在测试的那一版。"""
+    doc = dict(world.repo.drafts[world.testing.id].manifest)
+    doc["data_bindings"] = doc["data_bindings"] + [
+        {"dataset_id": str(record.id), "version": "1", "sha256": record.sha256}
+    ]
+    await world.repo.update_draft(world.testing.id, manifest=doc)
+
+
+async def test_quotes_are_checked_in_the_bound_pdf(world: World) -> None:
+    report = await world._dataset(
+        "2025年报.pdf", "application/pdf", _pdf("Revenue grew because more was sold")
+    )
+    await _bind(world, report)
+    purpose = {"kind": "test", "run_id": "knowlab-run-0002"}
+    checked = await world.reader.quotes(
+        "knowbench",
+        _quotes(
+            purpose,
+            (str(report.id), 1, "Revenue grew because more was sold"),
+            (str(report.id), 1, "Revenue fell because less was sold"),
+            (str(report.id), 2, "Revenue grew because more was sold"),
+            (str(world.bound.id), 1, "公司,营收 A,100 不是 PDF"),
+        ),
+    )
+    assert [(q.found, q.reason) for q in checked.quotes] == [
+        (True, None),
+        (False, "not_found"),
+        (False, "page_out_of_range"),
+        (False, "no_pages"),
+    ]
+    assert checked.quotes[0].sha256 == report.sha256
+    assert checked.quotes[0].version == "1"
+
+
+async def test_quotes_keep_the_same_two_checks(world: World) -> None:
+    purpose = {"kind": "test", "run_id": "knowlab-run-0002"}
+    request = _quotes(purpose, (str(world.loose.id), 1, "不该读到的那份数据里的字"))
+    with pytest.raises(NotFoundError):
+        await world.reader.quotes("knowbench", request)  # 没绑在这一版
+    bound = _quotes(purpose, (str(world.bound.id), 1, "公司营收一百万元整的那句"))
+    with pytest.raises(NotFoundError):
+        await world.reader.quotes("other-runtime", bound)
+    with pytest.raises(NotFoundError):
+        await world.reader.quotes(
+            "knowbench",
+            _quotes(
+                {"kind": "test", "run_id": "knowlab-run-9999"},
+                (str(world.bound.id), 1, "公司营收一百万元整的那句"),
+            ),
+        )
+
+
 # ---------- 契约文件 ----------
 
 
@@ -854,4 +982,43 @@ async def test_the_runtime_lists_and_reads_through_the_internal_entry(
     assert table.json()["rows"] == [{"label": "A", "values": {"营收": "100"}}]
     assert cells.headers["cache-control"] == "no-store"
     assert cells.json()["cells"][0]["number"] == "100"
+    assert bad.status_code == 422
+
+
+async def test_the_runtime_checks_quotes_through_the_internal_entry(
+    world: World,
+) -> None:
+    app.dependency_overrides[require_read_service] = lambda: ServiceCaller(
+        caller="knowbench",
+        principal=None,  # type: ignore[arg-type]
+    )
+    app.dependency_overrides[knowbot_data_routes.reader] = lambda: world.reader
+    report = await world._dataset(
+        "2025年报.pdf", "application/pdf", _pdf("Revenue grew because more was sold")
+    )
+    doc = dict(world.repo.drafts[world.delivered.id].manifest)
+    doc["data_bindings"] = doc["data_bindings"] + [
+        {"dataset_id": str(report.id), "version": "1", "sha256": report.sha256}
+    ]
+    await world.repo.update_draft(world.delivered.id, manifest=doc)
+    try:
+        body = {
+            "contract": "knowbot-data/v1",
+            "purpose": world.knowbot(),
+            "quotes": [
+                {"dataset_id": str(report.id), "page": 1, "text": "more was sold"},
+                {"dataset_id": str(report.id), "page": 1, "text": "less was sold"},
+            ],
+        }
+        async with _client() as h:
+            checked = await h.post(f"{INTERNAL}/quotes", json=body)
+            bad = await h.post(f"{INTERNAL}/quotes", json=body | {"quotes": []})
+    finally:
+        app.dependency_overrides.clear()
+    assert checked.status_code == 200
+    assert checked.headers["cache-control"] == "no-store"
+    assert [(q["found"], q["reason"]) for q in checked.json()["quotes"]] == [
+        (True, None),
+        (False, "not_found"),
+    ]
     assert bad.status_code == 422

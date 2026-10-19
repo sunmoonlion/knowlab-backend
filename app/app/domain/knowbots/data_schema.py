@@ -16,6 +16,8 @@ from app.domain.knowbots.data_read import (
     CellsResultV1,
     ListRequestV1,
     ListResultV1,
+    QuotesRequestV1,
+    QuotesResultV1,
     ReadRequestV1,
     ReadResultV1,
     TableRequestV1,
@@ -32,6 +34,11 @@ DOCUMENTS = {
     "data-table-result.schema.json": (TableResultV1, "knowbot-data v1 table result"),
     "data-cells-request.schema.json": (CellsRequestV1, "knowbot-data v1 cells request"),
     "data-cells-result.schema.json": (CellsResultV1, "knowbot-data v1 cells result"),
+    "data-quotes-request.schema.json": (
+        QuotesRequestV1,
+        "knowbot-data v1 quotes request",
+    ),
+    "data-quotes-result.schema.json": (QuotesResultV1, "knowbot-data v1 quotes result"),
 }
 
 

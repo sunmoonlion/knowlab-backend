@@ -14,7 +14,9 @@ knowlab 是提供方：分身（或测试中的草稿）在运行方跑的时候
 - `POST /api/internal/v1/knowlab/knowbot-data/table`：读表格数据的一张表
   （行标签、列标签、原文，按页）；
 - `POST /api/internal/v1/knowlab/knowbot-data/cells`：按（数据、表、行标签、列标签）
-  取格子的值。
+  取格子的值；
+- `POST /api/internal/v1/knowlab/knowbot-data/quotes`：核引文——PDF 第 N 页里有没有这段字
+  （SDD 0036）。
 
 格子的数一律是十进制字符串，不经浮点。
 
@@ -24,6 +26,8 @@ knowlab 是提供方：分身（或测试中的草稿）在运行方跑的时候
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
@@ -188,6 +192,47 @@ class CellsResultV1(Strict):
     cells: tuple[CellValue, ...]
 
 
+# 核引文（SDD 0036）：专家引的原文，回 PDF 那一页找。
+# 规整后太短的哪儿都找得到，证明不了什么
+MAX_QUOTES_PER_REQUEST = 100
+QUOTE_MIN_CHARS = 10
+QUOTE_MAX_CHARS = 1_000
+QuoteMiss = Literal[
+    "not_found", "no_pages", "page_out_of_range", "too_short", "too_long"
+]
+
+
+class QuoteRef(Strict):
+    dataset_id: str = Field(pattern=DATASET_ID)
+    # PDF 的第几页：抽取时每页前面「## Page N」的 N，阅读器里的页码；不是 read 的阅读页
+    page: int = Field(ge=1, le=1_000_000)
+    text: str = Field(min_length=1, max_length=4_000)
+
+
+class QuotesRequestV1(Strict):
+    contract: Literal["knowbot-data/v1"]
+    purpose: Purpose
+    quotes: tuple[QuoteRef, ...] = Field(
+        min_length=1, max_length=MAX_QUOTES_PER_REQUEST
+    )
+
+
+class QuoteFound(Strict):
+    """按请求的次序一一对应。找到：found 为 true；没找到：reason 说为什么。"""
+
+    dataset_id: str
+    page: int
+    found: bool
+    reason: QuoteMiss | None = None
+    version: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class QuotesResultV1(Strict):
+    contract: Literal["knowbot-data/v1"] = CONTRACT
+    quotes: tuple[QuoteFound, ...]
+
+
 @dataclass(frozen=True)
 class Cell:
     """表格里的一格：原文，能读成数时的十进制字符串。"""
@@ -267,6 +312,43 @@ class Extracted:
     text: str
     truncated: bool = False
     note: str | None = None
+
+
+_PAGE_MARK = re.compile(r"^## Page ([0-9]+)$", re.MULTILINE)
+
+
+def normalize_quote(text: str) -> str:
+    """全角半角统一（NFKC），去掉所有空白：PDF 抽出的中文常被断行、插空格。"""
+    return "".join(unicodedata.normalize("NFKC", text).split())
+
+
+def pdf_pages(text: str) -> dict[int, str]:
+    """按抽取时每页前面的「## Page N」切开：PDF 第几页 → 那一页的字。"""
+    marks = list(_PAGE_MARK.finditer(text))
+    ends = [m.start() for m in marks[1:]] + ([len(text)] if marks else [])
+    return {
+        int(m.group(1)): text[m.end() : end] for m, end in zip(marks, ends, strict=True)
+    }
+
+
+def find_quote(pages: dict[int, str], page: int, quote: str) -> QuoteMiss | None:
+    """原话在第 page 页，或从第 page 页跨到下一页：回 None；不然回没找到的原因。
+
+    只做规整后的精确匹配，不做「差几个字也算」（SDD 0036 第三节）。
+    """
+    wanted = normalize_quote(quote)
+    if len(wanted) < QUOTE_MIN_CHARS:
+        return "too_short"
+    if len(wanted) > QUOTE_MAX_CHARS:
+        return "too_long"
+    if not pages:
+        return "no_pages"
+    if page not in pages:
+        return "page_out_of_range"
+    # 接上下一页开头不到一段原话的长度：这样找到的一定是从第 page 页开始的
+    here = normalize_quote(pages[page])
+    following = normalize_quote(pages.get(page + 1, ""))[: len(wanted) - 1]
+    return None if wanted in here + following else "not_found"
 
 
 def paginate(text: str, page: int) -> tuple[str, int]:

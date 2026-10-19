@@ -14,12 +14,14 @@ from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.knowbots import (
+    AmendmentRecord,
     DatasetRecord,
     DraftRecord,
     QuestionRecord,
     RequestRecord,
 )
 from app.infrastructure.models.knowbots import (
+    KnowbotAmendment,
     KnowbotDataset,
     KnowbotDraft,
     KnowbotQuestion,
@@ -88,6 +90,19 @@ def _dataset(row: KnowbotDataset) -> DatasetRecord:
         version_id=row.version_id,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+    )
+
+
+def _amendment(row: KnowbotAmendment) -> AmendmentRecord:
+    return AmendmentRecord(
+        id=row.id,
+        request_id=row.request_id,
+        owner_subject=row.owner_subject,
+        text=row.text,
+        created_at=row.created_at,
+        declined_reason=row.declined_reason,
+        declined_by=row.declined_by,
+        declined_at=row.declined_at,
     )
 
 
@@ -359,6 +374,52 @@ class SqlKnowlabRepository:
             update(KnowbotRequest)
             .where(KnowbotRequest.id == request_id)
             .values(cases=cases)
+        )
+
+    # ---------- 补充方法 ----------
+    async def create_amendment(
+        self, *, request_id: uuid.UUID, owner_subject: str, text: str
+    ) -> AmendmentRecord:
+        row = KnowbotAmendment(
+            id=uuid.uuid4(),
+            request_id=request_id,
+            owner_subject=owner_subject,
+            text=text,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        await self.session.refresh(row)
+        return _amendment(row)
+
+    async def list_amendments(self, request_id: uuid.UUID) -> Sequence[AmendmentRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotAmendment)
+                .where(KnowbotAmendment.request_id == request_id)
+                .order_by(KnowbotAmendment.created_at, KnowbotAmendment.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+        return [_amendment(r) for r in rows]
+
+    async def get_amendment(
+        self, amendment_id: uuid.UUID, *, for_update: bool = False
+    ) -> AmendmentRecord | None:
+        query = select(KnowbotAmendment).where(KnowbotAmendment.id == amendment_id)
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _amendment(row)
+
+    async def decline_amendment(
+        self, amendment_id: uuid.UUID, *, reason: str, by: str, at: Any
+    ) -> None:
+        await self.session.execute(
+            update(KnowbotAmendment)
+            .where(KnowbotAmendment.id == amendment_id)
+            .values(declined_reason=reason, declined_by=by, declined_at=at)
         )
 
     # ---------- 测试中的问题 ----------

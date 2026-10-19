@@ -7,6 +7,7 @@
 不符一律「没有」（404），不说是哪一条没过。
 
 按格子读（SDD 0030 §3.1）走同一套核；不是表格的数据回 422，没有那一行、那一列照实标出。
+核引文（SDD 0036）也走同一套核；没找到的照实标出原因。
 """
 
 from __future__ import annotations
@@ -37,6 +38,9 @@ from app.domain.knowbots.data_read import (
     KnowbotPurpose,
     ListRequestV1,
     ListResultV1,
+    QuoteFound,
+    QuotesRequestV1,
+    QuotesResultV1,
     ReadRequestV1,
     ReadResultV1,
     RunPurpose,
@@ -45,9 +49,13 @@ from app.domain.knowbots.data_read import (
     TableRow,
     Tables,
     TableUnreadable,
+    find_quote,
     paginate,
+    pdf_pages,
     table_page,
 )
+
+PDF = "application/pdf"
 
 
 def _missing() -> NotFoundError:
@@ -194,6 +202,42 @@ class KnowbotDataReader:
                 )
             )
         return CellsResultV1(cells=tuple(found))
+
+    async def quotes(self, caller: str, request: QuotesRequestV1) -> QuotesResultV1:
+        owner, bound = await self._scope(caller, request.purpose)
+        pages: dict[str, dict[int, str]] = {}
+        records: dict[str, DatasetRecord] = {}
+        for ref in request.quotes:
+            if ref.dataset_id in records:
+                continue
+            record = await self._dataset(owner, bound, ref.dataset_id)
+            if record is None:
+                raise _missing()
+            records[ref.dataset_id] = record
+        for dataset_id, record in records.items():
+            pages[dataset_id] = {}
+            if record.content_type.split(";")[0].strip() == PDF:
+                extracted = await self.extractor.extract(
+                    data=await self._content(record),
+                    content_type=record.content_type,
+                    sha256=record.sha256,
+                )
+                pages[dataset_id] = pdf_pages(extracted.text)
+        found = []
+        for ref in request.quotes:
+            record = records[ref.dataset_id]
+            miss = find_quote(pages[ref.dataset_id], ref.page, ref.text)
+            found.append(
+                QuoteFound(
+                    dataset_id=ref.dataset_id,
+                    page=ref.page,
+                    found=miss is None,
+                    reason=miss,
+                    version=record.version,
+                    sha256=record.sha256,
+                )
+            )
+        return QuotesResultV1(quotes=tuple(found))
 
     async def _content(self, record: DatasetRecord) -> bytes:
         if not self.store.enabled:

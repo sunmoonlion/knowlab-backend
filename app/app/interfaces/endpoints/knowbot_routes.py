@@ -1,6 +1,7 @@
 """分身的创建与测试接口（SDD 0027）。
 
-网页端（用户会话）：提交想法、运行方、验收用例；上传、列出、删除自己的数据；看自己的
+网页端（用户会话）：提交想法、运行方、验收用例；给自己的想法写补充方法（SDD 0035）；
+上传、列出、删除自己的数据；看自己的
 提交、各版草稿与运行正确性报告。管理端（管理员会话，我们的运营）：看全部提交、建草稿（过渡做法：上传清单）、
 核规则出处、发起测试、刷新结果、重试交付、超时退回。身份依赖写在服务前面：先认人，
 再开数据库会话。报告只有每条用例通过与否和出错处，不含分析内容（契约本身就不带）。
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.knowbots import (
+    AmendmentRecord,
     DatasetRecord,
     DraftRecord,
     QuestionRecord,
@@ -32,7 +34,11 @@ from app.bootstrap.knowbots import (
     runtime_clients,
 )
 from app.domain.knowbots.datasets import MAX_FILE_BYTES, QUOTA_BYTES
-from app.domain.knowbots.drafts import KnowbotRequestIn
+from app.domain.knowbots.drafts import (
+    MAX_AMENDMENT_CHARS,
+    MAX_DECLINE_CHARS,
+    KnowbotRequestIn,
+)
 from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.http.middleware.auth import (
@@ -111,7 +117,12 @@ def _draft_for_user(draft: DraftRecord) -> dict[str, Any]:
     }
 
 
-def _draft_for_admin(draft: DraftRecord, request: RequestRecord) -> dict[str, Any]:
+def _draft_for_admin(
+    draft: DraftRecord,
+    request: RequestRecord,
+    amendments: tuple[list[str], int] = ([], 0),
+) -> dict[str, Any]:
+    blocking, newer = amendments
     return {
         **_draft_for_user(draft),
         "request_id": str(request.id),
@@ -132,6 +143,9 @@ def _draft_for_admin(draft: DraftRecord, request: RequestRecord) -> dict[str, An
         # （账 136 第 ②：还没开跑却显示「已跑 x 分钟」）
         "run_status": _while_testing(draft, "status"),
         "run_running_since": _while_testing(draft, "started_at"),
+        # 补充方法（SDD 0035）：核对出处前要处理的补充；这一稿建好后才提交的，下一稿处理
+        "amendments_open": blocking,
+        "amendments_newer": newer,
     }
 
 
@@ -192,6 +206,24 @@ def _answered_view(q: QuestionRecord) -> dict[str, Any]:
     }
 
 
+def _amendment_view(
+    item: tuple[AmendmentRecord, str, int | None], *, admin: bool
+) -> dict[str, Any]:
+    amendment, status, revision = item
+    view: dict[str, Any] = {
+        "amendment_id": str(amendment.id),
+        "text": amendment.text,
+        "created_at": _iso(amendment.created_at),
+        "status": status,
+        "used_in_revision": revision,
+        "declined_reason": amendment.declined_reason,
+        "declined_at": _iso(amendment.declined_at),
+    }
+    if admin:
+        view["declined_by"] = amendment.declined_by
+    return view
+
+
 class AnswerBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: str | None = Field(default=None, pattern=r"^(approve|deny)$")
@@ -209,8 +241,22 @@ class TakeBody(BaseModel):
     reason: str = Field(min_length=1, max_length=200)
 
 
+class AmendBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=MAX_AMENDMENT_CHARS)
+
+
+class DeclineBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=MAX_DECLINE_CHARS)
+
+
 def _request_view(
-    request: RequestRecord, drafts: Sequence[DraftRecord], *, admin: bool
+    request: RequestRecord,
+    drafts: Sequence[DraftRecord],
+    amendments: Sequence[tuple[AmendmentRecord, str, int | None]],
+    *,
+    admin: bool,
 ) -> dict[str, Any]:
     view: dict[str, Any] = {
         "request_id": str(request.id),
@@ -218,6 +264,7 @@ def _request_view(
         "runtime": request.runtime,
         "created_at": _iso(request.created_at),
         "drafts": [_draft_for_user(d) for d in drafts],
+        "amendments": [_amendment_view(a, admin=admin) for a in amendments],
     }
     if admin:
         view["owner_subject"] = request.owner_subject
@@ -241,7 +288,26 @@ async def submit(principal: User, body: KnowbotRequestIn, svc: Service) -> JSONR
 async def my_requests(principal: User, svc: Service) -> JSONResponse:
     """我在做的分身：只有自己的提交，各版草稿的状态与运行正确性报告。"""
     items = await svc.my_requests(principal.subject)
-    return _ok({"requests": [_request_view(r, d, admin=False) for r, d in items]})
+    return _ok(
+        {
+            "requests": [
+                _request_view(r, d, await svc.amendments(r.id, d), admin=False)
+                for r, d in items
+            ]
+        }
+    )
+
+
+@web_router.post("/knowbot-requests/{request_id}/amendments")
+async def amend(
+    principal: User, body: AmendBody, svc: Service, request_id: ItemId
+) -> JSONResponse:
+    """给自己的想法写一条补充方法：哪一步、改成什么、为什么。
+
+    写下后不能改（SDD 0035）。
+    """
+    found = await svc.amend(principal.subject, request_id, body.text)
+    return _ok({"amendment_id": str(found.id)}, status_code=201)
 
 
 @web_router.get("/knowbot-datasets")
@@ -311,7 +377,14 @@ class StartTestIn(BaseModel):
 @admin_router.get("/knowbot-requests")
 async def all_requests(_: Admin, svc: Service) -> JSONResponse:
     items = await svc.all_requests()
-    return _ok({"requests": [_request_view(r, d, admin=True) for r, d in items]})
+    return _ok(
+        {
+            "requests": [
+                _request_view(r, d, await svc.amendments(r.id, d), admin=True)
+                for r, d in items
+            ]
+        }
+    )
 
 
 @admin_router.get("/knowbot-requests/{request_id}")
@@ -326,6 +399,7 @@ async def request_detail(
     清单的 data_bindings 照这里写：数据 id + 版本 + sha256）。"""
     request = await svc.request_detail(request_id)
     found, _used = await data.mine(request.owner_subject)
+    drafts = await svc.request_drafts(request.id)
     return _ok(
         {
             "request_id": str(request.id),
@@ -339,8 +413,22 @@ async def request_detail(
             "answered": [
                 _answered_view(q) for q in await questions.answered(request.id)
             ],
+            # 用户写的补充方法：用进出处（ref 写 amendment:<id>），或写理由不照做
+            "amendments": [
+                _amendment_view(a, admin=True)
+                for a in await svc.amendments(request.id, drafts)
+            ],
         }
     )
+
+
+@admin_router.post("/knowbot-amendments/{amendment_id}/decline", status_code=204)
+async def decline_amendment(
+    admin: Releaser, body: DeclineBody, svc: Service, amendment_id: ItemId
+) -> Response:
+    """照不了的补充写理由不照做，用户看得到（SDD 0035）。"""
+    await svc.decline_amendment(amendment_id, body.reason, admin.subject)
+    return Response(status_code=204, headers=NO_STORE)
 
 
 @admin_router.post("/knowbot-requests/{request_id}/drafts")
@@ -397,7 +485,14 @@ async def drafts(
     ] = None,
 ) -> JSONResponse:
     items = await svc.drafts(status)
-    return _ok({"drafts": [_draft_for_admin(d, r) for d, r in items]})
+    return _ok(
+        {
+            "drafts": [
+                _draft_for_admin(d, r, await svc.amendments_to_handle(d))
+                for d, r in items
+            ]
+        }
+    )
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/rules-review", status_code=204)

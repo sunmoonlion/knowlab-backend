@@ -1,6 +1,7 @@
 """分身的创建与测试（SDD 0027 §一、§四）。
 
-用户在网页端提交想法、运行方、验收用例；管理端建草稿（过渡做法：管理员上传清单，等「后端
+用户在网页端提交想法、运行方、验收用例，之后可以给想法写补充方法（SDD 0035）；
+管理端建草稿（过渡做法：管理员上传清单，等「后端
 自动生成」定了再接）、核规则出处、发起测试、刷新结果；测试通过即交付 knowmart，交付失败
 可重试；「测试中」超时可退回待测试。只有测试通过的才交付。
 
@@ -23,6 +24,7 @@ from app.application.errors.exceptions import (
     NotFoundError,
 )
 from app.application.ports.knowbots import (
+    AmendmentRecord,
     DraftRecord,
     KnowlabRepository,
     KnowmartClient,
@@ -31,7 +33,14 @@ from app.application.ports.knowbots import (
 )
 from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
+    MAX_AMENDMENT_CHARS,
+    MAX_AMENDMENTS,
+    MAX_DECLINE_CHARS,
     KnowbotRequestIn,
+    amendment_ref_problems,
+    amendment_refs,
+    amendment_status,
+    amendments_to_handle,
     can_move,
     draft_manifest_problems,
 )
@@ -120,6 +129,9 @@ class KnowbotCreationService:
             raise NotFoundError("No such request", code="request_not_found")
         return request
 
+    async def request_drafts(self, request_id: uuid.UUID) -> Sequence[DraftRecord]:
+        return await self.repo.list_drafts(request_id=request_id)
+
     async def add_draft(self, request_id: str, manifest: object) -> DraftRecord:
         """过渡做法：管理员上传清单建草稿。版本号 = 已交付次数 + 1，修订号递增。"""
         rid = _parse_id(request_id, "request")
@@ -146,6 +158,15 @@ class KnowbotCreationService:
                     for d in await self.repo.list_datasets(request.owner_subject)
                 }
                 problems = binding_problems(manifest.get("data_bindings"), owned)
+            if not problems:
+                # 出处引的补充必须是这个想法的、没被「不照做」（SDD 0035 §二.3）
+                problems = amendment_ref_problems(
+                    manifest,
+                    {
+                        str(a.id): a.declined_at is not None
+                        for a in await self.repo.list_amendments(rid)
+                    },
+                )
             if problems:
                 raise BadRequestError("; ".join(problems), code="manifest_invalid")
             assert isinstance(manifest, dict)
@@ -182,8 +203,90 @@ class KnowbotCreationService:
             draft = await self._locked(draft_id)
             if draft.status != "pending_test":
                 raise _conflict("Only a pending draft is reviewed", "draft_state")
+            blocking, _newer = await self.amendments_to_handle(draft)
+            if blocking:
+                # 建稿前用户写的补充，这一稿要么用进出处、要么写理由不照做
+                # （SDD 0035 §二.5）
+                raise _conflict(
+                    "Handle these amendments first (cite them in this draft's rule "
+                    "sources, or decline them with a reason): " + ", ".join(blocking),
+                    "amendments_open",
+                )
             await self.repo.update_draft(
                 draft.id, rules_reviewed_by=reviewer, rules_reviewed_at=self.now()
+            )
+
+    async def amendments_to_handle(self, draft: DraftRecord) -> tuple[list[str], int]:
+        """（这一稿核对出处前要处理的补充，这一稿建好之后才提交的条数）。"""
+        found = await self.repo.list_amendments(draft.request_id)
+        return amendments_to_handle(
+            draft.manifest,
+            draft.created_at,
+            [(str(a.id), a.created_at, a.declined_at is not None) for a in found],
+        )
+
+    # ---------- 补充方法（SDD 0035） ----------
+    async def amend(
+        self, owner_subject: str, request_id: str, text: str
+    ) -> AmendmentRecord:
+        """用户给自己的想法写一条补充。原话写下后不改、不删；别人的想法当没有。"""
+        text = (text or "").strip()
+        if not text or len(text) > MAX_AMENDMENT_CHARS:
+            raise BadRequestError(
+                f"Write 1 to {MAX_AMENDMENT_CHARS} characters", code="amendment_invalid"
+            )
+        rid = _parse_id(request_id, "request")
+        async with self.repo.transaction():
+            request = await self.repo.get_request(rid)
+            if request is None or request.owner_subject != owner_subject:
+                raise NotFoundError("No such request", code="request_not_found")
+            await self.repo.lock_request(rid)
+            if len(await self.repo.list_amendments(rid)) >= MAX_AMENDMENTS:
+                raise _conflict(
+                    f"At most {MAX_AMENDMENTS} amendments", "too_many_amendments"
+                )
+            return await self.repo.create_amendment(
+                request_id=rid, owner_subject=owner_subject, text=text
+            )
+
+    async def amendments(
+        self, request_id: uuid.UUID, drafts: Sequence[DraftRecord]
+    ) -> list[tuple[AmendmentRecord, str, int | None]]:
+        """每条补充和它的状态。
+
+        （补充，open / used / declined，用进的最新一稿的修订号）。
+        """
+        pairs = [(d.revision, d.manifest) for d in drafts]
+        return [
+            (a, *amendment_status(str(a.id), a.declined_at is not None, pairs))
+            for a in await self.repo.list_amendments(request_id)
+        ]
+
+    async def decline_amendment(
+        self, amendment_id: str, reason: str, decliner: str
+    ) -> None:
+        """照不了的补充写理由「不照做」（用户看得到）。已被哪一稿引过的不能再不照做。"""
+        reason = (reason or "").strip()
+        if not reason or len(reason) > MAX_DECLINE_CHARS:
+            raise BadRequestError(
+                "Say why this amendment is not followed", code="reason_required"
+            )
+        aid = _parse_id(amendment_id, "amendment")
+        async with self.repo.transaction():
+            found = await self.repo.get_amendment(aid)
+            if found is None:
+                raise NotFoundError("No such amendment", code="amendment_not_found")
+            # 和建草稿串行：不照做与被新一稿引用不会同时成立
+            await self.repo.lock_request(found.request_id)
+            amendment = await self.repo.get_amendment(aid, for_update=True)
+            assert amendment is not None
+            if amendment.declined_at is not None:
+                raise _conflict("Already declined", "amendment_declined")
+            drafts = await self.repo.list_drafts(request_id=amendment.request_id)
+            if any(str(aid) in amendment_refs(d.manifest)[0] for d in drafts):
+                raise _conflict("A draft already cites it", "amendment_used")
+            await self.repo.decline_amendment(
+                aid, reason=reason, by=decliner, at=self.now()
             )
 
     # ---------- 管理端：测试 ----------

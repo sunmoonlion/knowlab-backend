@@ -327,3 +327,57 @@ async def test_the_route_migration_moves_rows_that_were_already_there(db) -> Non
             "q-scope": ("operator", "迁移前运营直接答的"),
             "q-judge": ("user", None),
         }
+
+
+@pytest.mark.asyncio
+async def test_amendments_on_the_real_database(db) -> None:
+    """补充方法（SDD 0035）：真表、真约束；原话不能空、不照做三项要齐；迁移能退能进。"""
+    async with db() as session:
+        request = await service(session).submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+    async with db() as session:
+        used = await service(session).amend(OWNER, str(request.id), "第 6 步改成对照")
+    doc = manifest()
+    doc["rule_sources"].append(
+        {"rule": "第 6 步", "source": "user_text", "ref": f"amendment:{used.id}"}
+    )
+    async with db() as session:
+        draft = await service(session).add_draft(str(request.id), doc)
+    async with db() as session:  # 建稿之后才写的：不挡这一稿
+        later = await service(session).amend(OWNER, str(request.id), "第 7 步多一种")
+    async with db() as session:
+        svc = service(session)
+        assert await svc.amendments_to_handle(draft) == ([], 1)
+        await svc.review_rules(str(draft.id), "admin-1")
+    async with db() as session:
+        await service(session).decline_amendment(str(later.id), "下一版再说", "admin-1")
+    async with db() as session:
+        svc = service(session)
+        views = await svc.amendments(request.id, await svc.request_drafts(request.id))
+        assert [(a.text, status, rev) for a, status, rev in views] == [
+            ("第 6 步改成对照", "used", 1),
+            ("第 7 步多一种", "declined", None),
+        ]
+        assert views[1][0].declined_by == "admin-1"
+        with pytest.raises(ConcurrencyConflictError):
+            await svc.decline_amendment(str(used.id), "不做", "admin-1")
+
+    for bad in (
+        "UPDATE knowbot_amendment SET text = ''",
+        "UPDATE knowbot_amendment SET declined_reason = NULL"
+        " WHERE declined_at IS NOT NULL",
+        "UPDATE knowbot_amendment SET declined_at = now() WHERE declined_at IS NULL",
+    ):
+        with pytest.raises(DBAPIError):
+            async with db() as session, session.begin():
+                await session.execute(text(bad))
+
+    name = "20261019_0008_knowbot_amendments"
+    async with db() as session, session.begin():
+        connection = await session.connection()
+        await connection.run_sync(_step(name, "downgrade"))
+        await connection.run_sync(_step(name, "upgrade"))
+    async with db() as session:
+        count = await session.execute(text("SELECT count(*) FROM knowbot_amendment"))
+        assert count.scalar_one() == 0

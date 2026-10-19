@@ -395,3 +395,89 @@ async def test_questions_through_the_api(wired) -> None:
             ("tool_approval", "operator"),
             ("question", "user"),
         }
+
+
+@pytest.mark.asyncio
+async def test_amendments_through_the_api(wired) -> None:
+    """补充方法（SDD 0035）。
+
+    用户只给自己的写；admin 看得到、能不照做；核对出处前挡住。
+    """
+    svc, *_ = wired
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+
+    mine = await svc.submit("user-123", KnowbotRequestIn.model_validate(request_body()))
+    theirs = await svc.submit(
+        "someone-else", KnowbotRequestIn.model_validate(request_body())
+    )
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        url = f"/api/web/v1/knowbot-requests/{mine.id}/amendments"
+        no_csrf = await c.post(url, json={"text": "第 6 步改成对照管理层讨论"})
+        assert no_csrf.status_code == 403
+        made = await c.post(
+            url, json={"text": "第 6 步改成对照管理层讨论"}, headers=WEB
+        )
+        assert made.status_code == 201
+        amendment_id = made.json()["amendment_id"]
+        other = await c.post(
+            f"/api/web/v1/knowbot-requests/{theirs.id}/amendments",
+            json={"text": "改别人的"},
+            headers=WEB,
+        )
+        assert other.status_code == 404
+        empty = await c.post(url, json={"text": ""}, headers=WEB)
+        assert empty.status_code in {400, 422}
+        [shown] = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
+        assert shown["amendments"] == [
+            {
+                "amendment_id": amendment_id,
+                "text": "第 6 步改成对照管理层讨论",
+                "created_at": shown["amendments"][0]["created_at"],
+                "status": "open",
+                "used_in_revision": None,
+                "declined_reason": None,
+                "declined_at": None,
+            }
+        ]
+
+        draft = await svc.add_draft(str(mine.id), manifest())
+        c.cookies.set(ADMIN_SID, "admin")
+        [card] = [
+            d
+            for d in (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
+            if d["draft_id"] == str(draft.id)
+        ]
+        assert (card["amendments_open"], card["amendments_newer"]) == (
+            [amendment_id],
+            0,
+        )
+        review = await c.post(
+            f"/api/admin/v1/knowbot-drafts/{draft.id}/rules-review", headers=ADMIN
+        )
+        assert review.status_code == 409
+        assert review.json()["code"] == "amendments_open"
+
+        decline = f"/api/admin/v1/knowbot-amendments/{amendment_id}/decline"
+        c.cookies.set(ADMIN_SID, "operator")
+        assert (
+            await c.post(decline, json={"reason": "这一版先不做"}, headers=ADMIN)
+        ).status_code == 403
+        c.cookies.set(ADMIN_SID, "admin")
+        no_reason = await c.post(decline, json={"reason": ""}, headers=ADMIN)
+        assert no_reason.status_code in {400, 422}
+        done = await c.post(decline, json={"reason": "这一版先不做"}, headers=ADMIN)
+        assert done.status_code == 204
+        detail = await c.get(f"/api/admin/v1/knowbot-requests/{mine.id}")
+        [seen] = detail.json()["amendments"]
+        assert (seen["status"], seen["declined_reason"]) == ("declined", "这一版先不做")
+        assert seen["declined_by"] == "user-123"  # 假会话里 admin 的 subject
+        review = await c.post(
+            f"/api/admin/v1/knowbot-drafts/{draft.id}/rules-review", headers=ADMIN
+        )
+        assert review.status_code == 204
+
+        c.cookies.set(WEB_SID, "member")
+        [shown] = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
+        assert shown["amendments"][0]["status"] == "declined"
+        assert "declined_by" not in shown["amendments"][0]

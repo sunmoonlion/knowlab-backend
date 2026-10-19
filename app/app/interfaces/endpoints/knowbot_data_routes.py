@@ -20,6 +20,7 @@ from app.bootstrap.knowbots import knowbot_data_reader
 from app.domain.knowbots.data_read import (
     CellsRequestV1,
     ListRequestV1,
+    QuotesRequestV1,
     ReadRequestV1,
     TableRequestV1,
 )
@@ -94,4 +95,17 @@ async def read_cells(caller: Caller, body: dict[str, Any], svc: Reader) -> JSONR
     except ValidationError as exc:
         raise _invalid(exc) from exc
     result = await svc.cells(caller.caller, request)
+    return JSONResponse(result.model_dump(mode="json"), headers=NO_STORE)
+
+
+@router.post("/knowbot-data/quotes")
+async def check_quotes(
+    caller: Caller, body: dict[str, Any], svc: Reader
+) -> JSONResponse:
+    """核引文：PDF 第 N 页里有没有这段字（SDD 0036）。"""
+    try:
+        request = QuotesRequestV1.model_validate(body)
+    except ValidationError as exc:
+        raise _invalid(exc) from exc
+    result = await svc.quotes(caller.caller, request)
     return JSONResponse(result.model_dump(mode="json"), headers=NO_STORE)

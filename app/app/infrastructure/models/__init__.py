@@ -1,6 +1,7 @@
 from app.infrastructure.models.auth import AuthUser
 from app.infrastructure.models.base import Base
 from app.infrastructure.models.knowbots import (
+    KnowbotAmendment,
     KnowbotDataset,
     KnowbotDraft,
     KnowbotQuestion,
@@ -12,6 +13,7 @@ __all__ = [
     "AuthUser",
     "Base",
     "InboxMessage",
+    "KnowbotAmendment",
     "KnowbotDataset",
     "KnowbotDraft",
     "KnowbotQuestion",

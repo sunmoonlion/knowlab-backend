@@ -12,6 +12,7 @@ from typing import Any
 
 from app.application.errors.exceptions import ServiceUnavailableError
 from app.application.ports.knowbots import (
+    AmendmentRecord,
     DatasetRecord,
     DraftRecord,
     QuestionRecord,
@@ -110,6 +111,7 @@ class MemoryKnowlab:
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
         self.datasets: dict[uuid.UUID, DatasetRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
+        self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -125,12 +127,19 @@ class MemoryKnowlab:
             dict(self.drafts),
             dict(self.datasets),
             dict(self.questions),
+            dict(self.amendments),
         )
         try:
             yield
             self.commits += 1
         except BaseException:
-            self.requests, self.drafts, self.datasets, self.questions = snapshot
+            (
+                self.requests,
+                self.drafts,
+                self.datasets,
+                self.questions,
+                self.amendments,
+            ) = snapshot
             self.rollbacks += 1
             raise
 
@@ -192,6 +201,39 @@ class MemoryKnowlab:
     ) -> None:
         self.requests[request_id] = replace(
             self.requests[request_id], cases=copy.deepcopy(cases)
+        )
+
+    # ---------- 补充方法 ----------
+    async def create_amendment(
+        self, *, request_id: uuid.UUID, owner_subject: str, text: str
+    ) -> AmendmentRecord:
+        record = AmendmentRecord(
+            id=uuid.uuid4(),
+            request_id=request_id,
+            owner_subject=owner_subject,
+            text=text,
+            created_at=self._now(),
+        )
+        self.amendments[record.id] = record
+        return record
+
+    async def list_amendments(self, request_id: uuid.UUID) -> Sequence[AmendmentRecord]:
+        found = [a for a in self.amendments.values() if a.request_id == request_id]
+        return sorted(found, key=lambda a: a.created_at or 0)
+
+    async def get_amendment(
+        self, amendment_id: uuid.UUID, *, for_update: bool = False
+    ) -> AmendmentRecord | None:
+        return self.amendments.get(amendment_id)
+
+    async def decline_amendment(
+        self, amendment_id: uuid.UUID, *, reason: str, by: str, at: Any
+    ) -> None:
+        self.amendments[amendment_id] = replace(
+            self.amendments[amendment_id],
+            declined_reason=reason,
+            declined_by=by,
+            declined_at=at,
         )
 
     # ---------- 测试中的问题 ----------
