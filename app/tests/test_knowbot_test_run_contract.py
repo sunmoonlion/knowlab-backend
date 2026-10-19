@@ -109,3 +109,12 @@ def test_a_running_result_may_say_how_far_it_got() -> None:
         RunResultV1.model_validate(
             base | {"progress": progress | {"answer": "不许带内容"}}
         )
+    queued = progress | {"queued_behind": "03e447a0-0000-4000-8000-000000000000"}
+    got = RunResultV1.model_validate(base | {"progress": queued})
+    jsonschema.validate(
+        got.model_dump(mode="json"), _schema("test-run-result.schema.json")
+    )
+    with pytest.raises(ValidationError):  # 只许一个委托编号，不许带别的话
+        RunResultV1.model_validate(
+            base | {"progress": progress | {"queued_behind": "排在张三的委托后面"}}
+        )

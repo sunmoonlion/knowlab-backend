@@ -212,7 +212,9 @@ async def test_admin_sees_how_far_a_running_test_got_and_users_do_not(wired) -> 
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
         [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-        assert shown["status"] == "testing" and shown["progress"] == progress
+        assert shown["status"] == "testing"
+        assert shown["progress"] == progress | {"queued_behind": None}
+        assert shown["run_status"] == "running"
         c.cookies.set(WEB_SID, "member")
         mine = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
         assert "progress" not in str(mine)
@@ -220,6 +222,52 @@ async def test_admin_sees_how_far_a_running_test_got_and_users_do_not(wired) -> 
         await svc.refresh(str(draft.id))
         [done] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
         assert done["status"] == "delivered" and done["progress"] is None
+        assert done["run_status"] is None and done["run_running_since"] is None
+
+
+@pytest.mark.asyncio
+async def test_admin_sees_a_test_that_was_accepted_but_has_not_started(wired) -> None:
+    """运行方受理了还没开跑：管理端拿到「已受理」、没有开跑时间（账 136 第 ②）。
+
+    不拿我们提交的时间冒充开跑时间；排在测试账号别的委托后面时，进度里带那件委托的编号
+    （0034 §三.3）。
+    """
+    svc, repo, runtime, _ = wired
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+
+    request = await svc.submit(
+        "user-123", KnowbotRequestIn.model_validate(request_body())
+    )
+    draft = await svc.add_draft(str(request.id), manifest())
+    await svc.review_rules(str(draft.id), "admin-1")
+    run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    runtime.results[run.run_id] = result(run.run_id, "accepted")
+    await svc.refresh(str(draft.id))
+    async with client() as c:
+        c.cookies.set(ADMIN_SID, "admin")
+        [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
+        assert shown["run_status"] == "accepted"
+        assert shown["run_running_since"] is None
+        behind = "03e447a0-0000-4000-8000-000000000000"
+        queued = {
+            "case_id": "c1",
+            "cases_done": 0,
+            "cases_total": 3,
+            "step": 0,
+            "steps_total": 8,
+            "spent": "0",
+            "queued_behind": behind,
+        }
+        runtime.results[run.run_id] = result(
+            run.run_id,
+            "running",
+            started_at="2026-10-19T00:49:14Z",
+            progress=queued,
+        )
+        await svc.refresh(str(draft.id))
+        [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
+        assert shown["run_running_since"].startswith("2026-10-19T00:49:14")
+        assert shown["progress"]["queued_behind"] == behind
 
 
 @pytest.mark.asyncio

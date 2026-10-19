@@ -156,6 +156,8 @@ class Progress(Strict):
     spent: str = Field(
         pattern=r"^[0-9]{1,9}(\.[0-9]{1,6})?$"
     )  # 到现在花了多少，含跑着的这条
+    # 这条用例的委托还没开工、排在测试账号哪件委托后面（只有编号；0034 §三.3）
+    queued_behind: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
 
 
 RunStatus = Literal[

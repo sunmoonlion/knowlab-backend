@@ -126,10 +126,17 @@ def _draft_for_admin(draft: DraftRecord, request: RequestRecord) -> dict[str, An
         "run_started_at": _iso(draft.run_started_at),
         "last_error": draft.last_error,
         # 测试中：跑着的那条走到哪了（待办账 135）。只给管理端，用户的结果格式不变
-        "progress": (draft.report or {}).get("progress")
-        if draft.status == "testing"
-        else None,
+        "progress": _while_testing(draft, "progress"),
+        # 上一次刷新时运行方怎么说：已受理（还没开跑）、在跑、等人。
+        # 开跑时间以运行方的为准，不拿我们提交的时间冒充
+        # （账 136 第 ②：还没开跑却显示「已跑 x 分钟」）
+        "run_status": _while_testing(draft, "status"),
+        "run_running_since": _while_testing(draft, "started_at"),
     }
+
+
+def _while_testing(draft: DraftRecord, key: str) -> Any:
+    return (draft.report or {}).get(key) if draft.status == "testing" else None
 
 
 def _dataset_view(found: DatasetRecord) -> dict[str, Any]:
