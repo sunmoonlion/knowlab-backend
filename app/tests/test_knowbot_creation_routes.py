@@ -383,6 +383,8 @@ async def test_questions_through_the_api(wired) -> None:
         mine = (await c.get("/api/web/v1/knowbot-questions")).json()["questions"]
         assert sorted(q["kind"] for q in mine) == ["ask_before", "question"]
         assert all("owner_subject" not in q and "route" not in q for q in mine)
+        # 带着是哪个分身的（自己的），web端按它对上（SDD 0037）
+        assert {q["draft_id"] for q in mine} == {str(draft.id)}
         url = f"/api/web/v1/knowbot-questions/{ids['question']}/answer"
         assert (await c.post(url, json={"text": "按营业收入"})).status_code == 403
         answered = await c.post(url, json={"text": "按营业收入"}, headers=WEB)

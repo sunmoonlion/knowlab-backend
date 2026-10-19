@@ -231,13 +231,14 @@ def _question_view(
         "title": request.title,
         "version": draft.version,
         "revision": draft.revision,
+        # 是哪个分身的（用户自己的分身，web端按它对上，不按同名标题猜；SDD 0037）
+        "draft_id": str(draft.id),
     }
     if admin:
         view |= {
             "route": q.route,
             "route_reason": q.route_reason,
             "owner_subject": request.owner_subject,
-            "draft_id": str(draft.id),
             "last_error": q.last_error,
         }
     return view
