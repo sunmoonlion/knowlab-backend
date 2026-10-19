@@ -23,7 +23,7 @@ from app.application.errors.exceptions import NotFoundError, ValidationError
 from app.application.ports.knowbots import DatasetRecord
 from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.domain.knowbots.data_read import (
-    PAGE_CHARS,
+    PAGE_BYTES,
     CellsRequestV1,
     Extracted,
     ListRequestV1,
@@ -343,10 +343,29 @@ async def test_text_data_or_a_missing_sheet_is_not_a_table(world: World) -> None
 
 
 def test_paginate_splits_at_the_page_size() -> None:
-    text = "x" * (PAGE_CHARS * 2 + 5)
-    assert paginate(text, 1) == ("x" * PAGE_CHARS, 3)
+    text = "x" * (PAGE_BYTES * 2 + 5)  # 一行就超了：按字切开
+    assert paginate(text, 1) == ("x" * PAGE_BYTES, 3)
     assert paginate(text, 3) == ("x" * 5, 3)
     assert paginate("", 1) == ("", 1)
+
+
+def test_a_chinese_annual_report_is_paged_by_bytes_and_keeps_its_pages_whole() -> None:
+    """中文年报按字节切（待办账 137）。
+
+    每页都在模型看得到的上限里，在「## Page N」前面切，接起来就是原文。
+    """
+    printed = [
+        f"## Page {n}\n"
+        + "".join(f"营业收入{n}-{i}，170,899,152,276.34 元\n" for i in range(400))
+        for n in range(1, 13)
+    ]
+    text = "".join(printed)
+    first, pages = paginate(text, 1)
+    parts = [paginate(text, p)[0] for p in range(1, pages + 1)]
+    assert "".join(parts) == text
+    assert all(len(part.encode("utf-8")) <= PAGE_BYTES for part in parts)
+    assert all(part.startswith("## Page ") for part in parts)  # 没把年报的一页拆开
+    assert pages > 1 and paginate(text, pages + 1) == ("", pages)
 
 
 def test_requests_outside_the_contract_are_rejected() -> None:
@@ -649,6 +668,34 @@ def test_a_table_page_holds_about_four_thousand_cells() -> None:
     assert (len(first), pages) == (400, 2)
     assert len(table_page(sheet, 2)[0]) == 50 and table_page(sheet, 3)[0] == ()
     assert table_page(Sheet(name="e", columns=(), rows=()), 1) == ((), 1)
+
+
+def test_a_wide_table_page_stays_within_the_bytes_the_model_can_see() -> None:
+    """格子不到 4000，但字节超了：按字节再分页（待办账 137）。"""
+    from app.domain.knowbots.data_read import Cell, Row
+
+    columns = tuple(f"2025-{m:02d}-30" for m in range(1, 13))
+    rows = tuple(
+        Row(
+            label=f"归属于母公司所有者权益（或股东权益）合计{i}",
+            cells={c: Cell(raw="170,899,152,276.34") for c in columns},
+        )
+        for i in range(300)
+    )
+    sheet = Sheet(name="资产负债表", columns=columns, rows=rows)
+    _, pages = table_page(sheet, 1)
+    assert pages > 1
+    shown = [table_page(sheet, p)[0] for p in range(1, pages + 1)]
+    assert sum(len(part) for part in shown) == 300
+    for part in shown:
+        body = {
+            "columns": list(columns),
+            "rows": [
+                {"label": r.label, "values": {c: x.raw for c, x in r.cells.items()}}
+                for r in part
+            ],
+        }
+        assert len(json.dumps(body, ensure_ascii=False).encode("utf-8")) <= PAGE_BYTES
 
 
 async def test_the_same_table_is_parsed_once(monkeypatch: pytest.MonkeyPatch) -> None:

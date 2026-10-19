@@ -23,6 +23,7 @@ knowlab 是提供方：分身（或测试中的草稿）在运行方跑的时候
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
@@ -31,11 +32,17 @@ from pydantic import Field
 from app.domain.knowbots.test_run import RUN_ID, Strict
 
 CONTRACT = "knowbot-data/v1"
-PAGE_CHARS = 20_000  # 一页最多这么多字：够读，又不撑满模型的上下文
+# 一页最多这么多字节（UTF-8）。运行方的模型一次看得到的工具结果有上限
+# （knowbench 放到约 9 万字节），超了会从中间省掉、模型还不知道。原来按 2 万字切，
+# 中文一页 6 万字节上下，年报第 5 页「主要会计数据」正好落在被省掉的中间
+# （2026-10-19 K19 第 2 稿；knowbench 待办账 137）。按字节切、留出余量
+PAGE_BYTES = 60_000
 MAX_TEXT_CHARS = 5_000_000  # 一份数据抽出的文字最多这么多，超出截断并说明
 KNOWBOT_ID = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 DATASET_ID = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-TABLE_PAGE_CELLS = 4_000  # 表格一页最多这么多格（行数按列数折算，至少一行）
+TABLE_PAGE_CELLS = (
+    4_000  # 表格一页最多这么多格（行数按列数折算，至少一行），同时不超过 PAGE_BYTES
+)
 MAX_CELLS_PER_REQUEST = 500  # 一次取格子最多这么多个（同 0030 §3.2 一次计算的输入上限）
 DECIMAL = r"^-?[0-9]+(\.[0-9]+)?$"
 Label = Annotated[str, Field(min_length=1, max_length=512)]
@@ -222,11 +229,35 @@ class TableUnreadable(Exception):
 
 
 def table_page(sheet: Sheet, page: int) -> tuple[tuple[Row, ...], int]:
-    """第 page 页的行与总页数；一页的行数按列数折算，空表也算一页。"""
+    """第 page 页的行与总页数；空表也算一页。
+
+    一页不超过 TABLE_PAGE_CELLS 格、也不超过 PAGE_BYTES，至少一行。
+    """
+    bounds = _table_pages(sheet)
+    if page > len(bounds):
+        return (), len(bounds)
+    start, end = bounds[page - 1]
+    return sheet.rows[start:end], len(bounds)
+
+
+def _table_pages(sheet: Sheet) -> list[tuple[int, int]]:
     per_page = max(1, TABLE_PAGE_CELLS // max(1, len(sheet.columns)))
-    pages = max(1, -(-len(sheet.rows) // per_page))
-    start = (page - 1) * per_page
-    return sheet.rows[start : start + per_page], pages
+    budget = PAGE_BYTES - _bytes(list(sheet.columns)) - 1_000  # 外层的键、出处等
+    bounds: list[tuple[int, int]] = []
+    start, size = 0, 0
+    for i, row in enumerate(sheet.rows):
+        values = {c: cell.raw for c, cell in row.cells.items() if cell.raw}
+        n = _bytes({"label": row.label, "values": values}) + 2  # 行与行之间的「, 」
+        if i > start and (size + n > budget or i - start >= per_page):
+            bounds.append((start, i))
+            start, size = i, 0
+        size += n
+    bounds.append((start, len(sheet.rows)))
+    return bounds
+
+
+def _bytes(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -239,9 +270,44 @@ class Extracted:
 
 
 def paginate(text: str, page: int) -> tuple[str, int]:
-    """第 page 页（从 1 起）与总页数。空文字也算一页；页码超出就回空的最后一页之后。"""
-    pages = max(1, -(-len(text) // PAGE_CHARS))
-    if page > pages:
-        return "", pages
-    start = (page - 1) * PAGE_CHARS
-    return text[start : start + PAGE_CHARS], pages
+    """第 page 页（从 1 起）与总页数。空文字也算一页；页码超出就回空的最后一页之后。
+
+    按字节切，一页不超过 PAGE_BYTES，在行尾切；PDF 抽出的「## Page N」行前面能切就切，
+    年报的一页尽量不拆到两页里。各页接起来就是原文。
+    """
+    bounds = _text_pages(text)
+    if page > len(bounds):
+        return "", len(bounds)
+    start, end = bounds[page - 1]
+    return text[start:end], len(bounds)
+
+
+def _text_pages(text: str) -> list[tuple[int, int]]:
+    bounds: list[tuple[int, int]] = []
+    start = size = pos = 0
+    for line in text.splitlines(keepends=True):
+        n = len(line.encode("utf-8"))
+        marker = line.startswith("## Page ")
+        if size and (size + n > PAGE_BYTES or (marker and size >= PAGE_BYTES // 2)):
+            bounds.append((start, pos))
+            start, size = pos, 0
+        while n > PAGE_BYTES:  # 一行就超了：按字切开
+            cut = _fitting(line, PAGE_BYTES)
+            bounds.append((pos, pos + cut))
+            pos, line = pos + cut, line[cut:]
+            start, n = pos, len(line.encode("utf-8"))
+        pos += len(line)
+        size += n
+    if pos > start or not bounds:
+        bounds.append((start, pos))
+    return bounds
+
+
+def _fitting(text: str, limit: int) -> int:
+    """text 开头有几个字合起来不超过 limit 字节（至少一个）。"""
+    total = 0
+    for i, ch in enumerate(text):
+        total += len(ch.encode("utf-8"))
+        if total > limit:
+            return max(1, i)
+    return len(text)
