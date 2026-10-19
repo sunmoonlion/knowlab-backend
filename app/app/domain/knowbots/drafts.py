@@ -81,6 +81,18 @@ class Idea(Strict):
         return self
 
 
+# 用户同意的是哪一版测试数据说明（web端提交表单那一句）。
+# 1：「测试产出不给任何人看，7 天后删除」。
+# 2（SDD 0037）：成稿与各步结果只给本人和做测试的工作人员看，交付或被下一个分身
+# 取代 90 天后清掉。老创意是在 1 下同意的：不取、不显示产出，用户点一次「同意新
+# 说明」才升到 2（审读 10-19）。
+CONSENT_VERSION = 2
+OUTPUTS_KEEP_DAYS = 90
+OUTPUTS_EXPIRED = (
+    "已按期清除：这个分身交付或被下一个分身取代 90 天后，成稿与交回物不再保留"
+)
+
+
 class KnowbotRequestIn(Strict):
     title: str = Field(min_length=1, max_length=80)
     idea: Idea

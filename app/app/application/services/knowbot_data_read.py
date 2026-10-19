@@ -206,6 +206,7 @@ class KnowbotDataReader:
     async def quotes(self, caller: str, request: QuotesRequestV1) -> QuotesResultV1:
         owner, bound = await self._scope(caller, request.purpose)
         pages: dict[str, dict[int, str]] = {}
+        truncated: set[str] = set()  # 抽取被截断的
         records: dict[str, DatasetRecord] = {}
         for ref in request.quotes:
             if ref.dataset_id in records:
@@ -223,10 +224,17 @@ class KnowbotDataReader:
                     sha256=record.sha256,
                 )
                 pages[dataset_id] = pdf_pages(extracted.text)
+                if extracted.truncated:
+                    truncated.add(dataset_id)
         found = []
         for ref in request.quotes:
             record = records[ref.dataset_id]
-            miss = find_quote(pages[ref.dataset_id], ref.page, ref.text)
+            miss = find_quote(
+                pages[ref.dataset_id],
+                ref.page,
+                ref.text,
+                truncated=ref.dataset_id in truncated,
+            )
             found.append(
                 QuoteFound(
                     dataset_id=ref.dataset_id,

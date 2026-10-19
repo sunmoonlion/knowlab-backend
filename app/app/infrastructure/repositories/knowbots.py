@@ -8,9 +8,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from typing import Any
+from datetime import datetime
+from typing import Any, cast
 
 from sqlalchemy import func, select, text, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.knowbots import (
@@ -21,6 +23,7 @@ from app.application.ports.knowbots import (
     RequestRecord,
     TestOutputRecord,
 )
+from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
     KnowbotAmendment,
     KnowbotDataset,
@@ -55,6 +58,7 @@ def _request(row: KnowbotRequest) -> RequestRecord:
         idea=row.idea,
         cases=row.cases,
         created_at=row.created_at,
+        consent_version=row.consent_version,
     )
 
 
@@ -173,6 +177,7 @@ class SqlKnowlabRepository:
         runtime: str,
         idea: dict[str, Any],
         cases: list[dict[str, Any]],
+        consent_version: int = 1,
     ) -> RequestRecord:
         row = KnowbotRequest(
             id=uuid.uuid4(),
@@ -181,6 +186,7 @@ class SqlKnowlabRepository:
             runtime=runtime,
             idea=idea,
             cases=cases,
+            consent_version=consent_version,
         )
         self.session.add(row)
         await self.session.flush()
@@ -358,6 +364,39 @@ class SqlKnowlabRepository:
             )
         ).scalar_one_or_none()
         return None if row is None else _draft(row)
+
+    async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
+        await self.session.execute(
+            update(KnowbotRequest)
+            .where(KnowbotRequest.id == request_id)
+            .values(consent_version=version)
+        )
+
+    async def test_output_cases(self, draft_id: uuid.UUID, run_id: str) -> set[str]:
+        rows = await self.session.execute(
+            select(KnowbotTestOutput.case_id).where(
+                KnowbotTestOutput.draft_id == draft_id,
+                KnowbotTestOutput.run_id == run_id,
+            )
+        )
+        return set(rows.scalars())
+
+    async def expire_test_outputs(self, before: datetime) -> int:
+        sql = text(
+            """update knowbot_test_output o
+               set outputs = null, note = :note, updated_at = now()
+               from knowbot_draft d
+               where o.draft_id = d.id and o.outputs is not null and (
+                 (d.status = 'delivered'
+                  and (d.delivery ->> 'delivered_at')::timestamptz < :before)
+                 or exists (
+                   select 1 from knowbot_draft n
+                   where n.request_id = d.request_id
+                     and n.created_at > d.created_at and n.created_at < :before))"""
+        )
+        params = {"note": OUTPUTS_EXPIRED, "before": before}
+        found = cast(CursorResult[Any], await self.session.execute(sql, params))
+        return found.rowcount or 0
 
     async def put_test_output(self, record: TestOutputRecord) -> None:
         from sqlalchemy.dialects.postgresql import insert

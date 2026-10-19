@@ -524,6 +524,16 @@ async def test_ideas_avatars_outputs_and_experts_through_the_api(wired) -> None:
         assert "manifest" not in avatar and avatar["title"]
         got = (await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")).json()
         assert got["cases"][0]["outputs"]["deliverable"]["text"] == "# 成稿"
+        assert got["consent_needed"] is False and idea["consent_version"] == 2
+        # 老创意（旧说明下同意的）：不显示，同意新说明后才显示（审读 10-19）
+        await repo.set_consent_version(draft.request_id, 1)
+        hidden = await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")
+        assert hidden.json()["consent_needed"] is True and hidden.json()["cases"] == []
+        url = f"/api/web/v1/knowbot-requests/{request_id}/consent"
+        assert (await c.post(url)).status_code == 403  # 没带 CSRF
+        assert (await c.post(url, headers=WEB)).status_code == 204
+        back = await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")
+        assert back.json()["consent_needed"] is False
         experts = (await c.get("/api/web/v1/knowbots")).json()["knowbots"]
         assert experts[0]["knowbot_id"] == "kb-1" and experts[0]["delivered_at"]
 

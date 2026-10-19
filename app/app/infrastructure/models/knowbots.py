@@ -35,6 +35,10 @@ class KnowbotRequest(TimestampMixin, Base):
     runtime: Mapped[str] = mapped_column(String(32), nullable=False)
     idea: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     cases: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    # 同意的是哪一版测试数据说明（domain/knowbots/drafts.py CONSENT_VERSION）
+    consent_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
 
     __table_args__ = (Index("ix_knowbot_request_owner_subject", "owner_subject"),)
 

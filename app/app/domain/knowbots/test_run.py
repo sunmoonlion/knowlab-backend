@@ -223,6 +223,7 @@ class Deliverable(Strict):
     path: str = Field(min_length=1, max_length=1024)
     text: str = Field(max_length=DELIVERABLE_CHARS)
     truncated: bool = False
+    step_id: str | None = Field(default=None, max_length=128)  # 哪一步写的
 
 
 class OutputCheck(Strict):

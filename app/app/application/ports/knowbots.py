@@ -27,6 +27,7 @@ class RequestRecord:
     idea: dict[str, Any] = field(repr=False)
     cases: list[dict[str, Any]] = field(repr=False)
     created_at: datetime | None = None
+    consent_version: int = 1  # 同意的是哪一版测试数据说明
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,7 @@ class KnowlabRepository(Protocol):
         runtime: str,
         idea: dict[str, Any],
         cases: list[dict[str, Any]],
+        consent_version: int = 1,
     ) -> RequestRecord: ...
 
     async def get_request(self, request_id: uuid.UUID) -> RequestRecord | None: ...
@@ -238,6 +240,21 @@ class KnowlabRepository(Protocol):
         """交付后 knowmart 给的分身 id 与版本对应的那份草稿。
 
         运行方读数据时核（0027 §3.5）。
+        """
+        ...
+
+    async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
+        """用户同意了新一版测试数据说明。"""
+        ...
+
+    async def test_output_cases(self, draft_id: uuid.UUID, run_id: str) -> set[str]:
+        """这一稿这一次测试已经存了产出（或原因）的用例编号；不读正文。"""
+        ...
+
+    async def expire_test_outputs(self, before: datetime) -> int:
+        """交付或被下一个分身取代早于 before 的分身：清掉产出正文、留一句原因。
+
+        回清了几条。
         """
         ...
 

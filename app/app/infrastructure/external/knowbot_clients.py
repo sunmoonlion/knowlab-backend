@@ -108,14 +108,21 @@ class RuntimeTestClients:
     ) -> CaseOutputsV1 | None:
         """一条用例跑完后的成稿与各步交回物（SDD 0037）。
 
-        运行方没有（没取、已清空、旧版运行方没这个接口）回 None。
+        运行方说这条用例没有（没取、已清空）回 None。运行方还是旧版、没有这个接口
+        （404 而不是运行方自己的 not_found）当暂时取不到：升级混跑时一次碰到旧实例
+        不该永远记成没有。
         """
         run, case = quote(run_id, safe=""), quote(case_id, safe="")
         status, body = await self._client(runtime).request(
             "GET", f"{TEST_RUNS}/{run}/cases/{case}/outputs", accept=(404,)
         )
         if status == 404:
-            return None
+            if isinstance(body, dict) and body.get("code") == "not_found":
+                return None
+            raise ServiceUnavailableError(
+                "The runtime cannot give outputs yet",
+                code="runtime_outputs_unsupported",
+            )
         return _outputs(body, run_id, case_id)
 
 

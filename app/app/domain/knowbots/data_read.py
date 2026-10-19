@@ -196,6 +196,9 @@ class CellsResultV1(Strict):
 # 规整后太短的哪儿都找得到，证明不了什么
 MAX_QUOTES_PER_REQUEST = 100
 QUOTE_MIN_CHARS = 10
+QUOTE_MIN_LETTERS = (
+    8  # 汉字或字母至少这么多：纯数字、日期一类年报每页都有，不能证明引对了段落
+)
 QUOTE_MAX_CHARS = 1_000
 QuoteMiss = Literal[
     "not_found", "no_pages", "page_out_of_range", "too_short", "too_long"
@@ -317,9 +320,29 @@ class Extracted:
 _PAGE_MARK = re.compile(r"^## Page ([0-9]+)$", re.MULTILINE)
 
 
+_SPACES = re.compile(r"\s+")
+_ALNUM = re.compile(r"[A-Za-z0-9]")
+
+
+def _gap(found: re.Match[str]) -> str:
+    """一段空白：两边都是字母或数字的留一个空格（分词），别的去掉。"""
+    text, start, end = found.string, found.start(), found.end()
+    between = (
+        start > 0
+        and end < len(text)
+        and _ALNUM.match(text[start - 1])
+        and _ALNUM.match(text[end])
+    )
+    return " " if between else ""
+
+
 def normalize_quote(text: str) -> str:
-    """全角半角统一（NFKC），去掉所有空白：PDF 抽出的中文常被断行、插空格。"""
-    return "".join(unicodedata.normalize("NFKC", text).split())
+    """全角半角统一（NFKC）；中文里的空白去掉（PDF 抽出的中文常被断行、插空格）。
+
+    字母、数字之间的空白留一个：那是分词，去掉了「now here」就成了「nowhere」
+    （审读 10-19）。
+    """
+    return _SPACES.sub(_gap, unicodedata.normalize("NFKC", text))
 
 
 def pdf_pages(text: str) -> dict[int, str]:
@@ -331,13 +354,18 @@ def pdf_pages(text: str) -> dict[int, str]:
     }
 
 
-def find_quote(pages: dict[int, str], page: int, quote: str) -> QuoteMiss | None:
+def find_quote(
+    pages: dict[int, str], page: int, quote: str, *, truncated: bool = False
+) -> QuoteMiss | None:
     """原话在第 page 页，或从第 page 页跨到下一页：回 None；不然回没找到的原因。
 
-    只做规整后的精确匹配，不做「差几个字也算」（SDD 0036 第三节）。
+    只做规整后的精确匹配，不做「差几个字也算」（SDD 0036 第三节）。抽取被截断
+    时，最后一页不全：在那一页找不到算「超出页码」（平台没抽到），不算引错
+    （审读 10-19）。
     """
     wanted = normalize_quote(quote)
-    if len(wanted) < QUOTE_MIN_CHARS:
+    letters = sum(1 for ch in wanted if unicodedata.category(ch).startswith("L"))
+    if len(wanted) < QUOTE_MIN_CHARS or letters < QUOTE_MIN_LETTERS:
         return "too_short"
     if len(wanted) > QUOTE_MAX_CHARS:
         return "too_long"
@@ -348,7 +376,9 @@ def find_quote(pages: dict[int, str], page: int, quote: str) -> QuoteMiss | None
     # 接上下一页开头不到一段原话的长度：这样找到的一定是从第 page 页开始的
     here = normalize_quote(pages[page])
     following = normalize_quote(pages.get(page + 1, ""))[: len(wanted) - 1]
-    return None if wanted in here + following else "not_found"
+    if wanted in here + following:
+        return None
+    return "page_out_of_range" if truncated and page == max(pages) else "not_found"
 
 
 def paginate(text: str, page: int) -> tuple[str, int]:

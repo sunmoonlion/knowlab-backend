@@ -26,6 +26,7 @@ from app.application.errors.exceptions import (
     BadRequestError,
     ConcurrencyConflictError,
     NotFoundError,
+    ServiceUnavailableError,
 )
 from app.application.ports.knowbots import (
     AmendmentRecord,
@@ -38,9 +39,11 @@ from app.application.ports.knowbots import (
 )
 from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
+    CONSENT_VERSION,
     MAX_AMENDMENT_CHARS,
     MAX_AMENDMENTS,
     MAX_DECLINE_CHARS,
+    OUTPUTS_KEEP_DAYS,
     KnowbotRequestIn,
     amendment_ref_problems,
     amendment_refs,
@@ -60,6 +63,7 @@ log = logging.getLogger(__name__)
 
 OWNER = re.compile(r"^[A-Za-z0-9._:@-]{1,512}$")
 NO_OUTPUTS = "这次测试没有取产出：运行方没有这条用例的成稿与交回物"
+OUTPUTS_PER_REFRESH = 10  # 一次刷新最多取几条用例的产出，其余下次刷新再取
 STUCK_GRACE = timedelta(minutes=5)
 # 一个问题最多等多久（所有者定 3 天）；过了运行方把那条用例记 needs_human
 MAX_WAIT_SECONDS = 3 * 24 * 3600
@@ -110,7 +114,16 @@ class KnowbotCreationService:
                 runtime=body.runtime,
                 idea=body.idea.model_dump(mode="json", exclude_none=True),
                 cases=[c.model_dump(mode="json") for c in body.cases],
+                consent_version=CONSENT_VERSION,
             )
+
+    async def consent(self, owner_subject: str, request_id: str) -> None:
+        """用户同意新一版测试数据说明（SDD 0037）：之后的测试才取、才显示产出。"""
+        request, _ = await self.my_request(owner_subject, request_id)
+        if request.consent_version >= CONSENT_VERSION:
+            return
+        async with self.repo.transaction():
+            await self.repo.set_consent_version(request.id, CONSENT_VERSION)
 
     async def my_requests(
         self, owner_subject: str
@@ -172,11 +185,26 @@ class KnowbotCreationService:
             raise NotFoundError("No such draft", code="draft_not_found")
         return found
 
-    async def test_outputs(self, draft: DraftRecord) -> Sequence[TestOutputRecord]:
-        """这一稿最近一次测试取到的产出（SDD 0037）。"""
+    async def test_outputs(
+        self, draft: DraftRecord, request: RequestRecord
+    ) -> Sequence[TestOutputRecord] | None:
+        """这一稿最近一次测试取到的产出（SDD 0037）。
+
+        创意没同意新说明的回 None（不显示）。
+        """
+        if request.consent_version < CONSENT_VERSION:
+            return None
         if not draft.run_id:
             return []
         return await self.repo.list_test_outputs(draft.id, draft.run_id)
+
+    async def draft_with_request(
+        self, draft_id: str
+    ) -> tuple[DraftRecord, RequestRecord]:
+        found = await self.draft(draft_id)
+        request = await self.repo.get_request(found.request_id)
+        assert request is not None
+        return found, request
 
     async def request_detail(self, request_id: str) -> RequestRecord:
         request = await self.repo.get_request(_parse_id(request_id, "request"))
@@ -320,7 +348,8 @@ class KnowbotCreationService:
     async def decline_amendment(
         self, amendment_id: str, reason: str, decliner: str
     ) -> None:
-        """照不了的补充写理由「不照做」（用户看得到）。已被哪一稿引过的不能再不照做。"""
+        """照不了的补充写理由「不照做」（用户看得到）。最新一稿还引着它的不能不照做；更早的稿
+        引过、用户又写了新补充撤回它的，可以（审读 10-19 第 7 条）。"""
         reason = (reason or "").strip()
         if not reason or len(reason) > MAX_DECLINE_CHARS:
             raise BadRequestError(
@@ -338,8 +367,11 @@ class KnowbotCreationService:
             if amendment.declined_at is not None:
                 raise _conflict("Already declined", "amendment_declined")
             drafts = await self.repo.list_drafts(request_id=amendment.request_id)
-            if any(str(aid) in amendment_refs(d.manifest)[0] for d in drafts):
-                raise _conflict("A draft already cites it", "amendment_used")
+            latest = max(
+                drafts, key=lambda d: (int(d.version), d.revision), default=None
+            )
+            if latest is not None and str(aid) in amendment_refs(latest.manifest)[0]:
+                raise _conflict("The latest draft cites it", "amendment_used")
             await self.repo.decline_amendment(
                 aid, reason=reason, by=decliner, at=self.now()
             )
@@ -410,13 +442,13 @@ class KnowbotCreationService:
                 await self._finish(draft.id, result)
             else:
                 await self._progress(draft.id, result)
-            await self._collect_outputs(draft, request.runtime, result)
+            await self._collect_outputs(draft, request, result)
         elif draft.run_id and draft.report:
             # 测完了还缺的（上次刷新时运行方没答上）：补取
             request = await self.repo.get_request(draft.request_id)
             assert request is not None
             await self._collect_outputs(
-                draft, request.runtime, RunResultV1.model_validate(draft.report)
+                draft, request, RunResultV1.model_validate(draft.report)
             )
         draft = await self.repo.get_draft(draft.id)
         assert draft is not None
@@ -430,43 +462,55 @@ class KnowbotCreationService:
         return draft
 
     async def _collect_outputs(
-        self, draft: DraftRecord, runtime: str, result: RunResultV1
+        self, draft: DraftRecord, request: RequestRecord, result: RunResultV1
     ) -> None:
-        """有结论的用例各取一次产出（SDD 0037）。
+        """有结论的用例各取一次产出（SDD 0037），一次刷新最多取 OUTPUTS_PER_REFRESH 条。
 
-        取不到（运行方不可达、回包不合契约）下次刷新再取，不挡刷新；
-        运行方说没有的记一句原因。
+        只为同意了新说明的创意取。运行方不可达、还是旧版：这一轮就停，下次刷新再
+        取；回包不合契约、答错用例：确定的错，记下原因不再取；运行方说没有：记一句
+        原因（审读 10-19）。
         """
         if not draft.run_id or result.run_id != draft.run_id:
             return
-        have = {
-            o.case_id for o in await self.repo.list_test_outputs(draft.id, draft.run_id)
-        }
-        for case in result.cases:
-            if case.case_id in have:
-                continue
+        if request.consent_version < CONSENT_VERSION:
+            return
+        have = await self.repo.test_output_cases(draft.id, draft.run_id)
+        todo = [c.case_id for c in result.cases if c.case_id not in have]
+        for case_id in todo[:OUTPUTS_PER_REFRESH]:
+            note = None
             try:
-                found = await self.runtimes.outputs(runtime, draft.run_id, case.case_id)
-            except AppException as exc:
+                found = await self.runtimes.outputs(
+                    request.runtime, draft.run_id, case_id
+                )
+            except ServiceUnavailableError as exc:
                 log.warning(
                     "knowbot test outputs not fetched draft=%s case=%s code=%s",
                     draft.id,
-                    case.case_id,
+                    case_id,
                     exc.code,
                 )
-                continue
+                return
+            except AppException as exc:
+                found, note = None, f"运行方回的产出不合约定（{exc.code}），没有存"
             async with self.repo.transaction():
                 await self.repo.put_test_output(
                     TestOutputRecord(
                         draft_id=draft.id,
                         run_id=draft.run_id,
-                        case_id=case.case_id,
+                        case_id=case_id,
                         outputs=None
                         if found is None
                         else found.model_dump(mode="json"),
-                        note=NO_OUTPUTS if found is None else None,
+                        note=note or (NO_OUTPUTS if found is None else None),
                     )
                 )
+
+    async def expire_test_outputs(self) -> int:
+        """交付或被下一个分身取代满 90 天的分身：清掉产出正文（定时任务每小时一次）。"""
+        async with self.repo.transaction():
+            return await self.repo.expire_test_outputs(
+                self.now() - timedelta(days=OUTPUTS_KEEP_DAYS)
+            )
 
     async def _progress(self, draft_id: uuid.UUID, result: RunResultV1) -> None:
         """还没结论：记下进度；在等人回答的，把问题记进待回答（有人值守）。"""

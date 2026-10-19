@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Annotated, Any
 
@@ -40,6 +41,7 @@ from app.bootstrap.knowbots import (
 )
 from app.domain.knowbots.datasets import MAX_FILE_BYTES, QUOTA_BYTES
 from app.domain.knowbots.drafts import (
+    CONSENT_VERSION,
     MAX_AMENDMENT_CHARS,
     MAX_DECLINE_CHARS,
     KnowbotRequestIn,
@@ -53,6 +55,7 @@ from app.interfaces.http.middleware.auth import (
 )
 
 CONTRACT_VERSION = 1
+log = logging.getLogger(__name__)
 NO_STORE = {"Cache-Control": "no-store"}
 
 web_router = APIRouter(prefix="/web/v1", tags=["Knowbot creation"])
@@ -173,11 +176,13 @@ def _rule_sources_for_user(draft: DraftRecord) -> list[dict[str, Any]]:
 
 
 def _outputs_view(
-    draft: DraftRecord, found: Sequence[TestOutputRecord]
+    draft: DraftRecord, found: Sequence[TestOutputRecord] | None
 ) -> dict[str, Any]:
     return {
         "draft_id": str(draft.id),
         "run_id": draft.run_id,
+        # 创意是在旧说明下同意的：不取、不显示，用户同意新说明后才有（审读 10-19）
+        "consent_needed": found is None,
         "cases": [
             {
                 "case_id": o.case_id,
@@ -185,7 +190,7 @@ def _outputs_view(
                 "note": o.note,
                 "outputs": o.outputs,
             }
-            for o in found
+            for o in found or ()
         ],
     }
 
@@ -317,6 +322,9 @@ def _request_view(
         "created_at": _iso(request.created_at),
         "drafts": [_draft_for_user(d) for d in drafts],
         "amendments": [_amendment_view(a, admin=admin) for a in amendments],
+        # 同意的是第几版测试数据说明；低于现行版的，产出不取不显示（SDD 0037）
+        "consent_version": request.consent_version,
+        "consent_current": CONSENT_VERSION,
     }
     if admin:
         view["owner_subject"] = request.owner_subject
@@ -381,8 +389,15 @@ async def my_draft_outputs(
     principal: User, svc: Service, draft_id: ItemId
 ) -> JSONResponse:
     """自己的分身最近一次测试每条用例的成稿与各步交回物（验收依据，C-L3）。"""
-    draft, _request = await svc.my_draft(principal.subject, draft_id)
-    return _ok(_outputs_view(draft, await svc.test_outputs(draft)))
+    draft, request = await svc.my_draft(principal.subject, draft_id)
+    return _ok(_outputs_view(draft, await svc.test_outputs(draft, request)))
+
+
+@web_router.post("/knowbot-requests/{request_id}/consent", status_code=204)
+async def consent(principal: User, svc: Service, request_id: ItemId) -> Response:
+    """同意新一版测试数据说明：之后测试的成稿与各步结果才取、才显示（SDD 0037）。"""
+    await svc.consent(principal.subject, request_id)
+    return Response(status_code=204, headers=NO_STORE)
 
 
 @web_router.get("/knowbots")
@@ -517,6 +532,8 @@ async def request_detail(
                 _amendment_view(a, admin=True)
                 for a in await svc.amendments(request.id, drafts)
             ],
+            "consent_version": request.consent_version,
+            "consent_current": CONSENT_VERSION,
         }
     )
 
@@ -595,20 +612,23 @@ async def drafts(
 
 
 @admin_router.get("/knowbot-drafts/{draft_id}/manifest")
-async def draft_manifest(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
+async def draft_manifest(admin: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
     """这一稿的清单原文：分身页对照材料里只读、可复制（SDD 0037）。"""
     found = await svc.draft(draft_id)
+    log.info("knowbot manifest read by=%s draft=%s", admin.subject, found.id)
     return _ok({"draft_id": str(found.id), "manifest": found.manifest})
 
 
 @admin_router.get("/knowbot-drafts/{draft_id}/outputs")
-async def draft_outputs(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
+async def draft_outputs(admin: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
     """这一稿最近一次测试每条用例的成稿与各步交回物。
 
     测试人员验证这一稿用（SDD 0037）。
     """
-    found = await svc.draft(draft_id)
-    return _ok(_outputs_view(found, await svc.test_outputs(found)))
+    found, request = await svc.draft_with_request(draft_id)
+    # 产出是用户的分析内容：谁、哪一稿、何时读的留一行，不记正文（审读 10-19）
+    log.info("knowbot outputs read by=%s draft=%s", admin.subject, found.id)
+    return _ok(_outputs_view(found, await svc.test_outputs(found, request)))
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/rules-review", status_code=204)

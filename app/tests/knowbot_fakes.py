@@ -10,7 +10,10 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
-from app.application.errors.exceptions import ServiceUnavailableError
+from app.application.errors.exceptions import (
+    BadGatewayError,
+    ServiceUnavailableError,
+)
 from app.application.ports.knowbots import (
     AmendmentRecord,
     DatasetRecord,
@@ -330,6 +333,39 @@ class MemoryKnowlab:
                 return draft
         return None
 
+    async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
+        self.requests[request_id] = replace(
+            self.requests[request_id], consent_version=version
+        )
+
+    async def test_output_cases(self, draft_id: uuid.UUID, run_id: str) -> set[str]:
+        return {c for (d, r, c) in self.outputs if (d, r) == (draft_id, run_id)}
+
+    async def expire_test_outputs(self, before: datetime) -> int:
+        """同 SQL：交付早于 before，或有更新的一稿建于 before 之前。"""
+        from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
+
+        count = 0
+        for key, out in list(self.outputs.items()):
+            draft = self.drafts[out.draft_id]
+            delivered = (draft.delivery or {}).get("delivered_at")
+            gone = (
+                draft.status == "delivered"
+                and delivered
+                and (datetime.fromisoformat(delivered) < before)
+            )
+            newer = any(
+                d.request_id == draft.request_id
+                and d.created_at
+                and draft.created_at
+                and draft.created_at < d.created_at < before
+                for d in self.drafts.values()
+            )
+            if out.outputs is not None and (gone or newer):
+                self.outputs[key] = replace(out, outputs=None, note=OUTPUTS_EXPIRED)
+                count += 1
+        return count
+
     async def put_test_output(self, record: TestOutputRecord) -> None:
         key = (record.draft_id, record.run_id, record.case_id)
         self.outputs.setdefault(key, replace(record, fetched_at=self._now()))
@@ -368,6 +404,7 @@ class FakeRuntime:
         self.case_outputs: dict[tuple[str, str], CaseOutputsV1] = {}
         self.outputs_asked: list[tuple[str, str]] = []
         self.fail_outputs = False
+        self.bad_outputs = False  # 回包不合契约
 
     def registered(self) -> frozenset[str]:
         return self.names
@@ -387,6 +424,8 @@ class FakeRuntime:
         self.outputs_asked.append((run_id, case_id))
         if self.fail_outputs:
             raise ServiceUnavailableError("down", code="knowbench_unavailable")
+        if self.bad_outputs:
+            raise BadGatewayError("bad", code="test_run_contract_invalid")
         return self.case_outputs.get((run_id, case_id))
 
     async def answer(

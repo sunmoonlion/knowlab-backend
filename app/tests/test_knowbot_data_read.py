@@ -782,6 +782,37 @@ def test_quote_misses_say_why() -> None:
     assert find_quote(pages, 9, "公司营业收入同比增长") == "page_out_of_range"
 
 
+def test_spaces_between_letters_and_digits_still_count() -> None:
+    """去掉所有空白会让「now here」等于「nowhere」、「1 234」等于「12 34」。
+
+    审读 10-19。
+    """
+    pages = {1: "This is now here in the report. Annual sales: 1 234 million yuan."}
+    assert find_quote(pages, 1, "This is now here in the report.") is None
+    assert find_quote(pages, 1, "This is nowhere in the report.") == "not_found"
+    assert find_quote(pages, 1, "Annual sales: 12 34 million") == "not_found"
+    assert (
+        find_quote(pages, 1, "Annual  sales:\n1 234 million") is None
+    )  # 断行、多空格照认
+
+
+def test_numbers_alone_are_too_short_to_prove_a_passage() -> None:
+    pages = {1: "截至2024年12月31日，营业收入为1,234,567.89万元"}
+    assert find_quote(pages, 1, "2024年12月31日") == "too_short"
+    assert find_quote(pages, 1, "1,234,567.89万元") == "too_short"
+    assert (
+        find_quote(pages, 1, "截至2024年12月31日，营业收入为1,234,567.89万元") is None
+    )
+
+
+def test_a_quote_past_a_truncated_last_page_is_out_of_range() -> None:
+    pages = {1: "第一页的叙述性文字一段", 2: "被截断的最后一页只抽到了前面"}
+    quote = "最后一页后面没抽到的那一段原话"
+    assert find_quote(pages, 2, quote) == "not_found"
+    assert find_quote(pages, 2, quote, truncated=True) == "page_out_of_range"
+    assert find_quote(pages, 1, quote, truncated=True) == "not_found"
+
+
 def test_quote_requests_are_bounded() -> None:
     quote = {"dataset_id": KNOWBOT, "page": 1, "text": "公司营业收入同比增长"}
     base = {

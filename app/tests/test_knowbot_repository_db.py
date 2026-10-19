@@ -415,7 +415,7 @@ async def test_test_outputs_on_the_real_database(db) -> None:
         await service(session).refresh(str(draft.id))  # 取过了不再取
     assert RUNTIME.outputs_asked.count((run.run_id, "c1")) == 1
     async with db() as session:
-        [kept] = await service(session).test_outputs(failed)
+        [kept] = await service(session).test_outputs(failed, request)
     assert kept.outputs and kept.outputs["deliverable"]["text"].endswith("营业收入上升")
     assert kept.fetched_at is not None and kept.note is None
 
@@ -430,6 +430,74 @@ async def test_test_outputs_on_the_real_database(db) -> None:
             )
 
     name = "20261019_0009_knowbot_test_outputs"
+    async with db() as session, session.begin():
+        connection = await session.connection()
+        await connection.run_sync(_step(name, "downgrade"))
+        await connection.run_sync(_step(name, "upgrade"))
+
+
+@pytest.mark.asyncio
+async def test_consent_version_and_output_expiry_on_the_real_database(db) -> None:
+    """同意版本（老数据回填 1）与产出 90 天到期的 SQL（审读 10-19）。"""
+    from datetime import UTC, datetime, timedelta
+
+    from app.application.ports.knowbots import TestOutputRecord
+    from app.domain.knowbots.drafts import CONSENT_VERSION, OUTPUTS_EXPIRED
+
+    async with db() as session:
+        request = await service(session).submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+    assert request.consent_version == CONSENT_VERSION
+    async with db() as session, session.begin():
+        await SqlKnowlabRepository(session).set_consent_version(request.id, 1)
+    async with db() as session:
+        assert (
+            await SqlKnowlabRepository(session).get_request(request.id)
+        ).consent_version == 1
+    async with db() as session:
+        first = await service(session).add_draft(str(request.id), manifest())
+    async with db() as session, session.begin():
+        repo = SqlKnowlabRepository(session)
+        await repo.put_test_output(
+            TestOutputRecord(
+                draft_id=first.id, run_id="r1", case_id="c1", outputs={"steps": []}
+            )
+        )
+        assert await repo.test_output_cases(first.id, "r1") == {"c1"}
+    async with db() as session, session.begin():  # 还没有更新的一稿：不清
+        assert (
+            await SqlKnowlabRepository(session).expire_test_outputs(
+                datetime.now(UTC) + timedelta(days=1)
+            )
+            == 0
+        )
+    async with db() as session, session.begin():
+        await session.execute(
+            text("UPDATE knowbot_draft SET status = 'failed' WHERE id = :d"),
+            {"d": first.id},
+        )
+    async with db() as session:
+        await service(session).add_draft(str(request.id), manifest())
+    async with db() as session, session.begin():  # 下一稿建好还没满期：不清
+        assert (
+            await SqlKnowlabRepository(session).expire_test_outputs(
+                datetime.now(UTC) - timedelta(days=1)
+            )
+            == 0
+        )
+    async with db() as session, session.begin():  # 下一稿建好已满期：清正文留原因
+        assert (
+            await SqlKnowlabRepository(session).expire_test_outputs(
+                datetime.now(UTC) + timedelta(days=1)
+            )
+            == 1
+        )
+    async with db() as session:
+        [kept] = await SqlKnowlabRepository(session).list_test_outputs(first.id, "r1")
+    assert kept.outputs is None and kept.note == OUTPUTS_EXPIRED
+
+    name = "20261019_0010_knowbot_consent_version"
     async with db() as session, session.begin():
         connection = await session.connection()
         await connection.run_sync(_step(name, "downgrade"))

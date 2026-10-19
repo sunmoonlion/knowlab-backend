@@ -230,6 +230,34 @@ async def test_decline_needs_a_reason_and_not_a_cited_or_declined_amendment(
 
 
 @pytest.mark.asyncio
+async def test_a_withdrawn_amendment_can_be_declined_once_the_latest_draft_drops_it(
+    parts,
+) -> None:
+    """用户写新补充撤回旧的：旧的被早先的稿引过，最新一稿不引它了就能不照做。
+
+    审读 10-19 第 7 条。
+    """
+    svc, repo = parts
+    request = await _request(svc)
+    old = await svc.amend(OWNER, str(request.id), "第 6 步改成对照管理层讨论")
+    first = await svc.add_draft(str(request.id), citing(str(old.id)))
+    await _fail(svc, repo, first.id)
+    new = await svc.amend(OWNER, str(request.id), "撤回上一条，第 6 步照原来的做")
+    with pytest.raises(ConcurrencyConflictError) as still:
+        await svc.decline_amendment(str(old.id), "被下一条取代", "admin-1")
+    assert still.value.code == "amendment_used"  # 最新一稿还引着
+    second = await svc.add_draft(str(request.id), citing(str(new.id)))
+    await svc.decline_amendment(str(old.id), "被下一条取代", "admin-1")
+    assert await svc.amendments_to_handle(second) == ([], 0)
+    await svc.review_rules(str(second.id), "admin-1")
+    views = await svc.amendments(request.id, await svc.request_drafts(request.id))
+    assert [(a.text, status) for a, status, _ in views] == [
+        ("第 6 步改成对照管理层讨论", "declined"),
+        ("撤回上一条，第 6 步照原来的做", "used"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_status_comes_from_the_drafts_that_cite_it(parts) -> None:
     svc, repo = parts
     request = await _request(svc)

@@ -157,7 +157,7 @@ async def test_runtime_errors_are_mapped(response, error, code) -> None:
 
 @pytest.mark.asyncio
 async def test_case_outputs_are_read_and_a_404_means_none() -> None:
-    """SDD 0037：一条用例的产出；运行方没有（404，含旧版运行方没这个接口）回 None。"""
+    """SDD 0037：一条用例的产出；运行方说没有（它自己的 404）回 None。"""
     seen: list[str] = []
     answers = {
         "c1": httpx.Response(
@@ -193,7 +193,10 @@ async def test_case_outputs_are_read_and_a_404_means_none() -> None:
         "/test-runs/knowlab-run-0001/cases/c1/outputs"
     ]
     assert await clients.outputs("knowbench", "knowlab-run-0001", "c2") is None
-    assert await clients.outputs("knowbench", "knowlab-run-0001", "c3") is None
+    # 旧版运行方没有这个接口：暂时取不到，不当成「没有」（审读 10-19）
+    with pytest.raises(ServiceUnavailableError) as old:
+        await clients.outputs("knowbench", "knowlab-run-0001", "c3")
+    assert old.value.code == "runtime_outputs_unsupported"
     with pytest.raises(BadGatewayError) as other_case:
         await clients.outputs("knowbench", "knowlab-run-0001", "c4")
     assert other_case.value.code == "run_mismatch"

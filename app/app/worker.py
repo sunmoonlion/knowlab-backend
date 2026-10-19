@@ -105,9 +105,14 @@ if os.environ.get("CELERY_BROKER_URL"):
     configure_celery()
 
 import app.tasks.durable_delivery  # noqa: E402, F401 — shared durable transport
+import app.tasks.knowbot_outputs  # noqa: E402, F401 — 测试产出到期清理（SDD 0037）
 import app.tasks.ping  # noqa: E402, F401 — register tasks
 
 celery_app.conf.beat_schedule = {
     **(celery_app.conf.beat_schedule or {}),
     "durable-delivery": {"task": "app.tasks.durable_delivery.pump", "schedule": 5.0},
+    "knowbot-outputs-expire": {
+        "task": "app.tasks.knowbot_outputs.expire",
+        "schedule": 3600.0,
+    },
 }
