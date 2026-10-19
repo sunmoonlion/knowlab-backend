@@ -381,3 +381,56 @@ async def test_amendments_on_the_real_database(db) -> None:
     async with db() as session:
         count = await session.execute(text("SELECT count(*) FROM knowbot_amendment"))
         assert count.scalar_one() == 0
+
+
+@pytest.mark.asyncio
+async def test_test_outputs_on_the_real_database(db) -> None:
+    """每条用例的产出（SDD 0037）：刷新时取一次存下、只取一次；约束与迁移。"""
+    from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
+
+    async with db() as session:
+        request = await service(session).submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+    async with db() as session:
+        draft = await service(session).add_draft(str(request.id), manifest())
+    async with db() as session:
+        svc = service(session)
+        await svc.review_rules(str(draft.id), "admin-1")
+        run = await svc.start_test(
+            str(draft.id), budget_limit="20", timeout_seconds=600
+        )
+    RUNTIME.case_outputs[(run.run_id, "c1")] = CaseOutputsV1.model_validate(
+        {
+            "contract": CONTRACT,
+            "run_id": run.run_id,
+            "case_id": "c1",
+            "deliverable": {"path": "底稿/成稿.md", "text": "# 成稿\n\n营业收入上升"},
+        }
+    )
+    RUNTIME.results[run.run_id] = result(run.run_id, "failed")
+    async with db() as session:
+        failed = await service(session).refresh(str(draft.id))
+    async with db() as session:
+        await service(session).refresh(str(draft.id))  # 取过了不再取
+    assert RUNTIME.outputs_asked.count((run.run_id, "c1")) == 1
+    async with db() as session:
+        [kept] = await service(session).test_outputs(failed)
+    assert kept.outputs and kept.outputs["deliverable"]["text"].endswith("营业收入上升")
+    assert kept.fetched_at is not None and kept.note is None
+
+    with pytest.raises(DBAPIError):  # 产出与原因至少有一样
+        async with db() as session, session.begin():
+            await session.execute(
+                text(
+                    "INSERT INTO knowbot_test_output (draft_id, run_id, case_id)"
+                    " VALUES (:d, 'r', 'c9')"
+                ),
+                {"d": draft.id},
+            )
+
+    name = "20261019_0009_knowbot_test_outputs"
+    async with db() as session, session.begin():
+        connection = await session.connection()
+        await connection.run_sync(_step(name, "downgrade"))
+        await connection.run_sync(_step(name, "upgrade"))

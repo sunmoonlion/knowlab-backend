@@ -13,13 +13,22 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
+from app.domain.knowbots.test_run import (
+    AnswersV1,
+    CaseOutputsV1,
+    RunRequestV1,
+    RunResultV1,
+)
 
 BASE = "https://contracts.sunmoonai.com/knowlab/knowbot-test-run/v1/"
 DOCUMENTS = {
     "test-run-request.schema.json": (RunRequestV1, "knowbot-test-run v1 request"),
     "test-run-result.schema.json": (RunResultV1, "knowbot-test-run v1 result"),
     "test-run-answers.schema.json": (AnswersV1, "knowbot-test-run v1 answers"),
+    "test-run-case-outputs.schema.json": (
+        CaseOutputsV1,
+        "knowbot-test-run v1 case outputs",
+    ),
 }
 
 

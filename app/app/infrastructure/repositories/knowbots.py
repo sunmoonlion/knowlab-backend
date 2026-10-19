@@ -19,6 +19,7 @@ from app.application.ports.knowbots import (
     DraftRecord,
     QuestionRecord,
     RequestRecord,
+    TestOutputRecord,
 )
 from app.infrastructure.models.knowbots import (
     KnowbotAmendment,
@@ -26,6 +27,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotDraft,
     KnowbotQuestion,
     KnowbotRequest,
+    KnowbotTestOutput,
 )
 
 DRAFT_FIELDS = frozenset(
@@ -356,6 +358,46 @@ class SqlKnowlabRepository:
             )
         ).scalar_one_or_none()
         return None if row is None else _draft(row)
+
+    async def put_test_output(self, record: TestOutputRecord) -> None:
+        from sqlalchemy.dialects.postgresql import insert
+
+        await self.session.execute(
+            insert(KnowbotTestOutput)
+            .values(
+                draft_id=record.draft_id,
+                run_id=record.run_id,
+                case_id=record.case_id,
+                outputs=record.outputs,
+                note=record.note,
+            )
+            .on_conflict_do_nothing()
+        )
+
+    async def list_test_outputs(
+        self, draft_id: uuid.UUID, run_id: str
+    ) -> Sequence[TestOutputRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotTestOutput)
+                .where(
+                    KnowbotTestOutput.draft_id == draft_id,
+                    KnowbotTestOutput.run_id == run_id,
+                )
+                .order_by(KnowbotTestOutput.case_id)
+            )
+        ).scalars()
+        return [
+            TestOutputRecord(
+                draft_id=r.draft_id,
+                run_id=r.run_id,
+                case_id=r.case_id,
+                outputs=r.outputs,
+                note=r.note,
+                fetched_at=r.created_at,
+            )
+            for r in rows
+        ]
 
     async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
         row = (

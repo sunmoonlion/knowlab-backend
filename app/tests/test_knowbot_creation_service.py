@@ -79,7 +79,11 @@ async def test_happy_path_tests_then_delivers_exactly_the_tested_manifest(parts)
     done = await svc.refresh(str(draft.id))
     assert done.status == "delivered"
     assert done.report and done.report["status"] == "passed"
-    assert done.delivery == {"knowbot_id": "kb-1", "version": "1"}
+    assert done.delivery == {
+        "knowbot_id": "kb-1",
+        "version": "1",
+        "delivered_at": "2026-10-16T12:00:00+00:00",  # 专家栏要写交付时间（SDD 0037）
+    }
     assert knowmart.delivered == [
         {
             "delivery_id": f"knowlab-draft-{draft.id}",

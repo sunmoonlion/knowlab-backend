@@ -7,10 +7,14 @@
 
 发起测试先把草稿标成测试中并提交，再调运行方；调用失败退回待测试。运行方按 run_id 幂等，
 knowmart 按交付单号幂等，所以重试都安全。
+
+刷新时，跑完了的用例各取一次产出——成稿与各步交回物（SDD 0037）：运营看来验证这一稿，用户
+只看自己的。取不到的下次刷新再取；运行方说没有的记一句原因，不再取。
 """
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
@@ -30,6 +34,7 @@ from app.application.ports.knowbots import (
     KnowmartClient,
     RequestRecord,
     RuntimeTestClient,
+    TestOutputRecord,
 )
 from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
@@ -51,7 +56,10 @@ from app.domain.knowbots.test_run import (
     first_route,
 )
 
+log = logging.getLogger(__name__)
+
 OWNER = re.compile(r"^[A-Za-z0-9._:@-]{1,512}$")
+NO_OUTPUTS = "这次测试没有取产出：运行方没有这条用例的成稿与交回物"
 STUCK_GRACE = timedelta(minutes=5)
 # 一个问题最多等多久（所有者定 3 天）；过了运行方把那条用例记 needs_human
 MAX_WAIT_SECONDS = 3 * 24 * 3600
@@ -122,6 +130,53 @@ class KnowbotCreationService:
         for request in await self.repo.list_requests():
             out.append((request, await self.repo.list_drafts(request_id=request.id)))
         return out
+
+    async def my_request(
+        self, owner_subject: str, request_id: str
+    ) -> tuple[RequestRecord, Sequence[DraftRecord]]:
+        """自己的一个创意（SDD 0037 web端）。不是自己的与没有的一样，都是 404。"""
+        request = await self.repo.get_request(_parse_id(request_id, "request"))
+        if request is None or request.owner_subject != owner_subject:
+            raise NotFoundError("No such request", code="request_not_found")
+        return request, await self.repo.list_drafts(request_id=request.id)
+
+    async def my_draft(
+        self, owner_subject: str, draft_id: str
+    ) -> tuple[DraftRecord, RequestRecord]:
+        """自己的一个分身（一稿）。不是自己的与没有的一样，都是 404。"""
+        draft = await self.repo.get_draft(_parse_id(draft_id))
+        request = (
+            None if draft is None else await self.repo.get_request(draft.request_id)
+        )
+        if draft is None or request is None or request.owner_subject != owner_subject:
+            raise NotFoundError("No such draft", code="draft_not_found")
+        return draft, request
+
+    async def my_knowbots(
+        self, owner_subject: str
+    ) -> list[tuple[DraftRecord, RequestRecord]]:
+        """做出来的专家：交付了的各稿，新的在前。"""
+        out = [
+            (d, r)
+            for r, drafts in await self.my_requests(owner_subject)
+            for d in drafts
+            if d.status == "delivered"
+        ]
+        return sorted(
+            out, key=lambda pair: pair[0].created_at or self.now(), reverse=True
+        )
+
+    async def draft(self, draft_id: str) -> DraftRecord:
+        found = await self.repo.get_draft(_parse_id(draft_id))
+        if found is None:
+            raise NotFoundError("No such draft", code="draft_not_found")
+        return found
+
+    async def test_outputs(self, draft: DraftRecord) -> Sequence[TestOutputRecord]:
+        """这一稿最近一次测试取到的产出（SDD 0037）。"""
+        if not draft.run_id:
+            return []
+        return await self.repo.list_test_outputs(draft.id, draft.run_id)
 
     async def request_detail(self, request_id: str) -> RequestRecord:
         request = await self.repo.get_request(_parse_id(request_id, "request"))
@@ -355,6 +410,14 @@ class KnowbotCreationService:
                 await self._finish(draft.id, result)
             else:
                 await self._progress(draft.id, result)
+            await self._collect_outputs(draft, request.runtime, result)
+        elif draft.run_id and draft.report:
+            # 测完了还缺的（上次刷新时运行方没答上）：补取
+            request = await self.repo.get_request(draft.request_id)
+            assert request is not None
+            await self._collect_outputs(
+                draft, request.runtime, RunResultV1.model_validate(draft.report)
+            )
         draft = await self.repo.get_draft(draft.id)
         assert draft is not None
         if draft.status == "passed":
@@ -365,6 +428,45 @@ class KnowbotCreationService:
             draft = await self.repo.get_draft(draft.id)
             assert draft is not None
         return draft
+
+    async def _collect_outputs(
+        self, draft: DraftRecord, runtime: str, result: RunResultV1
+    ) -> None:
+        """有结论的用例各取一次产出（SDD 0037）。
+
+        取不到（运行方不可达、回包不合契约）下次刷新再取，不挡刷新；
+        运行方说没有的记一句原因。
+        """
+        if not draft.run_id or result.run_id != draft.run_id:
+            return
+        have = {
+            o.case_id for o in await self.repo.list_test_outputs(draft.id, draft.run_id)
+        }
+        for case in result.cases:
+            if case.case_id in have:
+                continue
+            try:
+                found = await self.runtimes.outputs(runtime, draft.run_id, case.case_id)
+            except AppException as exc:
+                log.warning(
+                    "knowbot test outputs not fetched draft=%s case=%s code=%s",
+                    draft.id,
+                    case.case_id,
+                    exc.code,
+                )
+                continue
+            async with self.repo.transaction():
+                await self.repo.put_test_output(
+                    TestOutputRecord(
+                        draft_id=draft.id,
+                        run_id=draft.run_id,
+                        case_id=case.case_id,
+                        outputs=None
+                        if found is None
+                        else found.model_dump(mode="json"),
+                        note=NO_OUTPUTS if found is None else None,
+                    )
+                )
 
     async def _progress(self, draft_id: uuid.UUID, result: RunResultV1) -> None:
         """还没结论：记下进度；在等人回答的，把问题记进待回答（有人值守）。"""
@@ -421,7 +523,10 @@ class KnowbotCreationService:
             current = await self._locked(draft.id)
             if current.status == "passed":
                 await self._move(
-                    current, "delivered", delivery=delivered, last_error=None
+                    current,
+                    "delivered",
+                    delivery={**delivered, "delivered_at": self.now().isoformat()},
+                    last_error=None,
                 )
         found = await self.repo.get_draft(draft.id)
         assert found is not None

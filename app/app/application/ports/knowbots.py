@@ -10,7 +10,12 @@ from datetime import datetime
 from typing import Any, Protocol
 
 from app.domain.knowbots.data_read import Extracted, Tables
-from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
+from app.domain.knowbots.test_run import (
+    AnswersV1,
+    CaseOutputsV1,
+    RunRequestV1,
+    RunResultV1,
+)
 
 
 @dataclass(frozen=True)
@@ -57,6 +62,21 @@ class DatasetRecord:
     version_id: str
     created_at: datetime | None = None
     deleted_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TestOutputRecord:
+    """一次测试里一条用例的产出（SDD 0037）：成稿与各步交回物。
+
+    运行方没有时只有 note。
+    """
+
+    draft_id: uuid.UUID
+    run_id: str
+    case_id: str
+    outputs: dict[str, Any] | None = field(default=None, repr=False)
+    note: str | None = None
+    fetched_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -221,6 +241,16 @@ class KnowlabRepository(Protocol):
         """
         ...
 
+    async def put_test_output(self, record: TestOutputRecord) -> None:
+        """存一条用例的产出；同一次测试同一条用例已有就不动（只取一次）。"""
+        ...
+
+    async def list_test_outputs(
+        self, draft_id: uuid.UUID, run_id: str
+    ) -> Sequence[TestOutputRecord]:
+        """这一稿这一次测试取到的产出，按用例编号。"""
+        ...
+
     async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
         """正在测试、run_id 是这一次的草稿。"""
         ...
@@ -237,6 +267,12 @@ class RuntimeTestClient(Protocol):
     async def start(self, runtime: str, request: RunRequestV1) -> RunResultV1: ...
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1: ...
+
+    async def outputs(
+        self, runtime: str, run_id: str, case_id: str
+    ) -> CaseOutputsV1 | None:
+        """一条用例的产出（SDD 0037）；运行方没有回 None。"""
+        ...
 
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1

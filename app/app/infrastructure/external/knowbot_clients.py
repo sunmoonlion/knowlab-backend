@@ -18,7 +18,12 @@ from app.application.errors.exceptions import (
     BadRequestError,
     ServiceUnavailableError,
 )
-from app.domain.knowbots.test_run import AnswersV1, RunRequestV1, RunResultV1
+from app.domain.knowbots.test_run import (
+    AnswersV1,
+    CaseOutputsV1,
+    RunRequestV1,
+    RunResultV1,
+)
 from app.infrastructure.external.service_client import ServiceClient, service_relation
 
 RUNTIME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
@@ -97,6 +102,34 @@ class RuntimeTestClients:
                 "The runtime answered another run", code="run_mismatch"
             )
         return result
+
+    async def outputs(
+        self, runtime: str, run_id: str, case_id: str
+    ) -> CaseOutputsV1 | None:
+        """一条用例跑完后的成稿与各步交回物（SDD 0037）。
+
+        运行方没有（没取、已清空、旧版运行方没这个接口）回 None。
+        """
+        run, case = quote(run_id, safe=""), quote(case_id, safe="")
+        status, body = await self._client(runtime).request(
+            "GET", f"{TEST_RUNS}/{run}/cases/{case}/outputs", accept=(404,)
+        )
+        if status == 404:
+            return None
+        return _outputs(body, run_id, case_id)
+
+
+def _outputs(body: Any, run_id: str, case_id: str) -> CaseOutputsV1:
+    try:
+        found = CaseOutputsV1.model_validate(body)
+    except ValueError as exc:
+        raise BadGatewayError(
+            "The runtime answered outside knowbot-test-run/v1",
+            code="test_run_contract_invalid",
+        ) from exc
+    if (found.run_id, found.case_id) != (run_id, case_id):
+        raise BadGatewayError("The runtime answered another case", code="run_mismatch")
+    return found
 
 
 class KnowmartDeliveryClient:

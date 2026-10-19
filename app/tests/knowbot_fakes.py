@@ -17,10 +17,12 @@ from app.application.ports.knowbots import (
     DraftRecord,
     QuestionRecord,
     RequestRecord,
+    TestOutputRecord,
 )
 from app.domain.knowbots.test_run import (
     CONTRACT,
     AnswersV1,
+    CaseOutputsV1,
     RunRequestV1,
     RunResultV1,
 )
@@ -112,6 +114,7 @@ class MemoryKnowlab:
         self.datasets: dict[uuid.UUID, DatasetRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
         self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
+        self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -128,6 +131,7 @@ class MemoryKnowlab:
             dict(self.datasets),
             dict(self.questions),
             dict(self.amendments),
+            dict(self.outputs),
         )
         try:
             yield
@@ -139,6 +143,7 @@ class MemoryKnowlab:
                 self.datasets,
                 self.questions,
                 self.amendments,
+                self.outputs,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -325,6 +330,22 @@ class MemoryKnowlab:
                 return draft
         return None
 
+    async def put_test_output(self, record: TestOutputRecord) -> None:
+        key = (record.draft_id, record.run_id, record.case_id)
+        self.outputs.setdefault(key, replace(record, fetched_at=self._now()))
+
+    async def list_test_outputs(
+        self, draft_id: uuid.UUID, run_id: str
+    ) -> Sequence[TestOutputRecord]:
+        return sorted(
+            (
+                o
+                for (d, r, _), o in self.outputs.items()
+                if (d, r) == (draft_id, run_id)
+            ),
+            key=lambda o: o.case_id,
+        )
+
     async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
         for draft in self.drafts.values():
             if draft.status == "testing" and draft.run_id == run_id:
@@ -342,6 +363,11 @@ class FakeRuntime:
         self.fail_start = False
         self.answers: list[tuple[str, AnswersV1]] = []
         self.fail_answer = False
+        # 一条用例的产出（SDD 0037）：(run_id, case_id) → 产出；
+        # 没有的回 None（运行方 404）
+        self.case_outputs: dict[tuple[str, str], CaseOutputsV1] = {}
+        self.outputs_asked: list[tuple[str, str]] = []
+        self.fail_outputs = False
 
     def registered(self) -> frozenset[str]:
         return self.names
@@ -354,6 +380,14 @@ class FakeRuntime:
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1:
         return self.results.get(run_id, result(run_id, "running"))
+
+    async def outputs(
+        self, runtime: str, run_id: str, case_id: str
+    ) -> CaseOutputsV1 | None:
+        self.outputs_asked.append((run_id, case_id))
+        if self.fail_outputs:
+            raise ServiceUnavailableError("down", code="knowbench_unavailable")
+        return self.case_outputs.get((run_id, case_id))
 
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1

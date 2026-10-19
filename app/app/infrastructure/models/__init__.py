@@ -6,6 +6,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotDraft,
     KnowbotQuestion,
     KnowbotRequest,
+    KnowbotTestOutput,
 )
 from app.infrastructure.models.outbox import InboxMessage, OutboxMessage
 
@@ -18,5 +19,6 @@ __all__ = [
     "KnowbotDraft",
     "KnowbotQuestion",
     "KnowbotRequest",
+    "KnowbotTestOutput",
     "OutboxMessage",
 ]

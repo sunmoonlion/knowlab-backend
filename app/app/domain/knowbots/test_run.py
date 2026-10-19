@@ -11,14 +11,20 @@ knowlab 管理端后端把一份草稿清单、验收用例、数据绑定、预
   问题。有人值守（所有者 2026-10-16）：跑到要人决定的地方，状态是 waiting，结果里
   列出问题；knowlab 这边运营答跑法、用户答投资判断，答完运行方接着跑。同一个问题
   重复回答：内容相同回原状态，不同则 409。等人的时间不计入超时，最长 max_wait_seconds。
+- `GET /api/internal/v1/knowbot-runtime/test-runs/{run_id}/cases/{case_id}/outputs`：
+  一条用例跑完后的产出：成稿与各步交回物（SDD 0037，v1 冻结后加的接口）。运行方
+  在那条用例记结果时取好；还没有、或这次测试没取的，404。
 
-结果只有每条用例通过与否、每步哪条验收没过、用户给的期望是否满足、花了多少；不含任何
-分析内容（测试产出不给用户，`C-L5`、0026「不替用户跑出结果」）。契约文件由 schema.py
-生成，放父仓 contracts/knowbot-test-run/v1/。
+结果（上面第二个接口）只有每条用例通过与否、每步哪条验收没过、用户给的期望是否
+满足、花了多少，不含分析内容，每次刷新整份拉也小。分析内容只走产出接口：运营看
+来验证这一稿，用户看自己的、作验收依据（所有者 2026-10-19「草稿毕竟要测试人员
+写啊，看不到成稿如何验证草稿」，`C-L3`；取代 0027「不回任何分析内容」）。契约文
+件由 schema.py 生成，放父仓 contracts/knowbot-test-run/v1/。
 """
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -202,6 +208,82 @@ class RunResultV1(Strict):
     @property
     def final(self) -> bool:
         return self.status in FINAL_STATUSES
+
+
+# ---------- 一条用例的产出（SDD 0037）----------
+DELIVERABLE_CHARS = 200_000  # 成稿最多这么多字，超了截断
+ARTIFACT_BYTES = 200_000  # 一步交回物序列化后最多这么多字节，超了不带、注明多大
+RAW_CHARS = 20_000  # 没过的那次交回原文最多这么多字（同工作台排查用的上限）
+OUTPUTS_BYTES = 2 * 1024 * 1024  # 一条用例的产出合计
+
+
+class Deliverable(Strict):
+    """这条用例写稿那一步这次真写了的文件（项目内相对路径）与它的文字。"""
+
+    path: str = Field(min_length=1, max_length=1024)
+    text: str = Field(max_length=DELIVERABLE_CHARS)
+    truncated: bool = False
+
+
+class OutputCheck(Strict):
+    label: str = Field(max_length=200)
+    passed: bool | None = None  # None：这一次没判到这条
+    message: str = Field(default="", max_length=1000)
+
+
+class StepOutput(Strict):
+    """一步的最后一次尝试。
+
+    accepted 带交回物；rejected 带最后一次交回的内容与原文；没开始的 not_reached。
+    outcome 的其余几种（failed、over_budget、cancelled、running）同工作台的
+    尝试结局。
+    """
+
+    step_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(default="", max_length=200)
+    outcome: Literal[
+        "accepted",
+        "rejected",
+        "failed",
+        "over_budget",
+        "cancelled",
+        "running",
+        "not_reached",
+    ]
+    artifact: Any = None  # 交回物（JSON）；没过的是最后一次交回解析出来的那份
+    artifact_omitted_bytes: int | None = Field(default=None, ge=0)  # 太大没带：原来多大
+    returned_raw: str | None = Field(default=None, max_length=RAW_CHARS)
+    checks: tuple[OutputCheck, ...] = Field(default=(), max_length=64)
+
+    @model_validator(mode="after")
+    def _artifact_fits(self) -> StepOutput:
+        if self.artifact is not None and _bytes(self.artifact) > ARTIFACT_BYTES:
+            raise ValueError("an artifact larger than the limit must be omitted")
+        return self
+
+
+class CaseOutputsV1(Strict):
+    contract: Literal["knowbot-test-run/v1"]
+    run_id: str = Field(pattern=RUN_ID)
+    case_id: str = Field(pattern=CASE_ID)
+    deliverable: Deliverable | None = None
+    deliverable_note: str | None = Field(default=None, max_length=500)  # 为什么没有成稿
+    steps: tuple[StepOutput, ...] = Field(default=(), max_length=200)
+    error: str | None = Field(
+        default=None, max_length=500
+    )  # 取产出时出的错，不影响结论
+
+    @model_validator(mode="after")
+    def _fits(self) -> CaseOutputsV1:
+        if _bytes(self.model_dump(mode="json")) > OUTPUTS_BYTES:
+            raise ValueError("the outputs of one case are larger than the limit")
+        return self
+
+
+def _bytes(value: Any) -> int:
+    return len(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
 
 
 class Answer(Strict):

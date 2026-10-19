@@ -125,8 +125,17 @@ class ServiceClient:
             return token
 
     async def request(
-        self, method: str, path: str, *, json: Any = None
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        accept: tuple[int, ...] = (),
     ) -> tuple[int, Any]:
+        """accept：调用方自己处理的 4xx（如「还没有」的 404）。
+
+        这些状态照样回状态码与回包，不抛。
+        """
         if not path.startswith("/") or "//" in path or ".." in path:
             raise ValueError("path must be a plain absolute path")
         url = self.relation.internal_url.rstrip("/") + path
@@ -155,6 +164,8 @@ class ServiceClient:
                 f"{self.relation.target} failed",
                 code=f"{self.relation.target}_unavailable",
             )
+        if response.status_code in accept:
+            return response.status_code, body
         if response.status_code >= 400:
             code = body.get("code") if isinstance(body, dict) else None
             raise BadGatewayError(

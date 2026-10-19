@@ -481,3 +481,72 @@ async def test_amendments_through_the_api(wired) -> None:
         [shown] = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
         assert shown["amendments"][0]["status"] == "declined"
         assert "declined_by" not in shown["amendments"][0]
+
+
+@pytest.mark.asyncio
+async def test_ideas_avatars_outputs_and_experts_through_the_api(wired) -> None:
+    """SDD 0037：web 只看自己的创意、分身、产出、专家；管理端看全部产出。"""
+    from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
+
+    svc, repo, runtime, _ = wired
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        made = await c.post(
+            "/api/web/v1/knowbot-requests", json=request_body(), headers=WEB
+        )
+        request_id = made.json()["request_id"]
+        draft = await svc.add_draft(request_id, manifest())
+        await svc.review_rules(str(draft.id), "admin-1")
+        run = await svc.start_test(
+            str(draft.id), budget_limit="20", timeout_seconds=600
+        )
+        runtime.case_outputs[(run.run_id, "c1")] = CaseOutputsV1.model_validate(
+            {
+                "contract": CONTRACT,
+                "run_id": run.run_id,
+                "case_id": "c1",
+                "deliverable": {"path": "底稿/成稿.md", "text": "# 成稿"},
+            }
+        )
+        runtime.results[run.run_id] = result(run.run_id, "passed")
+        await svc.refresh(str(draft.id))
+
+        idea = (await c.get(f"/api/web/v1/knowbot-requests/{request_id}")).json()
+        assert idea["idea"]["kind"] == "six_questions" and idea["cases"]
+        assert idea["drafts"][0]["status"] == "delivered"
+        assert "owner_subject" not in idea
+        avatar = (await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}")).json()
+        assert avatar["rule_sources"] == [
+            {"rule": r["rule"], "ref": r["ref"]} for r in manifest()["rule_sources"]
+        ]
+        assert "manifest" not in avatar and avatar["title"]
+        got = (await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")).json()
+        assert got["cases"][0]["outputs"]["deliverable"]["text"] == "# 成稿"
+        experts = (await c.get("/api/web/v1/knowbots")).json()["knowbots"]
+        assert experts[0]["knowbot_id"] == "kb-1" and experts[0]["delivered_at"]
+
+        c.cookies.set(ADMIN_SID, "operator")  # 运营也能看产出（验证这一稿）
+        admin = await c.get(f"/api/admin/v1/knowbot-drafts/{draft.id}/outputs")
+        assert admin.json()["cases"][0]["case_id"] == "c1"
+        doc = await c.get(f"/api/admin/v1/knowbot-drafts/{draft.id}/manifest")
+        assert doc.json()["manifest"] == manifest()
+
+    # 别人的：与没有的一样，都是 404
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+
+    other = await svc.submit(
+        "someone-else", KnowbotRequestIn.model_validate(request_body())
+    )
+    theirs = await svc.add_draft(str(other.id), manifest())
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        for path in (
+            f"/api/web/v1/knowbot-requests/{other.id}",
+            f"/api/web/v1/knowbot-drafts/{theirs.id}",
+            f"/api/web/v1/knowbot-drafts/{theirs.id}/outputs",
+            "/api/web/v1/knowbot-drafts/not-a-uuid",
+        ):
+            assert (await c.get(path)).status_code == 404, path
+        assert (
+            await c.get(f"/api/admin/v1/knowbot-drafts/{theirs.id}/outputs")
+        ).status_code == 401

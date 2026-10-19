@@ -5,6 +5,10 @@
 提交、各版草稿与运行正确性报告。管理端（管理员会话，我们的运营）：看全部提交、建草稿（过渡做法：上传清单）、
 核规则出处、发起测试、刷新结果、重试交付、超时退回。身份依赖写在服务前面：先认人，
 再开数据库会话。报告只有每条用例通过与否和出错处，不含分析内容（契约本身就不带）。
+
+创意、分身、专家（SDD 0037；代码里仍叫 request、draft、knowbot）：每条用例
+的成稿与各步交回物单独一个接口——管理端看全部（测试人员验证这一稿），web端
+只看自己的（验收依据，C-L3）；不是自己的与没有的一样，都是 404。
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from app.application.ports.knowbots import (
     DraftRecord,
     QuestionRecord,
     RequestRecord,
+    TestOutputRecord,
 )
 from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
@@ -146,11 +151,57 @@ def _draft_for_admin(
         # 补充方法（SDD 0035）：核对出处前要处理的补充；这一稿建好后才提交的，下一稿处理
         "amendments_open": blocking,
         "amendments_newer": newer,
+        # 交付时间（SDD 0037 专家栏）；之前交付的没有
+        "delivered_at": (draft.delivery or {}).get("delivered_at"),
     }
 
 
 def _while_testing(draft: DraftRecord, key: str) -> Any:
     return (draft.report or {}).get(key) if draft.status == "testing" else None
+
+
+def _rule_sources_for_user(draft: DraftRecord) -> list[dict[str, Any]]:
+    """规则出处给用户看的那两项：哪条规则、出自你的哪句话。
+
+    SDD 0037「我的话用在了哪」。
+    """
+    return [
+        {"rule": str(s.get("rule") or ""), "ref": str(s.get("ref") or "")}
+        for s in draft.manifest.get("rule_sources", [])
+        if isinstance(s, dict)
+    ]
+
+
+def _outputs_view(
+    draft: DraftRecord, found: Sequence[TestOutputRecord]
+) -> dict[str, Any]:
+    return {
+        "draft_id": str(draft.id),
+        "run_id": draft.run_id,
+        "cases": [
+            {
+                "case_id": o.case_id,
+                "fetched_at": _iso(o.fetched_at),
+                "note": o.note,
+                "outputs": o.outputs,
+            }
+            for o in found
+        ],
+    }
+
+
+def _knowbot_view(draft: DraftRecord, request: RequestRecord) -> dict[str, Any]:
+    delivery = draft.delivery or {}
+    return {
+        "knowbot_id": delivery.get("knowbot_id"),
+        "name": draft.manifest.get("name"),
+        "version": draft.version,
+        "revision": draft.revision,
+        "draft_id": str(draft.id),
+        "request_id": str(request.id),
+        "title": request.title,
+        "delivered_at": delivery.get("delivered_at"),
+    }
 
 
 def _dataset_view(found: DatasetRecord) -> dict[str, Any]:
@@ -293,6 +344,53 @@ async def my_requests(principal: User, svc: Service) -> JSONResponse:
             "requests": [
                 _request_view(r, d, await svc.amendments(r.id, d), admin=False)
                 for r, d in items
+            ]
+        }
+    )
+
+
+@web_router.get("/knowbot-requests/{request_id}")
+async def my_request(principal: User, svc: Service, request_id: ItemId) -> JSONResponse:
+    """自己的一个创意：方法原文、验收用例、它的分身、补充方法（SDD 0037）。"""
+    request, drafts = await svc.my_request(principal.subject, request_id)
+    return _ok(
+        _request_view(
+            request, drafts, await svc.amendments(request.id, drafts), admin=False
+        )
+        | {"idea": request.idea, "cases": request.cases}
+    )
+
+
+@web_router.get("/knowbot-drafts/{draft_id}")
+async def my_draft(principal: User, svc: Service, draft_id: ItemId) -> JSONResponse:
+    """自己的一个分身：状态、测试结果、规则出处（只给规则与出自哪句话）。"""
+    draft, request = await svc.my_draft(principal.subject, draft_id)
+    return _ok(
+        _draft_for_user(draft)
+        | {
+            "request_id": str(request.id),
+            "title": request.title,
+            "rule_sources": _rule_sources_for_user(draft),
+        }
+    )
+
+
+@web_router.get("/knowbot-drafts/{draft_id}/outputs")
+async def my_draft_outputs(
+    principal: User, svc: Service, draft_id: ItemId
+) -> JSONResponse:
+    """自己的分身最近一次测试每条用例的成稿与各步交回物（验收依据，C-L3）。"""
+    draft, _request = await svc.my_draft(principal.subject, draft_id)
+    return _ok(_outputs_view(draft, await svc.test_outputs(draft)))
+
+
+@web_router.get("/knowbots")
+async def my_knowbots(principal: User, svc: Service) -> JSONResponse:
+    """做出来的专家：交付了的各版（列表直接写专家名，不叫「我的专家」）。"""
+    return _ok(
+        {
+            "knowbots": [
+                _knowbot_view(d, r) for d, r in await svc.my_knowbots(principal.subject)
             ]
         }
     )
@@ -493,6 +591,23 @@ async def drafts(
             ]
         }
     )
+
+
+@admin_router.get("/knowbot-drafts/{draft_id}/manifest")
+async def draft_manifest(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
+    """这一稿的清单原文：分身页对照材料里只读、可复制（SDD 0037）。"""
+    found = await svc.draft(draft_id)
+    return _ok({"draft_id": str(found.id), "manifest": found.manifest})
+
+
+@admin_router.get("/knowbot-drafts/{draft_id}/outputs")
+async def draft_outputs(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
+    """这一稿最近一次测试每条用例的成稿与各步交回物。
+
+    测试人员验证这一稿用（SDD 0037）。
+    """
+    found = await svc.draft(draft_id)
+    return _ok(_outputs_view(found, await svc.test_outputs(found)))
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/rules-review", status_code=204)

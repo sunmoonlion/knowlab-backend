@@ -156,6 +156,53 @@ async def test_runtime_errors_are_mapped(response, error, code) -> None:
 
 
 @pytest.mark.asyncio
+async def test_case_outputs_are_read_and_a_404_means_none() -> None:
+    """SDD 0037：一条用例的产出；运行方没有（404，含旧版运行方没这个接口）回 None。"""
+    seen: list[str] = []
+    answers = {
+        "c1": httpx.Response(
+            200,
+            json={
+                "contract": CONTRACT,
+                "run_id": "knowlab-run-0001",
+                "case_id": "c1",
+                "deliverable": {"path": "底稿/成稿.md", "text": "# 成稿"},
+                "steps": [{"step_id": "s1", "outcome": "not_reached"}],
+            },
+        ),
+        "c2": httpx.Response(404, json={"code": "not_found"}),
+        "c3": httpx.Response(404, json={"detail": "Not Found"}),
+        "c4": httpx.Response(
+            200,
+            json={"contract": CONTRACT, "run_id": "knowlab-run-0001", "case_id": "c1"},
+        ),
+        "c5": httpx.Response(200, json={"contract": CONTRACT}),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return answers[request.url.path.split("/")[-2]]
+
+    clients = RuntimeTestClients(
+        KNOWBENCH, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+    )
+    got = await clients.outputs("knowbench", "knowlab-run-0001", "c1")
+    assert got is not None and got.deliverable and got.deliverable.text == "# 成稿"
+    assert seen == [
+        "https://knowbench-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime"
+        "/test-runs/knowlab-run-0001/cases/c1/outputs"
+    ]
+    assert await clients.outputs("knowbench", "knowlab-run-0001", "c2") is None
+    assert await clients.outputs("knowbench", "knowlab-run-0001", "c3") is None
+    with pytest.raises(BadGatewayError) as other_case:
+        await clients.outputs("knowbench", "knowlab-run-0001", "c4")
+    assert other_case.value.code == "run_mismatch"
+    with pytest.raises(BadGatewayError) as broken:
+        await clients.outputs("knowbench", "knowlab-run-0001", "c5")
+    assert broken.value.code == "test_run_contract_invalid"
+
+
+@pytest.mark.asyncio
 async def test_unreachable_runtime_is_unavailable() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)

@@ -176,3 +176,29 @@ class KnowbotAmendment(TimestampMixin, Base):
         ),
         Index("ix_knowbot_amendment_request", "request_id"),
     )
+
+
+class KnowbotTestOutput(TimestampMixin, Base):
+    """一次测试里一条用例的产出：成稿与各步交回物（SDD 0037）。
+
+    运行方在用例跑完时取好，我们刷新时取一次存这里，跟着这一稿留着。运营看来验证这一稿，用户
+    看自己的作验收依据。运行方没有（没取、旧版、已清空）时只记 note。
+    """
+
+    __tablename__ = "knowbot_test_output"
+
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_draft.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    run_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    case_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    outputs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    note: Mapped[str | None] = mapped_column(String(500))
+
+    __table_args__ = (
+        CheckConstraint(
+            "outputs IS NOT NULL OR note IS NOT NULL", name="ck_knowbot_test_output_any"
+        ),
+    )
