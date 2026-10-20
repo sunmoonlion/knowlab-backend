@@ -98,7 +98,10 @@ async def test_submit_draft_test_and_deliver_round_trip(db) -> None:
         )
     RUNTIME.results[run.run_id] = result(run.run_id, "passed")
     async with db() as session:
-        done = await service(session).refresh(str(draft.id))
+        passed = await service(session).refresh(str(draft.id))
+    assert passed.status == "passed"
+    async with db() as session:
+        done = await service(session).accept(OWNER, str(draft.id))
     assert done.status == "delivered"
     assert done.report and done.report["cases"][0]["status"] == "passed"
     assert done.delivery and done.delivery["knowbot_id"] == "kb-1"
@@ -141,6 +144,12 @@ async def test_runtimes_find_the_delivered_and_the_testing_draft(db) -> None:
     async with db() as session:
         repo = SqlKnowlabRepository(session)
         assert await repo.find_testing_draft(run.run_id) is None
+        # 通过了、用户还没要：不算交付
+        assert await repo.find_delivered_draft("kb-1", "1") is None
+    async with db() as session:
+        await service(session).accept(OWNER, str(draft.id))
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
         found = await repo.find_delivered_draft("kb-1", "1")
         assert found is not None and found.id == draft.id
         assert await repo.find_delivered_draft("kb-1", "2") is None

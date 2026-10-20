@@ -1,4 +1,7 @@
-"""分身创建的流程：提交 → 建草稿 → 核出处 → 测试 → 通过即交付；未通过、超时、失败。"""
+"""分身创建的流程：提交 → 建草稿 → 核出处 → 测试 → 通过 → 用户要了才交付。
+
+另有未通过、超时、失败。
+"""
 
 from __future__ import annotations
 
@@ -76,10 +79,22 @@ async def test_happy_path_tests_then_delivers_exactly_the_tested_manifest(parts)
     assert still.status == "testing"
 
     runtime.results[sent.run_id] = result(sent.run_id, "passed")
-    done = await svc.refresh(str(draft.id))
+    passed = await svc.refresh(str(draft.id))
+    # 通过了也不自己交：等用户看过成稿、说要这一版（所有者 2026-10-20「按丙来」）
+    assert passed.status == "passed" and passed.delivery is None
+    assert passed.report and passed.report["status"] == "passed"
+    assert knowmart.delivered == []
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await svc.deliver(str(draft.id))  # 管理端不能替用户要
+    assert raised.value.code == "not_accepted"
+    with pytest.raises(NotFoundError):
+        await svc.accept("someone-else", str(draft.id))
+
+    done = await svc.accept(OWNER, str(draft.id))
     assert done.status == "delivered"
-    assert done.report and done.report["status"] == "passed"
     assert done.delivery == {
+        "accepted_by": OWNER,
+        "accepted_at": "2026-10-16T12:00:00+00:00",
         "knowbot_id": "kb-1",
         "version": "1",
         "delivered_at": "2026-10-16T12:00:00+00:00",  # 专家栏要写交付时间（SDD 0037）
@@ -117,6 +132,8 @@ async def test_a_failed_run_is_reported_and_a_new_draft_keeps_the_version(parts)
     assert knowmart.delivered == []
     with pytest.raises(ConcurrencyConflictError):
         await svc.deliver(str(draft.id))
+    with pytest.raises(ConcurrencyConflictError):
+        await svc.accept(OWNER, str(draft.id))  # 没通过的用户也要不了
     again = await svc.add_draft(str(request.id), manifest())
     assert (again.version, again.revision) == ("1", 2)
     assert again.rules_reviewed_by is None  # 新草稿要重新核出处
@@ -177,13 +194,18 @@ async def test_delivery_failure_is_recorded_and_can_be_retried(parts):
     _, draft = await _reviewed_draft(svc)
     run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     runtime.results[run.run_id] = result(run.run_id, "passed")
+    await svc.refresh(str(draft.id))
     knowmart.fail = True
-    passed = await svc.refresh(str(draft.id))
+    with pytest.raises(AppException):
+        await svc.accept(OWNER, str(draft.id))
+    passed = repo.drafts[draft.id]
     assert passed.status == "passed"
     assert passed.last_error == "delivery failed: knowmart_unavailable"
+    assert passed.delivery and passed.delivery["accepted_by"] == OWNER  # 要过的留着
     knowmart.fail = False
-    delivered = await svc.deliver(str(draft.id))
+    delivered = await svc.deliver(str(draft.id))  # 管理端重试，不用用户再要
     assert delivered.status == "delivered" and delivered.last_error is None
+    assert delivered.delivery and delivered.delivery["accepted_by"] == OWNER
 
 
 @pytest.mark.asyncio

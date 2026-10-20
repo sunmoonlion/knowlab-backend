@@ -2,8 +2,10 @@
 
 用户在网页端提交想法、运行方、验收用例，之后可以给想法写补充方法（SDD 0035）；
 管理端建草稿（过渡做法：管理员上传清单，等「后端
-自动生成」定了再接）、核规则出处、发起测试、刷新结果；测试通过即交付 knowmart，交付失败
-可重试；「测试中」超时可退回待测试。只有测试通过的才交付。
+自动生成」定了再接）、核规则出处、发起测试、刷新结果；「测试中」超时可退回待测试。
+测试通过后由用户在网页端看过成稿、点「要这一版」才交付 knowmart（所有者 2026-10-20 定
+「按丙来」：专家归用户，收不收由用户定）；交付失败可重试，用户再点或管理端重试都行。
+只有测试通过、用户要了的才交付。
 
 发起测试先把草稿标成测试中并提交，再调运行方；调用失败退回待测试。运行方按 run_id 幂等，
 knowmart 按交付单号幂等，所以重试都安全。
@@ -426,7 +428,7 @@ class KnowbotCreationService:
         return result
 
     async def refresh(self, draft_id: str) -> DraftRecord:
-        """问运行方结果；有了结论就记下，通过的接着交付（交付失败只记错误，可重试）。"""
+        """问运行方结果；有了结论就记下。通过的不在这里交付，等用户要（accept）。"""
         draft = await self.repo.get_draft(_parse_id(draft_id))
         if draft is None:
             raise NotFoundError("No such draft", code="draft_not_found")
@@ -452,13 +454,6 @@ class KnowbotCreationService:
             )
         draft = await self.repo.get_draft(draft.id)
         assert draft is not None
-        if draft.status == "passed":
-            try:
-                await self.deliver(str(draft.id))
-            except AppException:
-                pass  # 错误已记在草稿上，管理端可以重试交付
-            draft = await self.repo.get_draft(draft.id)
-            assert draft is not None
         return draft
 
     async def _collect_outputs(
@@ -542,12 +537,37 @@ class KnowbotCreationService:
                 report=result.model_dump(mode="json"),
             )
 
+    async def accept(self, owner_subject: str, draft_id: str) -> DraftRecord:
+        """用户看过成稿、要这一版：记下谁、何时要的，接着交付。
+
+        要的记录先提交，交付失败照样留着（错误记在草稿上，异常照抛给用户），用户再点或
+        管理端重试都不用再要一次。不是自己的与没有的一样，都是 404。
+        """
+        draft, _ = await self.my_draft(owner_subject, draft_id)
+        async with self.repo.transaction():
+            current = await self._locked(draft.id)
+            if current.status != "passed":
+                raise _conflict("Only a passed draft is accepted", "draft_state")
+            if not (current.delivery or {}).get("accepted_at"):
+                await self.repo.update_draft(
+                    current.id,
+                    delivery={
+                        "accepted_by": owner_subject,
+                        "accepted_at": self.now().isoformat(),
+                    },
+                )
+        return await self.deliver(str(draft.id))
+
     async def deliver(self, draft_id: str) -> DraftRecord:
+        """把用户要了的这一版交给 knowmart；管理端的「重试交付」也走这里。"""
         draft = await self.repo.get_draft(_parse_id(draft_id))
         if draft is None:
             raise NotFoundError("No such draft", code="draft_not_found")
         if draft.status != "passed":
             raise _conflict("Only a passed draft is delivered", "draft_state")
+        accepted = draft.delivery or {}
+        if not accepted.get("accepted_at"):
+            raise _conflict("The user has not accepted this draft", "not_accepted")
         request = await self.repo.get_request(draft.request_id)
         assert request is not None
         try:
@@ -569,7 +589,11 @@ class KnowbotCreationService:
                 await self._move(
                     current,
                     "delivered",
-                    delivery={**delivered, "delivered_at": self.now().isoformat()},
+                    delivery={
+                        **(current.delivery or {}),
+                        **delivered,
+                        "delivered_at": self.now().isoformat(),
+                    },
                     last_error=None,
                 )
         found = await self.repo.get_draft(draft.id)

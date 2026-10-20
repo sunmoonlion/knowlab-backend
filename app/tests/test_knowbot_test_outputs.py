@@ -75,7 +75,7 @@ async def test_each_finished_case_is_fetched_once_and_kept_with_the_draft(parts)
     runtime.case_outputs[(run_id, "c1")] = outputs(run_id)
     runtime.results[run_id] = result(run_id, "passed")
     done = await svc.refresh(str(draft.id))
-    assert done.status == "delivered"
+    assert done.status == "passed"
     [kept] = await shown(svc, repo, done)
     assert kept.case_id == "c1" and kept.note is None
     assert kept.outputs and kept.outputs["deliverable"]["text"] == "# 成稿"
@@ -133,6 +133,7 @@ async def test_users_only_reach_their_own_ideas_avatars_and_experts(parts):
     request, draft, run_id = await _testing(svc)
     runtime.results[run_id] = result(run_id, "passed")
     await svc.refresh(str(draft.id))
+    await svc.accept(OWNER, str(draft.id))
     mine, drafts = await svc.my_request(OWNER, str(request.id))
     assert mine.id == request.id and [d.id for d in drafts] == [draft.id]
     found, owner_request = await svc.my_draft(OWNER, str(draft.id))
@@ -221,7 +222,8 @@ async def test_outputs_are_cleared_90_days_after_delivery_or_a_newer_avatar(part
     request, draft, run_id = await _testing(svc)
     runtime.case_outputs[(run_id, "c1")] = outputs(run_id)
     runtime.results[run_id] = result(run_id, "passed")
-    done = await svc.refresh(str(draft.id))
+    await svc.refresh(str(draft.id))
+    done = await svc.accept(OWNER, str(draft.id))
     assert done.status == "delivered"
     assert await svc.expire_test_outputs() == 0  # 刚交付：留着
     delivered = datetime.fromisoformat(done.delivery["delivered_at"])

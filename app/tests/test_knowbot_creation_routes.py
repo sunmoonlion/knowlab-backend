@@ -172,8 +172,22 @@ async def test_full_flow_through_the_api(wired) -> None:
         run_id = started.json()["run_id"]
         runtime.results[run_id] = result(run_id, "passed")
         refreshed = (await c.post(f"{base}/refresh", headers=ADMIN)).json()
-        assert refreshed["status"] == "delivered"
-        assert refreshed["knowbot_id"] == "kb-1"
+        assert refreshed["status"] == "passed"
+        assert refreshed["knowbot_id"] is None and refreshed["accepted_at"] is None
+        # 用户没要，管理端交不了（所有者 2026-10-20「按丙来」）
+        early_deliver = await c.post(f"{base}/deliver", headers=ADMIN)
+        assert early_deliver.status_code == 409
+        assert early_deliver.json()["code"] == "not_accepted"
+        assert knowmart.delivered == []
+
+        # 用户在网页端看过成稿，点「要这一版」
+        accept = f"/api/web/v1/knowbot-drafts/{draft_id}/accept"
+        assert (await c.post(accept)).status_code == 403  # 没带 CSRF
+        accepted = await c.post(accept, headers=WEB)
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["status"] == "delivered"
+        assert accepted.json()["knowbot_id"] == "kb-1"
+        assert accepted.json()["accepted_at"]
         assert len(knowmart.delivered) == 1
 
         # 用户看到的：状态与运行正确性报告，没有清单与方法原文
@@ -221,7 +235,7 @@ async def test_admin_sees_how_far_a_running_test_got_and_users_do_not(wired) -> 
         runtime.results[run.run_id] = result(run.run_id, "passed")
         await svc.refresh(str(draft.id))
         [done] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-        assert done["status"] == "delivered" and done["progress"] is None
+        assert done["status"] == "passed" and done["progress"] is None
         assert done["run_status"] is None and done["run_running_since"] is None
 
 
@@ -512,6 +526,10 @@ async def test_ideas_avatars_outputs_and_experts_through_the_api(wired) -> None:
         )
         runtime.results[run.run_id] = result(run.run_id, "passed")
         await svc.refresh(str(draft.id))
+        accepted = await c.post(
+            f"/api/web/v1/knowbot-drafts/{draft.id}/accept", headers=WEB
+        )
+        assert accepted.status_code == 200, accepted.text
 
         idea = (await c.get(f"/api/web/v1/knowbot-requests/{request_id}")).json()
         assert idea["idea"]["kind"] == "six_questions" and idea["cases"]

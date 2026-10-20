@@ -122,6 +122,8 @@ def _draft_for_user(draft: DraftRecord) -> dict[str, Any]:
         "name": draft.manifest.get("name"),
         "report": _report(draft),
         "knowbot_id": (draft.delivery or {}).get("knowbot_id"),
+        # 用户什么时候点的「要这一版」；还没要的是 None（所有者 2026-10-20「按丙来」）
+        "accepted_at": (draft.delivery or {}).get("accepted_at"),
     }
 
 
@@ -393,6 +395,13 @@ async def my_draft_outputs(
     return _ok(_outputs_view(draft, await svc.test_outputs(draft, request)))
 
 
+@web_router.post("/knowbot-drafts/{draft_id}/accept")
+async def accept(principal: User, svc: Service, draft_id: ItemId) -> JSONResponse:
+    """测试通过的分身，用户看过成稿说要这一版：交付成专家。交付失败报错，再点一次即可。"""
+    draft = await svc.accept(principal.subject, draft_id)
+    return _ok(_draft_for_user(draft))
+
+
 @web_router.post("/knowbot-requests/{request_id}/consent", status_code=204)
 async def consent(principal: User, svc: Service, request_id: ItemId) -> Response:
     """同意新一版测试数据说明：之后测试的成稿与各步结果才取、才显示（SDD 0037）。"""
@@ -656,6 +665,7 @@ async def refresh(_: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
 
 @admin_router.post("/knowbot-drafts/{draft_id}/deliver")
 async def deliver(_: Releaser, svc: Service, draft_id: ItemId) -> JSONResponse:
+    """重试交付：用户已经要了、上次交 knowmart 没成功的。用户没要的不交（409）。"""
     draft = await svc.deliver(draft_id)
     return _ok(_draft_for_user(draft))
 
