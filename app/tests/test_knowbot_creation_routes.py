@@ -173,7 +173,8 @@ async def test_full_flow_through_the_api(wired) -> None:
         runtime.results[run_id] = result(run_id, "passed")
         refreshed = (await c.post(f"{base}/refresh", headers=ADMIN)).json()
         assert refreshed["status"] == "passed"
-        assert refreshed["knowbot_id"] is None and refreshed["accepted_at"] is None
+        assert refreshed["knowbot_id"] is None
+        assert "accepted_at" not in refreshed  # 线上前端严格校验，形状不变（账 144）
         # 用户没要，管理端交不了（所有者 2026-10-20「按丙来」）
         early_deliver = await c.post(f"{base}/deliver", headers=ADMIN)
         assert early_deliver.status_code == 409
@@ -187,7 +188,7 @@ async def test_full_flow_through_the_api(wired) -> None:
         assert accepted.status_code == 200, accepted.text
         assert accepted.json()["status"] == "delivered"
         assert accepted.json()["knowbot_id"] == "kb-1"
-        assert accepted.json()["accepted_at"]
+        assert "accepted_at" not in accepted.json()
         assert len(knowmart.delivered) == 1
 
         # 用户看到的：状态与运行正确性报告，没有清单与方法原文

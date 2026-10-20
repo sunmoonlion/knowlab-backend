@@ -122,8 +122,8 @@ def _draft_for_user(draft: DraftRecord) -> dict[str, Any]:
         "name": draft.manifest.get("name"),
         "report": _report(draft),
         "knowbot_id": (draft.delivery or {}).get("knowbot_id"),
-        # 用户什么时候点的「要这一版」；还没要的是 None（所有者 2026-10-20「按丙来」）
-        "accepted_at": (draft.delivery or {}).get("accepted_at"),
+        # 不带 accepted_at：线上两端按严格形状校验，多一个字段就整页读取失败
+        # （待办账 144）；两道门随前端改版一起加
     }
 
 
