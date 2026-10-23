@@ -1,4 +1,9 @@
-"""分身的提交与草稿（SDD 0027）。草稿、测试、报告、改版都在 knowlab。"""
+"""创意、受理、准专家、测试、专家（SDD 0027、0037）。孵化与测试都在 knowlab。
+
+代码里仍叫 request（创意的名称）、draft（准专家）；创意版本、受理单、测试、专家各
+一张表，都只插、结论定了不改（SDD 0037 第十八之二节）。准专家上的 run、报告、交付
+几栏是 0012 之前的，0012 起不再写，内容搬进测试与专家表，留到收缩那一次迁移再删。
+"""
 
 from __future__ import annotations
 
@@ -12,19 +17,24 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.models.base import Base, TimestampMixin
 
+# 'delivered' 0012 起不再用（回填成 passed），约束留到收缩迁移再收
 DRAFT_STATUSES = "('pending_test', 'testing', 'passed', 'failed', 'delivered')"
+TEST_STATUSES = "('queued', 'running', 'waiting', 'passed', 'failed', 'platform_error')"
+ACTIVE_TESTS = "('queued', 'running', 'waiting')"
 
 
 class KnowbotRequest(TimestampMixin, Base):
@@ -40,8 +50,70 @@ class KnowbotRequest(TimestampMixin, Base):
     consent_version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1"
     )
+    # 最新的创意版本；idea、cases 是它的内容（镜像，旧读路径用）
+    latest_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    # 测试中用户答过的开步前提问：{用例: {键: 答案}}，开跑时并进用例，重测不再问
+    case_answers: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
 
     __table_args__ = (Index("ix_knowbot_request_owner_subject", "owner_subject"),)
+
+
+class KnowbotRequestVersion(Base):
+    """创意的一个版本：方法、用例、同意的测试数据说明。只插不改。"""
+
+    __tablename__ = "knowbot_request_version"
+
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    idea: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    cases: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    consent_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="ck_knowbot_request_version_positive"),
+    )
+
+
+class KnowbotAcceptance(Base):
+    """受理单：一个创意版本一张，三样各自的结论、受理与否、理由。"""
+
+    __tablename__ = "knowbot_acceptance"
+
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    accepted: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    checks: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    decided_by: Mapped[str] = mapped_column(String(512), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    trial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["request_id", "version"],
+            ["knowbot_request_version.request_id", "knowbot_request_version.version"],
+            ondelete="RESTRICT",
+            name="fk_knowbot_acceptance_version",
+        ),
+        CheckConstraint(
+            "accepted OR (reason IS NOT NULL AND char_length(reason) > 0)",
+            name="ck_knowbot_acceptance_reason",
+        ),
+    )
 
 
 class KnowbotDraft(TimestampMixin, Base):
@@ -68,11 +140,137 @@ class KnowbotDraft(TimestampMixin, Base):
     last_error: Mapped[str | None] = mapped_column(Text)
     # 这次测试的运行授权（SDD 0042 第七节）：knowbase 签给运行方，测试结束撤
     run_grant_id: Mapped[str | None] = mapped_column(String(64))
+    # 出自创意第几版（SDD 0037）
+    request_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 请用户审核：{requested_by, requested_at, ok, note, answered_at}
+    user_review: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     __table_args__ = (
         UniqueConstraint("request_id", "revision", name="uq_knowbot_draft_revision"),
+        ForeignKeyConstraint(
+            ["request_id", "request_version"],
+            ["knowbot_request_version.request_id", "knowbot_request_version.version"],
+            ondelete="RESTRICT",
+            name="fk_knowbot_draft_request_version",
+        ),
         CheckConstraint(f"status IN {DRAFT_STATUSES}", name="ck_knowbot_draft_status"),
         Index("ix_knowbot_draft_status", "status"),
+    )
+
+
+class KnowbotTest(Base):
+    """一次测试：拿一个准专家按用例跑一次。编号在同一个名称里只增。"""
+
+    __tablename__ = "knowbot_test"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_draft.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    budget_limit: Mapped[str | None] = mapped_column(String(16))  # 回填的不知道
+    timeout_seconds: Mapped[int | None] = mapped_column(Integer)
+    run_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    grant_id: Mapped[str | None] = mapped_column(String(64))
+    started_by: Mapped[str | None] = mapped_column(String(512))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("request_id", "number", name="uq_knowbot_test_number"),
+        UniqueConstraint("run_id", name="uq_knowbot_test_run"),
+        CheckConstraint(f"status IN {TEST_STATUSES}", name="ck_knowbot_test_status"),
+        CheckConstraint("number >= 1", name="ck_knowbot_test_number_positive"),
+        # 同一个名称同时只有一个在跑
+        Index(
+            "uq_knowbot_test_one_active",
+            "request_id",
+            unique=True,
+            postgresql_where=text(f"status IN {ACTIVE_TESTS}"),
+        ),
+        Index("ix_knowbot_test_draft", "draft_id"),
+    )
+
+
+class KnowbotExpert(Base):
+    """一版专家：测试通过即是。上架前两道门（先用户、后运营）的结论都在这里。"""
+
+    __tablename__ = "knowbot_expert"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_draft.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowbot_test.id", ondelete="RESTRICT")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    returned_by: Mapped[str | None] = mapped_column(String(512))
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user_accepted: Mapped[bool | None] = mapped_column(Boolean)
+    user_decided_by: Mapped[str | None] = mapped_column(String(512))
+    user_decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_approved: Mapped[bool | None] = mapped_column(Boolean)
+    review_listing: Mapped[str | None] = mapped_column(String(8))
+    review_reason: Mapped[str | None] = mapped_column(Text)
+    reviewed_by: Mapped[str | None] = mapped_column(String(512))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    listed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    knowmart_knowbot_id: Mapped[str | None] = mapped_column(String(64))
+    digest: Mapped[str | None] = mapped_column(String(80))
+    # knowmart 的回执（版本号、摘要、上架状态）
+    delivery: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    delivery_error: Mapped[str | None] = mapped_column(Text)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stopped_by: Mapped[str | None] = mapped_column(String(512))
+    stop_reason: Mapped[str | None] = mapped_column(Text)
+    trial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+
+    __table_args__ = (
+        UniqueConstraint("request_id", "version", name="uq_knowbot_expert_version"),
+        UniqueConstraint("draft_id", name="uq_knowbot_expert_draft"),
+        CheckConstraint("version >= 1", name="ck_knowbot_expert_version_positive"),
+        CheckConstraint(
+            "review_listing IS NULL OR review_listing IN ('self', 'public')",
+            name="ck_knowbot_expert_listing",
+        ),
+        CheckConstraint(
+            "review_approved IS NOT TRUE OR review_listing IS NOT NULL",
+            name="ck_knowbot_expert_approved_listing",
+        ),
+        CheckConstraint(
+            "review_approved IS NOT FALSE"
+            " OR (review_reason IS NOT NULL AND char_length(review_reason) > 0)",
+            name="ck_knowbot_expert_rejected_reason",
+        ),
+        CheckConstraint(
+            "stopped_at IS NULL"
+            " OR (stopped_by IS NOT NULL AND stop_reason IS NOT NULL)",
+            name="ck_knowbot_expert_stopped",
+        ),
+        Index("ix_knowbot_expert_knowmart", "knowmart_knowbot_id", "version"),
     )
 
 

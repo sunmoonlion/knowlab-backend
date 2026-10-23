@@ -1,9 +1,9 @@
-"""分身创建与测试要的外部能力（SDD 0027）。实现在 app/infrastructure/。"""
+"""创意到专家要的外部能力（SDD 0027、0037）。实现在 app/infrastructure/。"""
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,10 +28,43 @@ class RequestRecord:
     cases: list[dict[str, Any]] = field(repr=False)
     created_at: datetime | None = None
     consent_version: int = 1  # 同意的是哪一版测试数据说明
+    # 最新的创意版本；idea、cases 是它的内容（SDD 0037）
+    latest_version: int = 1
+    # 测试中用户答过的开步前提问：{用例: {键: 答案}}，开跑时并进用例
+    case_answers: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
+@dataclass(frozen=True)
+class RequestVersionRecord:
+    """创意的一个版本（SDD 0037）：只插不改。"""
+
+    request_id: uuid.UUID
+    version: int
+    idea: dict[str, Any] = field(repr=False)
+    cases: list[dict[str, Any]] = field(repr=False)
+    consent_version: int
+    created_by: str
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class AcceptanceRecord:
+    """受理单：一个创意版本一张。checks：{C-L5|C-L2|C-L1: {ok, note}}。"""
+
+    request_id: uuid.UUID
+    version: int
+    accepted: bool
+    checks: dict[str, Any]
+    reason: str | None
+    decided_by: str
+    decided_at: datetime
+    trial: bool = False
 
 
 @dataclass(frozen=True)
 class DraftRecord:
+    """准专家（一稿）。测试的经过在 TestRecord，专家在 ExpertRecord。"""
+
     id: uuid.UUID
     request_id: uuid.UUID
     revision: int
@@ -40,16 +73,63 @@ class DraftRecord:
     manifest: dict[str, Any] = field(repr=False)
     rules_reviewed_by: str | None = None
     rules_reviewed_at: datetime | None = None
-    run_id: str | None = None
-    run_attempts: int = 0
-    run_started_at: datetime | None = None
-    run_timeout_seconds: int | None = None
-    report: dict[str, Any] | None = None
-    delivery: dict[str, Any] | None = None
-    last_error: str | None = None
     created_at: datetime | None = None
-    # 这次测试的运行授权（SDD 0042 第七节），测试结束撤
-    run_grant_id: str | None = None
+    request_version: int = 1  # 出自创意第几版
+    # 请用户审核：{requested_by, requested_at, ok, note, answered_at}
+    user_review: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class TestRecord:
+    """一次测试（SDD 0037）：编号在同一个名称里只增。"""
+
+    __test__ = False  # 不是 pytest 的测试类
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    number: int
+    draft_id: uuid.UUID
+    status: str
+    run_id: str
+    started_at: datetime
+    budget_limit: str | None = None
+    timeout_seconds: int | None = None
+    grant_id: str | None = None
+    started_by: str | None = None
+    finished_at: datetime | None = None
+    report: dict[str, Any] | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ExpertRecord:
+    """一版专家：测试通过即是；两道门、上架、停用都记在这里。"""
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    version: int
+    draft_id: uuid.UUID
+    created_at: datetime
+    test_id: uuid.UUID | None = None
+    returned_by: str | None = None
+    returned_at: datetime | None = None
+    user_accepted: bool | None = None
+    user_decided_by: str | None = None
+    user_decided_at: datetime | None = None
+    review_approved: bool | None = None
+    review_listing: str | None = None
+    review_reason: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    listed_at: datetime | None = None
+    knowmart_knowbot_id: str | None = None
+    digest: str | None = None
+    delivery: dict[str, Any] | None = None
+    delivery_error: str | None = None
+    stopped_at: datetime | None = None
+    stopped_by: str | None = None
+    stop_reason: str | None = None
+    trial: bool = False
 
 
 @dataclass(frozen=True)
@@ -139,9 +219,47 @@ class KnowlabRepository(Protocol):
         idea: dict[str, Any],
         cases: list[dict[str, Any]],
         consent_version: int = 1,
-    ) -> RequestRecord: ...
+    ) -> RequestRecord:
+        """建创意的名称与它的 v1（同一个事务）。"""
+        ...
 
     async def get_request(self, request_id: uuid.UUID) -> RequestRecord | None: ...
+
+    # ---------- 创意版本与受理单（SDD 0037） ----------
+    async def add_version(
+        self,
+        *,
+        request_id: uuid.UUID,
+        version: int,
+        idea: dict[str, Any],
+        cases: list[dict[str, Any]],
+        consent_version: int,
+        created_by: str,
+    ) -> RequestVersionRecord:
+        """加一个版本，名称指向它（idea、cases 镜像跟着换）。"""
+        ...
+
+    async def get_version(
+        self, request_id: uuid.UUID, version: int
+    ) -> RequestVersionRecord | None: ...
+
+    async def list_versions(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[RequestVersionRecord]:
+        """按创意、版本号排。"""
+        ...
+
+    async def add_acceptance(self, record: AcceptanceRecord) -> None:
+        """写受理单；这个版本已有就抛 ConcurrencyConflictError。"""
+        ...
+
+    async def get_acceptance(
+        self, request_id: uuid.UUID, version: int
+    ) -> AcceptanceRecord | None: ...
+
+    async def list_acceptances(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[AcceptanceRecord]: ...
 
     async def list_requests_for_owner(
         self, owner_subject: str
@@ -155,6 +273,7 @@ class KnowlabRepository(Protocol):
         self,
         *,
         request_id: uuid.UUID,
+        request_version: int,
         revision: int,
         version: str,
         manifest: dict[str, Any],
@@ -165,19 +284,64 @@ class KnowlabRepository(Protocol):
     ) -> DraftRecord | None: ...
 
     async def list_drafts(
-        self, *, status: str | None = None, request_id: uuid.UUID | None = None
+        self,
+        *,
+        status: str | None = None,
+        request_id: uuid.UUID | None = None,
+        request_ids: Collection[uuid.UUID] | None = None,
     ) -> Sequence[DraftRecord]: ...
 
     async def update_draft(self, draft_id: uuid.UUID, **changes: Any) -> None: ...
 
     async def lock_request(self, request_id: uuid.UUID) -> None:
-        """串行化同一个分身的建草稿（版本号、修订号不重）。"""
+        """串行化同一个名称的改版、建稿、发起测试、出专家（版本号、编号不重）。"""
         ...
 
-    async def update_request_cases(
-        self, request_id: uuid.UUID, cases: list[dict[str, Any]]
+    async def set_case_answers(
+        self, request_id: uuid.UUID, answers: dict[str, Any]
     ) -> None:
-        """答过的开步前提问记回用例的预设答案。"""
+        """答过的开步前提问：{用例: {键: 答案}}，开跑时并进用例，重测不再问。"""
+        ...
+
+    # ---------- 测试（SDD 0037） ----------
+    async def create_test(self, record: TestRecord) -> TestRecord: ...
+
+    async def get_test(
+        self, test_id: uuid.UUID, *, for_update: bool = False
+    ) -> TestRecord | None: ...
+
+    async def list_tests(
+        self,
+        *,
+        request_ids: Collection[uuid.UUID] | None = None,
+        draft_id: uuid.UUID | None = None,
+    ) -> Sequence[TestRecord]:
+        """按创意、编号排。"""
+        ...
+
+    async def update_test(self, test_id: uuid.UUID, **changes: Any) -> None: ...
+
+    async def find_test_by_run(self, run_id: str) -> TestRecord | None: ...
+
+    # ---------- 专家（SDD 0037） ----------
+    async def create_expert(self, record: ExpertRecord) -> ExpertRecord: ...
+
+    async def get_expert(
+        self, expert_id: uuid.UUID, *, for_update: bool = False
+    ) -> ExpertRecord | None: ...
+
+    async def list_experts(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[ExpertRecord]:
+        """按创意、版本号排。"""
+        ...
+
+    async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None: ...
+
+    async def find_listed_expert(
+        self, knowbot_id: str, version: str
+    ) -> ExpertRecord | None:
+        """knowmart 的专家 id 与版本对应的、上架了没停用的那版（运行方读数据时核）。"""
         ...
 
     # ---------- 补充方法 ----------
@@ -236,7 +400,7 @@ class KnowlabRepository(Protocol):
     ) -> None: ...
 
     async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
-        """这个人的草稿里，在做的或已交付的有没有绑着这份数据。"""
+        """这个人在待测、测试中的准专家，或还没走完、没停用的专家，有没有绑着这份数据。"""
         ...
 
     async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
@@ -257,15 +421,6 @@ class KnowlabRepository(Protocol):
 
     async def delete_test_consent(self, owner_subject: str) -> None: ...
 
-    async def find_delivered_draft(
-        self, knowbot_id: str, version: str
-    ) -> DraftRecord | None:
-        """交付后 knowmart 给的分身 id 与版本对应的那份草稿。
-
-        运行方读数据时核（0027 §3.5）。
-        """
-        ...
-
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         """用户同意了新一版测试数据说明。"""
         ...
@@ -275,7 +430,7 @@ class KnowlabRepository(Protocol):
         ...
 
     async def expire_test_outputs(self, before: datetime) -> int:
-        """交付或被下一个分身取代早于 before 的分身：清掉产出正文、留一句原因。
+        """上架或被下一个准专家取代早于 before 的准专家：清掉产出正文、留一句原因。
 
         回清了几条。
         """
@@ -289,10 +444,6 @@ class KnowlabRepository(Protocol):
         self, draft_id: uuid.UUID, run_id: str
     ) -> Sequence[TestOutputRecord]:
         """这一稿这一次测试取到的产出，按用例编号。"""
-        ...
-
-    async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
-        """正在测试、run_id 是这一次的草稿。"""
         ...
 
 
@@ -405,7 +556,7 @@ class TableExtractor(Protocol):
 
 
 class KnowmartClient(Protocol):
-    """交付测试通过的版本到 knowmart（服务身份 knowmart:deliver）。"""
+    """交付过了两道门的专家到 knowmart、停用某一版（服务身份 knowmart:deliver）。"""
 
     async def deliver(
         self,
@@ -414,4 +565,11 @@ class KnowmartClient(Protocol):
         owner_subject: str,
         knowbot_ref: str,
         manifest: dict[str, Any],
-    ) -> dict[str, Any]: ...
+        request_public: bool = False,
+    ) -> dict[str, Any]:
+        """回 {knowbot_id, version, digest, listing_status?}。"""
+        ...
+
+    async def stop(self, *, owner_subject: str, knowbot_id: str, version: str) -> None:
+        """停用 knowmart 里的这一版；停过的再停也成功。"""
+        ...

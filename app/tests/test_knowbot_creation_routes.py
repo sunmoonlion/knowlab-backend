@@ -1,4 +1,5 @@
-"""分身创建的接口：会话与权限、所有者隔离、CSRF、报告不带分析内容。"""
+"""创意到专家的接口（SDD 0037）：会话与权限、所有者隔离、CSRF、两端的栏与详情页、
+用户看的不带内部字段。"""
 
 from __future__ import annotations
 
@@ -6,16 +7,21 @@ import httpx
 import pytest
 
 import app.interfaces.http.middleware.auth as auth_middleware
+from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_data import KnowbotDataService
+from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
 from app.interfaces.endpoints import knowbot_routes
 from app.main import app
 from tests.knowbot_fakes import (
+    OWNER,
     FakeKnowmart,
     FakeRuntime,
     MemoryDataStore,
     MemoryKnowlab,
+    accepted_request,
     manifest,
     request_body,
     result,
@@ -28,12 +34,19 @@ WEB = {"Origin": "http://localhost:3000", "X-CSRF-Token": CSRF}
 ADMIN = {"Origin": "http://localhost:5173", "X-CSRF-Token": CSRF}
 WEB_SID = "sunmoonai_knowlab_web_sid"
 ADMIN_SID = "sunmoonai_knowlab_admin_sid"
+ALL_CLEAR = {
+    "checks": {c: {"ok": True, "note": ""} for c in ("C-L5", "C-L2", "C-L1")},
+    "accepted": True,
+}
+START = {"budget_limit": "20", "timeout_seconds": 600}
 
 
 @pytest.fixture
 def wired(monkeypatch: pytest.MonkeyPatch):
     repo, runtime, knowmart = MemoryKnowlab(), FakeRuntime(), FakeKnowmart()
-    svc = KnowbotCreationService(repo, runtime, knowmart)
+    asks = KnowbotQuestionService(repo, runtime)
+    svc = KnowbotCreationService(repo, runtime, on_refresh=asks.resend)
+    experts = KnowbotExpertService(repo, knowmart)
     web = FakeAuthService({"member": session("web", "profile:read")})
     admin = FakeAuthService(
         {
@@ -49,9 +62,10 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(auth_middleware, "admin_auth_service", admin)
     monkeypatch.setattr(knowbot_routes, "runtime_clients", lambda: runtime)
     app.dependency_overrides[knowbot_routes.service] = lambda: svc
+    app.dependency_overrides[knowbot_routes.expert_service] = lambda: experts
+    app.dependency_overrides[knowbot_routes.board_service] = lambda: KnowbotBoard(repo)
     data = KnowbotDataService(repo, MemoryDataStore())
     app.dependency_overrides[knowbot_routes.data_service] = lambda: data
-    asks = KnowbotQuestionService(repo, runtime)
     app.dependency_overrides[knowbot_routes.question_service] = lambda: asks
     yield svc, repo, runtime, knowmart
     app.dependency_overrides.clear()
@@ -63,10 +77,20 @@ def client() -> httpx.AsyncClient:
     )
 
 
+async def _testing(svc: KnowbotCreationService, owner: str = OWNER):
+    request = await accepted_request(svc, owner)
+    draft = await svc.add_draft(str(request.id), manifest())
+    await svc.review_rules(str(draft.id), "admin-1")
+    test = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    return request, draft, test
+
+
 @pytest.mark.asyncio
 async def test_web_needs_a_session_and_csrf(wired) -> None:
     async with client() as c:
-        assert (await c.get("/api/web/v1/knowbot-requests")).status_code == 401
+        assert (
+            await c.get("/api/web/v1/knowbot-board/applications")
+        ).status_code == 401
         c.cookies.set(WEB_SID, "member")
         assert (await c.get("/api/web/v1/knowbot-runtimes")).json()["runtimes"] == [
             "knowbench"
@@ -82,60 +106,58 @@ async def test_web_needs_a_session_and_csrf(wired) -> None:
         ok = await c.post(
             "/api/web/v1/knowbot-requests", json=request_body(), headers=WEB
         )
-        assert ok.status_code == 201
+        assert ok.status_code == 201 and ok.json()["version"] == 1
         assert ok.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio
 async def test_admin_routes_need_the_admin_scope_and_not_a_web_session(wired) -> None:
+    board = "/api/admin/v1/knowbot-board/acceptance"
     async with client() as c:
-        assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 401
+        assert (await c.get(board)).status_code == 401
         c.cookies.set(WEB_SID, "member")
-        assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 401
+        assert (await c.get(board)).status_code == 401
         c.cookies.set(ADMIN_SID, "no-scope")
-        assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 403
+        assert (await c.get(board)).status_code == 403
         c.cookies.set(ADMIN_SID, "admin")
-        assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 200
-        bad_status = await c.get("/api/admin/v1/knowbot-drafts?status=nope")
-        assert bad_status.status_code in {400, 422}
+        assert (await c.get(board)).status_code == 200
+        bad = await c.get("/api/admin/v1/knowbot-board/nope")
+        assert bad.status_code in {400, 422}
 
 
 @pytest.mark.asyncio
-async def test_base_scope_cannot_draft_review_deliver_or_reset(wired) -> None:
-    """只有基本权限的能看、发起测试、答跑法问题；
-    建草稿、核出处、交付、退回要多一项 knowlab:release。"""
-    svc, *_ = wired
-    from app.domain.knowbots.drafts import KnowbotRequestIn
-
-    request = await svc.submit(
-        "user-123", KnowbotRequestIn.model_validate(request_body())
-    )
-    draft = await svc.add_draft(str(request.id), manifest())
+async def test_base_scope_cannot_accept_incubate_deliver_or_reset(wired) -> None:
+    """只有基本权限的能看、发起测试、刷新、答跑法问题；受理、孵化、交付、判定卡住
+    要多一项 knowlab:release。"""
+    svc, repo, *_ = wired
+    request, draft, test = await _testing(svc)
     async with client() as c:
         c.cookies.set(ADMIN_SID, "base")
-        assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 200
-        base = f"/api/admin/v1/knowbot-drafts/{draft.id}"
+        assert (await c.get("/api/admin/v1/knowbot-counts")).status_code == 200
+        req = f"/api/admin/v1/knowbot-requests/{request.id}"
+        drafts = f"/api/admin/v1/knowbot-drafts/{draft.id}"
+        expert = "/api/admin/v1/knowbot-experts/00000000-0000-4000-8000-000000000000"
         for path, body in [
-            (f"/api/admin/v1/knowbot-requests/{request.id}/drafts", manifest()),
-            (f"{base}/rules-review", None),
-            (f"{base}/deliver", None),
-            (f"{base}/reset", None),
+            (f"{req}/versions/1/acceptance", ALL_CLEAR),
+            (f"{req}/drafts", {"manifest": manifest()}),
+            (f"{drafts}/rules-review", None),
+            (f"{drafts}/review-request", None),
+            (f"/api/admin/v1/knowbot-tests/{test.id}/reset", None),
+            (f"{expert}/return", None),
+            (f"{expert}/review", {"approved": True, "listing": "self"}),
+            (f"{expert}/deliver", None),
+            (f"{expert}/stop", {"reason": "x"}),
         ]:
-            json = {"manifest": body} if body else None
-            refused = await c.post(path, json=json, headers=ADMIN)
+            refused = await c.post(path, json=body, headers=ADMIN)
             assert refused.status_code == 403, path
-        # 核过出处之后，只有基本权限也能发起测试
-        await svc.review_rules(str(draft.id), "admin-1")
-        started = await c.post(
-            f"{base}/test",
-            json={"budget_limit": "20", "timeout_seconds": 600},
-            headers=ADMIN,
+        refreshed = await c.post(
+            f"/api/admin/v1/knowbot-tests/{test.id}/refresh", headers=ADMIN
         )
-        assert started.status_code == 200, started.text
+        assert refreshed.status_code == 200, refreshed.text
 
 
 @pytest.mark.asyncio
-async def test_full_flow_through_the_api(wired) -> None:
+async def test_the_whole_life_through_the_api(wired) -> None:
     svc, repo, runtime, knowmart = wired
     async with client() as c:
         c.cookies.set(WEB_SID, "member")
@@ -144,77 +166,151 @@ async def test_full_flow_through_the_api(wired) -> None:
         )
         request_id = made.json()["request_id"]
 
+        # 受理
         c.cookies.set(ADMIN_SID, "admin")
-        detail = (await c.get(f"/api/admin/v1/knowbot-requests/{request_id}")).json()
-        assert detail["idea"]["kind"] == "six_questions"
-        assert detail["owner_subject"] == "user-123"
+        assert (await c.get("/api/admin/v1/knowbot-counts")).json()["counts"][
+            "acceptance"
+        ] == 1
+        [pending] = (await c.get("/api/admin/v1/knowbot-board/acceptance")).json()[
+            "items"
+        ]
+        assert (pending["category"], pending["version"]) == ("pending", 1)
+        assert pending["idea"]["kind"] == "six_questions"
+        url = f"/api/admin/v1/knowbot-requests/{request_id}/versions/1/acceptance"
+        half = {**ALL_CLEAR, "accepted": False}
+        assert (await c.post(url, json=half, headers=ADMIN)).status_code == 422
+        accepted = await c.post(url, json=ALL_CLEAR, headers=ADMIN)
+        assert accepted.status_code == 201
+        assert (await c.post(url, json=ALL_CLEAR, headers=ADMIN)).status_code == 409
+
+        # 孵化
+        [todo] = (await c.get("/api/admin/v1/knowbot-board/incubation")).json()["items"]
+        assert (todo["category"], todo["latest_accepted"]) == ("todo", 1)
         draft = await c.post(
             f"/api/admin/v1/knowbot-requests/{request_id}/drafts",
             json={"manifest": manifest()},
             headers=ADMIN,
         )
         assert draft.status_code == 201
+        assert (draft.json()["version"], draft.json()["revision"]) == ("1", 1)
         draft_id = draft.json()["draft_id"]
         base = f"/api/admin/v1/knowbot-drafts/{draft_id}"
-        test = {"budget_limit": "20", "timeout_seconds": 600}
+        asked = await c.post(f"{base}/review-request", headers=ADMIN)
+        assert asked.status_code == 204
 
-        early = await c.post(f"{base}/test", json=test, headers=ADMIN)
-        assert early.status_code == 409
-        assert early.json()["code"] == "rules_not_reviewed"
-        assert (await c.post(f"{base}/rules-review")).status_code == 403
-        reviewed = await c.post(f"{base}/rules-review", headers=ADMIN)
-        assert reviewed.status_code == 204
-        listed = (
-            await c.get("/api/admin/v1/knowbot-drafts?status=pending_test")
-        ).json()
-        assert listed["drafts"][0]["rules_reviewed_by"] == "user-123"
-        assert listed["drafts"][0]["rule_sources"][0]["source"] == "user_text"
+        # 用户审核准专家（审核栏里一条待办）
+        assert (await c.get("/api/web/v1/knowbot-counts")).json()["inbox"] == 1
+        [item] = (await c.get("/api/web/v1/knowbot-board/inbox")).json()["items"]
+        assert (item["state"], item["type"], item["label"]) == ("todo", "draft", "1.1")
+        assert item["rule_sources"] == [
+            {"rule": r["rule"], "ref": r["ref"]} for r in manifest()["rule_sources"]
+        ]
+        review = f"/api/web/v1/knowbot-drafts/{draft_id}/review"
+        assert (await c.post(review, json={"ok": True})).status_code == 403
+        assert (await c.post(review, json={"ok": True}, headers=WEB)).status_code == 200
 
-        started = await c.post(f"{base}/test", json=test, headers=ADMIN)
-        assert started.status_code == 200
-        run_id = started.json()["run_id"]
-        runtime.results[run_id] = result(run_id, "passed")
-        refreshed = (await c.post(f"{base}/refresh", headers=ADMIN)).json()
-        assert refreshed["status"] == "passed"
-        assert refreshed["knowbot_id"] is None
-        assert "accepted_at" not in refreshed  # 线上前端严格校验，形状不变（账 144）
-        # 用户没要，管理端交不了（所有者 2026-10-20「按丙来」）
-        early_deliver = await c.post(f"{base}/deliver", headers=ADMIN)
-        assert early_deliver.status_code == 409
-        assert early_deliver.json()["code"] == "not_accepted"
-        assert knowmart.delivered == []
+        # 测试
+        early = await c.post(f"{base}/test", json=START, headers=ADMIN)
+        assert early.status_code == 409 and early.json()["code"] == "rules_not_reviewed"
+        assert (await c.post(f"{base}/rules-review", headers=ADMIN)).status_code == 204
+        [to_start] = (await c.get("/api/admin/v1/knowbot-board/tests")).json()["items"]
+        assert to_start["category"] == "to_start"
+        assert to_start["draft"]["rules_reviewed_by"] == OWNER
+        assert to_start["draft"]["blocked"] is None
+        started = await c.post(f"{base}/test", json=START, headers=ADMIN)
+        assert started.status_code == 201
+        test = started.json()["test"]
+        assert (test["number"], test["status"]) == (1, "queued")
+        runtime.results[test["run_id"]] = result(test["run_id"], "passed")
+        refreshed = await c.post(
+            f"/api/admin/v1/knowbot-tests/{test['test_id']}/refresh", headers=ADMIN
+        )
+        assert refreshed.json()["test"]["status"] == "passed"
 
-        # 用户在网页端看过成稿，点「要这一版」
-        accept = f"/api/web/v1/knowbot-drafts/{draft_id}/accept"
-        assert (await c.post(accept)).status_code == 403  # 没带 CSRF
-        accepted = await c.post(accept, headers=WEB)
-        assert accepted.status_code == 200, accepted.text
-        assert accepted.json()["status"] == "delivered"
-        assert accepted.json()["knowbot_id"] == "kb-1"
-        assert "accepted_at" not in accepted.json()
-        assert len(knowmart.delivered) == 1
+        # 交付：交回 → 用户同意 → 运营审核 → 交 knowmart
+        [expert] = (await c.get("/api/admin/v1/knowbot-board/delivery")).json()["items"]
+        assert (expert["category"], expert["version"], expert["test_number"]) == (
+            "to_return",
+            1,
+            1,
+        )
+        assert (await c.get("/api/web/v1/knowbot-board/experts")).json()["items"] == []
+        ebase = f"/api/admin/v1/knowbot-experts/{expert['expert_id']}"
+        assert (await c.post(f"{ebase}/return", headers=ADMIN)).status_code == 200
+        assert (await c.get("/api/web/v1/knowbot-counts")).json() == {
+            "contract_version": 1,
+            "inbox": 1,
+            "experts_new": 1,
+        }
+        decision = f"/api/web/v1/knowbot-experts/{expert['expert_id']}/decision"
+        decided = await c.post(decision, json={"accept": True}, headers=WEB)
+        assert decided.json()["stage"] == "to_review"
+        reviewed = await c.post(
+            f"{ebase}/review",
+            json={"approved": True, "listing": "self"},
+            headers=ADMIN,
+        )
+        assert reviewed.json()["stage"] == "listed", reviewed.text
+        assert knowmart.delivered[0]["manifest"] == manifest()
+        [mine] = (await c.get("/api/web/v1/knowbot-board/experts")).json()["items"]
+        assert (mine["category"], mine["knowbot_id"]) == ("usable", "kb-1")
 
-        # 用户看到的：状态与运行正确性报告，没有清单与方法原文
-        mine = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
-        assert mine[0]["drafts"][0]["status"] == "delivered"
-        assert mine[0]["drafts"][0]["report"]["status"] == "passed"
-        rendered = str(mine)
-        assert "manifest" not in rendered and "rule_sources" not in rendered
-        assert "owner_subject" not in rendered and "idea" not in rendered
+        # 用户看的：没有清单、规则名、run、谁做的
+        detail = (await c.get(f"/api/web/v1/knowbot-requests/{request_id}")).json()
+        assert detail["summary"] == {
+            "version": 1,
+            "acceptance": "accepted",
+            "draft": "1.1",
+            "test": {"number": 1, "status": "passed"},
+            "expert": {"version": 1, "stage": "listed"},
+        }
+        assert detail["versions"][0]["acceptance"]["accepted"] is True
+        rendered = str(detail)
+        for hidden in ("manifest", "run_id", "owner_subject", "'checks'", "'by'"):
+            assert hidden not in rendered, hidden
+        kinds = [e["kind"] for e in detail["timeline"]]
+        assert kinds[0] == "version" and kinds[-1] == "listed"
+
+        # 停用：用户自己停，knowmart 那一版跟着停
+        stop = f"/api/web/v1/knowbot-experts/{expert['expert_id']}/stop"
+        stopped = await c.post(stop, json={"reason": "不用了"}, headers=WEB)
+        assert stopped.json()["stage"] == "stopped"
+        assert knowmart.stopped == [
+            {"owner_subject": OWNER, "knowbot_id": "kb-1", "version": "1"}
+        ]
+
+
+@pytest.mark.asyncio
+async def test_revising_through_the_api_adds_a_version(wired) -> None:
+    svc, repo, *_ = wired
+    request = await accepted_request(svc)
+    body = request_body()
+    body["idea"]["answers"]["steps"] = "先算毛利率，再算净利率"
+    revision = {k: body[k] for k in ("idea", "cases", "consent_test_data")}
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        url = f"/api/web/v1/knowbot-requests/{request.id}/versions"
+        assert (await c.post(url, json=revision)).status_code == 403
+        made = await c.post(url, json=revision, headers=WEB)
+        assert made.status_code == 201 and made.json()["version"] == 2
+        renamed = await c.post(url, json=revision | {"title": "别的"}, headers=WEB)
+        assert renamed.status_code in {400, 422}  # 名称一生不变
+        detail = (await c.get(f"/api/web/v1/knowbot-requests/{request.id}")).json()
+        assert [v["version"] for v in detail["versions"]] == [1, 2]
+        assert detail["versions"][1]["acceptance"] is None
+        c.cookies.set(ADMIN_SID, "admin")
+        items = (await c.get("/api/admin/v1/knowbot-board/acceptance")).json()["items"]
+        assert [(i["category"], i["version"]) for i in items] == [
+            ("pending", 2),
+            ("accepted", 1),
+        ]
 
 
 @pytest.mark.asyncio
 async def test_admin_sees_how_far_a_running_test_got_and_users_do_not(wired) -> None:
-    """测试中看进度（待办账 135）：管理端草稿上带进度，跑完就没有；用户的结果不变。"""
-    svc, repo, runtime, _ = wired
-    from app.domain.knowbots.drafts import KnowbotRequestIn
-
-    request = await svc.submit(
-        "user-123", KnowbotRequestIn.model_validate(request_body())
-    )
-    draft = await svc.add_draft(str(request.id), manifest())
-    await svc.review_rules(str(draft.id), "admin-1")
-    run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    """测试中看进度（待办账 135）：管理端测试上带进度，跑完就没有；用户的结果不变。"""
+    svc, _, runtime, _ = wired
+    request, _, test = await _testing(svc)
     progress = {
         "case_id": "c1",
         "cases_done": 0,
@@ -225,51 +321,42 @@ async def test_admin_sees_how_far_a_running_test_got_and_users_do_not(wired) -> 
         "attempt": 1,
         "spent": "0.120000",
     }
-    runtime.results[run.run_id] = result(run.run_id, "running", progress=progress)
-    await svc.refresh(str(draft.id))
+    runtime.results[test.run_id] = result(test.run_id, "running", progress=progress)
+    await svc.refresh(str(test.id))
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
-        [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-        assert shown["status"] == "testing"
-        assert shown["progress"] == progress | {"queued_behind": None}
-        assert shown["run_status"] == "running"
+        [shown] = (await c.get("/api/admin/v1/knowbot-board/tests")).json()["items"]
+        assert shown["category"] == "running"
+        assert shown["test"]["progress"] == progress | {"queued_behind": None}
+        assert shown["test"]["run_status"] == "running"
         c.cookies.set(WEB_SID, "member")
-        mine = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
+        mine = (await c.get(f"/api/web/v1/knowbot-requests/{request.id}")).json()
         assert "progress" not in str(mine)
-        runtime.results[run.run_id] = result(run.run_id, "passed")
-        await svc.refresh(str(draft.id))
-        [done] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-        assert done["status"] == "passed" and done["progress"] is None
-        assert done["run_status"] is None and done["run_running_since"] is None
+        runtime.results[test.run_id] = result(test.run_id, "passed")
+        await svc.refresh(str(test.id))
+        [done] = (await c.get("/api/admin/v1/knowbot-board/tests")).json()["items"]
+        assert done["category"] == "finished"
+        assert done["test"]["progress"] is None and done["test"]["run_status"] is None
 
 
 @pytest.mark.asyncio
 async def test_admin_sees_a_test_that_was_accepted_but_has_not_started(wired) -> None:
-    """运行方受理了还没开跑：管理端拿到「已受理」、没有开跑时间（账 136 第 ②）。
-
-    不拿我们提交的时间冒充开跑时间；排在测试账号别的委托后面时，进度里带那件委托的编号
-    （0034 §三.3）。
-    """
-    svc, repo, runtime, _ = wired
-    from app.domain.knowbots.drafts import KnowbotRequestIn
-
-    request = await svc.submit(
-        "user-123", KnowbotRequestIn.model_validate(request_body())
+    """运行方受理了还没开跑：管理端拿到「已受理」、没有开跑时间（账 136 第 ②）；
+    排在测试账号别的委托后面时，进度里带那件委托的编号（0034 §三.3）。"""
+    svc, _, runtime, _ = wired
+    _, _, test = await _testing(svc)
+    runtime.results[test.run_id] = result(
+        test.run_id, "accepted", blocked="computer_offline"
     )
-    draft = await svc.add_draft(str(request.id), manifest())
-    await svc.review_rules(str(draft.id), "admin-1")
-    run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
-    runtime.results[run.run_id] = result(
-        run.run_id, "accepted", blocked="computer_offline"
-    )
-    await svc.refresh(str(draft.id))
+    await svc.refresh(str(test.id))
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
-        [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-        assert shown["run_status"] == "accepted"
-        assert shown["run_running_since"] is None
+        [shown] = (await c.get("/api/admin/v1/knowbot-board/tests")).json()["items"]
+        assert shown["category"] == "queued"
+        assert shown["test"]["run_status"] == "accepted"
+        assert shown["test"]["run_running_since"] is None
         # 账 141：已受理没开跑时，写明在等什么
-        assert shown["run_blocked"] == "computer_offline"
+        assert shown["test"]["run_blocked"] == "computer_offline"
         behind = "03e447a0-0000-4000-8000-000000000000"
         queued = {
             "case_id": "c1",
@@ -280,28 +367,40 @@ async def test_admin_sees_a_test_that_was_accepted_but_has_not_started(wired) ->
             "spent": "0",
             "queued_behind": behind,
         }
-        runtime.results[run.run_id] = result(
-            run.run_id,
+        runtime.results[test.run_id] = result(
+            test.run_id,
             "running",
             started_at="2026-10-19T00:49:14Z",
             progress=queued,
         )
-        await svc.refresh(str(draft.id))
-        [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-        assert shown["run_running_since"].startswith("2026-10-19T00:49:14")
-        assert shown["progress"]["queued_behind"] == behind
-        assert shown["run_blocked"] is None
+        await svc.refresh(str(test.id))
+        [shown] = (await c.get("/api/admin/v1/knowbot-board/tests")).json()["items"]
+        assert shown["test"]["run_running_since"].startswith("2026-10-19T00:49:14")
+        assert shown["test"]["progress"]["queued_behind"] == behind
+        assert shown["test"]["run_blocked"] is None
 
 
 @pytest.mark.asyncio
-async def test_users_only_see_their_own_requests(wired) -> None:
+async def test_users_only_reach_their_own(wired) -> None:
     svc, *_ = wired
-    from app.domain.knowbots.drafts import KnowbotRequestIn
-
-    await svc.submit("someone-else", KnowbotRequestIn.model_validate(request_body()))
+    other, theirs, test = await _testing(svc, "someone-else")
     async with client() as c:
         c.cookies.set(WEB_SID, "member")
-        assert (await c.get("/api/web/v1/knowbot-requests")).json()["requests"] == []
+        assert (await c.get("/api/web/v1/knowbot-board/applications")).json()[
+            "items"
+        ] == []
+        for path in (
+            f"/api/web/v1/knowbot-requests/{other.id}",
+            f"/api/web/v1/knowbot-tests/{test.id}/outputs",
+            "/api/web/v1/knowbot-requests/not-a-uuid",
+        ):
+            assert (await c.get(path)).status_code == 404, path
+        review = await c.post(
+            f"/api/web/v1/knowbot-drafts/{theirs.id}/review",
+            json={"ok": True},
+            headers=WEB,
+        )
+        assert review.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -309,10 +408,14 @@ async def test_unknown_ids_are_404(wired) -> None:
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
         missing = await c.post(
-            "/api/admin/v1/knowbot-drafts/not-a-uuid/refresh", headers=ADMIN
+            "/api/admin/v1/knowbot-tests/not-a-uuid/refresh", headers=ADMIN
         )
         assert missing.status_code == 404
         assert (await c.get("/api/admin/v1/knowbot-requests/x")).status_code == 404
+        gone = await c.post(
+            "/api/admin/v1/knowbot-experts/not-a-uuid/return", headers=ADMIN
+        )
+        assert gone.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -357,17 +460,10 @@ async def test_my_data_upload_list_delete_and_admin_sees_metadata_only(wired) ->
 
 @pytest.mark.asyncio
 async def test_questions_through_the_api(wired) -> None:
-    svc, repo, runtime, _ = wired
-    from app.domain.knowbots.drafts import KnowbotRequestIn
-
-    request = await svc.submit(
-        "user-123", KnowbotRequestIn.model_validate(request_body())
-    )
-    draft = await svc.add_draft(str(request.id), manifest())
-    await svc.review_rules(str(draft.id), "admin-1")
-    run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
-    runtime.results[run.run_id] = waiting(run.run_id)
-    await svc.refresh(str(draft.id))
+    svc, _, runtime, _ = wired
+    request, draft, test = await _testing(svc)
+    runtime.results[test.run_id] = waiting(test.run_id)
+    await svc.refresh(str(test.id))
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
         listed = (await c.get("/api/admin/v1/knowbot-questions")).json()["questions"]
@@ -389,8 +485,6 @@ async def test_questions_through_the_api(wired) -> None:
         assert taken.status_code == 204
         back = await c.post(f"{base}/{ids['ask_before']}/to-user", headers=ADMIN)
         assert back.status_code == 204
-        relisted = (await c.get(base)).json()["questions"]
-        assert {q["kind"]: q["route_reason"] for q in relisted}["ask_before"] is None
         approve = await c.post(
             f"{base}/{ids['tool_approval']}/answer",
             json={"decision": "approve"},
@@ -406,13 +500,20 @@ async def test_questions_through_the_api(wired) -> None:
         mine = (await c.get("/api/web/v1/knowbot-questions")).json()["questions"]
         assert sorted(q["kind"] for q in mine) == ["ask_before", "question"]
         assert all("owner_subject" not in q and "route" not in q for q in mine)
-        # 带着是哪个分身的（自己的），web端按它对上（SDD 0037）
+        # 带着是哪位准专家的（自己的），web端按它对上（SDD 0037）
         assert {q["draft_id"] for q in mine} == {str(draft.id)}
+        assert {q["label"] for q in mine} == {"1.1"}
+        inbox = (await c.get("/api/web/v1/knowbot-board/inbox")).json()
+        assert sorted(i["type"] for i in inbox["items"]) == ["question", "question"]
+        assert sorted(i["kind"] for i in inbox["items"]) == ["ask_before", "question"]
         url = f"/api/web/v1/knowbot-questions/{ids['question']}/answer"
         assert (await c.post(url, json={"text": "按营业收入"})).status_code == 403
         answered = await c.post(url, json={"text": "按营业收入"}, headers=WEB)
         assert answered.status_code == 200 and answered.json()["sent"] is True
+        inbox = (await c.get("/api/web/v1/knowbot-board/inbox")).json()
+        assert [a["answered_by"] for a in inbox["answered"]] == ["user"]
 
+        c.cookies.set(ADMIN_SID, "admin")
         detail = (await c.get(f"/api/admin/v1/knowbot-requests/{request.id}")).json()[
             "answered"
         ]
@@ -423,169 +524,57 @@ async def test_questions_through_the_api(wired) -> None:
 
 
 @pytest.mark.asyncio
-async def test_amendments_through_the_api(wired) -> None:
-    """补充方法（SDD 0035）。
-
-    用户只给自己的写；admin 看得到、能不照做；核对出处前挡住。
-    """
-    svc, *_ = wired
-    from app.domain.knowbots.drafts import KnowbotRequestIn
-
-    mine = await svc.submit("user-123", KnowbotRequestIn.model_validate(request_body()))
-    theirs = await svc.submit(
-        "someone-else", KnowbotRequestIn.model_validate(request_body())
-    )
-    async with client() as c:
-        c.cookies.set(WEB_SID, "member")
-        url = f"/api/web/v1/knowbot-requests/{mine.id}/amendments"
-        no_csrf = await c.post(url, json={"text": "第 6 步改成对照管理层讨论"})
-        assert no_csrf.status_code == 403
-        made = await c.post(
-            url, json={"text": "第 6 步改成对照管理层讨论"}, headers=WEB
-        )
-        assert made.status_code == 201
-        amendment_id = made.json()["amendment_id"]
-        other = await c.post(
-            f"/api/web/v1/knowbot-requests/{theirs.id}/amendments",
-            json={"text": "改别人的"},
-            headers=WEB,
-        )
-        assert other.status_code == 404
-        empty = await c.post(url, json={"text": ""}, headers=WEB)
-        assert empty.status_code in {400, 422}
-        [shown] = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
-        assert shown["amendments"] == [
-            {
-                "amendment_id": amendment_id,
-                "text": "第 6 步改成对照管理层讨论",
-                "created_at": shown["amendments"][0]["created_at"],
-                "status": "open",
-                "used_in_revision": None,
-                "declined_reason": None,
-                "declined_at": None,
-            }
-        ]
-
-        draft = await svc.add_draft(str(mine.id), manifest())
-        c.cookies.set(ADMIN_SID, "admin")
-        [card] = [
-            d
-            for d in (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
-            if d["draft_id"] == str(draft.id)
-        ]
-        assert (card["amendments_open"], card["amendments_newer"]) == (
-            [amendment_id],
-            0,
-        )
-        review = await c.post(
-            f"/api/admin/v1/knowbot-drafts/{draft.id}/rules-review", headers=ADMIN
-        )
-        assert review.status_code == 409
-        assert review.json()["code"] == "amendments_open"
-
-        decline = f"/api/admin/v1/knowbot-amendments/{amendment_id}/decline"
-        c.cookies.set(ADMIN_SID, "base")
-        assert (
-            await c.post(decline, json={"reason": "这一版先不做"}, headers=ADMIN)
-        ).status_code == 403
-        c.cookies.set(ADMIN_SID, "admin")
-        no_reason = await c.post(decline, json={"reason": ""}, headers=ADMIN)
-        assert no_reason.status_code in {400, 422}
-        done = await c.post(decline, json={"reason": "这一版先不做"}, headers=ADMIN)
-        assert done.status_code == 204
-        detail = await c.get(f"/api/admin/v1/knowbot-requests/{mine.id}")
-        [seen] = detail.json()["amendments"]
-        assert (seen["status"], seen["declined_reason"]) == ("declined", "这一版先不做")
-        assert seen["declined_by"] == "user-123"  # 假会话里 admin 的 subject
-        review = await c.post(
-            f"/api/admin/v1/knowbot-drafts/{draft.id}/rules-review", headers=ADMIN
-        )
-        assert review.status_code == 204
-
-        c.cookies.set(WEB_SID, "member")
-        [shown] = (await c.get("/api/web/v1/knowbot-requests")).json()["requests"]
-        assert shown["amendments"][0]["status"] == "declined"
-        assert "declined_by" not in shown["amendments"][0]
-
-
-@pytest.mark.asyncio
-async def test_ideas_avatars_outputs_and_experts_through_the_api(wired) -> None:
-    """SDD 0037：web 只看自己的创意、分身、产出、专家；管理端看全部产出。"""
-    from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
-
+async def test_outputs_through_the_api(wired) -> None:
+    """SDD 0037：web 只看自己那次测试的产出；管理端看全部（验证这一稿）。"""
     svc, repo, runtime, _ = wired
+    request, draft, test = await _testing(svc)
+    runtime.case_outputs[(test.run_id, "c1")] = CaseOutputsV1.model_validate(
+        {
+            "contract": CONTRACT,
+            "run_id": test.run_id,
+            "case_id": "c1",
+            "deliverable": {"path": "底稿/成稿.md", "text": "# 成稿"},
+        }
+    )
+    runtime.results[test.run_id] = result(test.run_id, "passed")
+    await svc.refresh(str(test.id))
     async with client() as c:
         c.cookies.set(WEB_SID, "member")
-        made = await c.post(
-            "/api/web/v1/knowbot-requests", json=request_body(), headers=WEB
-        )
-        request_id = made.json()["request_id"]
-        draft = await svc.add_draft(request_id, manifest())
-        await svc.review_rules(str(draft.id), "admin-1")
-        run = await svc.start_test(
-            str(draft.id), budget_limit="20", timeout_seconds=600
-        )
-        runtime.case_outputs[(run.run_id, "c1")] = CaseOutputsV1.model_validate(
-            {
-                "contract": CONTRACT,
-                "run_id": run.run_id,
-                "case_id": "c1",
-                "deliverable": {"path": "底稿/成稿.md", "text": "# 成稿"},
-            }
-        )
-        runtime.results[run.run_id] = result(run.run_id, "passed")
-        await svc.refresh(str(draft.id))
-        accepted = await c.post(
-            f"/api/web/v1/knowbot-drafts/{draft.id}/accept", headers=WEB
-        )
-        assert accepted.status_code == 200, accepted.text
-
-        idea = (await c.get(f"/api/web/v1/knowbot-requests/{request_id}")).json()
-        assert idea["idea"]["kind"] == "six_questions" and idea["cases"]
-        assert idea["drafts"][0]["status"] == "delivered"
-        assert "owner_subject" not in idea
-        avatar = (await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}")).json()
-        assert avatar["rule_sources"] == [
-            {"rule": r["rule"], "ref": r["ref"]} for r in manifest()["rule_sources"]
-        ]
-        assert "manifest" not in avatar and avatar["title"]
-        got = (await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")).json()
+        url = f"/api/web/v1/knowbot-tests/{test.id}/outputs"
+        got = (await c.get(url)).json()
         assert got["cases"][0]["outputs"]["deliverable"]["text"] == "# 成稿"
-        assert got["consent_needed"] is False and idea["consent_version"] == 2
+        assert got["consent_needed"] is False and "run_id" not in got
         # 老创意（旧说明下同意的）：不显示，同意新说明后才显示（审读 10-19）
-        await repo.set_consent_version(draft.request_id, 1)
-        hidden = await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")
-        assert hidden.json()["consent_needed"] is True and hidden.json()["cases"] == []
-        url = f"/api/web/v1/knowbot-requests/{request_id}/consent"
-        assert (await c.post(url)).status_code == 403  # 没带 CSRF
-        assert (await c.post(url, headers=WEB)).status_code == 204
-        back = await c.get(f"/api/web/v1/knowbot-drafts/{draft.id}/outputs")
-        assert back.json()["consent_needed"] is False
-        experts = (await c.get("/api/web/v1/knowbots")).json()["knowbots"]
-        assert experts[0]["knowbot_id"] == "kb-1" and experts[0]["delivered_at"]
+        await repo.set_consent_version(request.id, 1)
+        hidden = (await c.get(url)).json()
+        assert hidden["consent_needed"] is True and hidden["cases"] == []
+        consent = f"/api/web/v1/knowbot-requests/{request.id}/consent"
+        assert (await c.post(consent)).status_code == 403  # 没带 CSRF
+        assert (await c.post(consent, headers=WEB)).status_code == 204
+        assert (await c.get(url)).json()["consent_needed"] is False
 
-        c.cookies.set(ADMIN_SID, "base")  # 只有基本权限也能看产出（验证这一稿）
-        admin = await c.get(f"/api/admin/v1/knowbot-drafts/{draft.id}/outputs")
+        c.cookies.set(ADMIN_SID, "base")  # 只有基本权限也能看产出
+        admin = await c.get(f"/api/admin/v1/knowbot-tests/{test.id}/outputs")
         assert admin.json()["cases"][0]["case_id"] == "c1"
         doc = await c.get(f"/api/admin/v1/knowbot-drafts/{draft.id}/manifest")
         assert doc.json()["manifest"] == manifest()
 
-    # 别人的：与没有的一样，都是 404
-    from app.domain.knowbots.drafts import KnowbotRequestIn
 
-    other = await svc.submit(
-        "someone-else", KnowbotRequestIn.model_validate(request_body())
+@pytest.mark.asyncio
+async def test_old_amendments_are_read_only_in_the_detail(wired) -> None:
+    """补充方法已取消（SDD 0037 第三节）：旧的照旧列在详情页，没有写的接口。"""
+    svc, repo, *_ = wired
+    request = await accepted_request(svc)
+    await repo.create_amendment(
+        request_id=request.id, owner_subject=OWNER, text="第 6 步改成对照管理层讨论"
     )
-    theirs = await svc.add_draft(str(other.id), manifest())
     async with client() as c:
         c.cookies.set(WEB_SID, "member")
-        for path in (
-            f"/api/web/v1/knowbot-requests/{other.id}",
-            f"/api/web/v1/knowbot-drafts/{theirs.id}",
-            f"/api/web/v1/knowbot-drafts/{theirs.id}/outputs",
-            "/api/web/v1/knowbot-drafts/not-a-uuid",
-        ):
-            assert (await c.get(path)).status_code == 404, path
-        assert (
-            await c.get(f"/api/admin/v1/knowbot-drafts/{theirs.id}/outputs")
-        ).status_code == 401
+        detail = (await c.get(f"/api/web/v1/knowbot-requests/{request.id}")).json()
+        assert [a["status"] for a in detail["amendments"]] == ["open"]
+        gone = await c.post(
+            f"/api/web/v1/knowbot-requests/{request.id}/amendments",
+            json={"text": "再补一条"},
+            headers=WEB,
+        )
+        assert gone.status_code in {404, 405}

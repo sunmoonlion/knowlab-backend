@@ -1,12 +1,13 @@
 """测试中待人决定的问题（SDD 0027 §3.4，有人值守）。
 
 运行方跑到要人决定的地方就停下，问题记在这里。谁来答（C-L1，审读第 2 条）：工具审批
-由我们的运营在管理端答；开步前的提问与要人判断的提问建出来就归用户本人，在网页端
-「我在做的分身」里答。运营认为某一条只是跑法问题，要写一句理由改派给自己才能答，
+由我们的运营在管理端答；开步前的提问与要人判断的提问建出来就归用户本人，在 web端
+「审核」里答（SDD 0037）。运营认为某一条只是跑法问题，要写一句理由改派给自己才能答，
 答完记成「运营答的」，不算用户确认，不写回用例、不进规则出处；改派后还能转回用户。
 
-先记下答案（同一个事务里，用户答的开步前提问同时记回用例的预设答案，重测不再问），
-再交给运行方；交不到的记下错误，下次刷新时补送。运行方按问题 id 幂等，补送安全。
+先记下答案（同一个事务里，用户答的开步前提问同时记进这个创意答过的开步前提问，之后
+各版重测不再问），再交给运行方；交不到的记下错误，下次刷新时补送。运行方按问题 id 幂等，
+补送安全。只有那次测试还在跑的问题才列、才能答。
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ from app.application.ports.knowbots import (
     QuestionRecord,
     RequestRecord,
     RuntimeTestClient,
+    TestRecord,
 )
+from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.domain.knowbots.test_run import CONTRACT, Answer, AnswersV1
 
 
@@ -100,15 +103,32 @@ class KnowbotQuestionService:
         assert request is not None
         return question, draft, request
 
+    async def _running(self, question: QuestionRecord) -> TestRecord | None:
+        """问这个问题的那次测试，还在跑才回。"""
+        test = await self.repo.find_test_by_run(question.run_id)
+        if (
+            test is None
+            or test.draft_id != question.draft_id
+            or test.status not in ACTIVE_TESTS
+        ):
+            return None
+        return test
+
+    async def _open_questions(
+        self,
+    ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
+        out = []
+        for question in await self.repo.list_questions(open_only=True):
+            if await self._running(question) is not None:
+                out.append(await self._with_context(question))
+        return out
+
     # ---------- 运营（管理端） ----------
     async def operator_queue(
         self,
     ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
         """运营要处理的：还没回答、没转给用户的；以及转给用户、用户还没答的（只看）。"""
-        out = []
-        for question in await self.repo.list_questions(open_only=True):
-            out.append(await self._with_context(question))
-        return out
+        return await self._open_questions()
 
     async def to_user(self, question_id: str) -> None:
         """改派给自己的，转回用户。"""
@@ -148,14 +168,11 @@ class KnowbotQuestionService:
     async def user_queue(
         self, owner_subject: str
     ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
-        out = []
-        for question in await self.repo.list_questions(open_only=True):
-            if question.route != "user":
-                continue
-            item = await self._with_context(question)
-            if item[2].owner_subject == owner_subject:
-                out.append(item)
-        return out
+        return [
+            item
+            for item in await self._open_questions()
+            if item[0].route == "user" and item[2].owner_subject == owner_subject
+        ]
 
     async def answer_as_user(
         self, owner_subject: str, question_id: str, given: AnswerIn
@@ -163,7 +180,7 @@ class KnowbotQuestionService:
         return await self._answer(question_id, given, by="user", owner=owner_subject)
 
     async def answered(self, request_id: uuid.UUID) -> Sequence[QuestionRecord]:
-        """这个分身测试中答过的问题（建下一版草稿时看：只有用户答的记进规则出处，
+        """这个创意测试中答过的问题（孵化下一位准专家时看：只有用户答的记进规则出处，
         运营答的另看，带改派理由）。"""
         out: list[QuestionRecord] = []
         for draft in await self.repo.list_drafts(request_id=request_id):
@@ -173,6 +190,22 @@ class KnowbotQuestionService:
                 if q.answer is not None
             ]
         return out
+
+    async def answered_by_user(self, owner_subject: str) -> list[QuestionRecord]:
+        """这个用户答过的问题（审核栏里的记录），新答的在前。"""
+        out: list[QuestionRecord] = []
+        for request in await self.repo.list_requests_for_owner(owner_subject):
+            for draft in await self.repo.list_drafts(request_id=request.id):
+                out += [
+                    q
+                    for q in await self.repo.list_questions(draft_id=draft.id)
+                    if q.answered_by == "user"
+                ]
+        return sorted(
+            out,
+            key=lambda q: q.answered_at or datetime.min.replace(tzinfo=UTC),
+            reverse=True,
+        )
 
     # ---------- 共用 ----------
     async def _open(self, question_id: str) -> QuestionRecord:
@@ -197,16 +230,16 @@ class KnowbotQuestionService:
                 raise _conflict(
                     "This question is the user's to answer", "question_routed"
                 )
-            if draft.status != "testing" or draft.run_id != question.run_id:
+            if await self._running(question) is None:
                 raise _conflict("That test is no longer running", "question_stale")
             answer = _check(question, given)
             await self.repo.update_question(
                 question.id, answer=answer, answered_by=by, answered_at=self.now()
             )
-            # 只有用户答的才算他确认过：运营答的不写回用例，重测还会问
+            # 只有用户答的才算他确认过：运营答的不记，重测还会问
             if by == "user" and question.kind == "ask_before" and question.key:
                 await self._remember(request, question, answer)
-        await self._send(draft, request, [question.id])
+        await self._send(question.run_id, request, [question.id])
         found = await self.repo.get_question(question.id)
         assert found is not None
         return found
@@ -214,22 +247,20 @@ class KnowbotQuestionService:
     async def _remember(
         self, request: RequestRecord, question: QuestionRecord, answer: dict[str, Any]
     ) -> None:
-        """开步前的提问记回用例的预设答案，重测不再问。"""
-        cases = copy.deepcopy(request.cases)
+        """开步前的提问记进这个创意答过的开步前提问：开跑时并进用例，重测不再问。"""
         value = answer.get("option_id") or answer.get("text")
-        for case in cases:
-            if case.get("case_id") == question.case_id and value and question.key:
-                case.setdefault("input", {}).setdefault("answers", {})[question.key] = (
-                    value
-                )
-        await self.repo.update_request_cases(request.id, cases)
+        if not value or not question.key:
+            return
+        answers = copy.deepcopy(request.case_answers)
+        answers.setdefault(question.case_id, {})[question.key] = value
+        await self.repo.set_case_answers(request.id, answers)
 
     async def _send(
-        self, draft: DraftRecord, request: RequestRecord, ids: list[uuid.UUID]
+        self, run_id: str, request: RequestRecord, ids: list[uuid.UUID]
     ) -> None:
         questions = [q for q in [await self.repo.get_question(i) for i in ids] if q]
         ready = [q for q in questions if q.answer is not None and q.sent_at is None]
-        if not ready or draft.run_id is None:
+        if not ready:
             return
         body = AnswersV1(
             contract=CONTRACT,
@@ -243,7 +274,7 @@ class KnowbotQuestionService:
             ),
         )
         try:
-            await self.runtimes.answer(request.runtime, draft.run_id, body)
+            await self.runtimes.answer(request.runtime, run_id, body)
         except AppException as exc:
             async with self.repo.transaction():
                 for q in ready:
@@ -257,13 +288,11 @@ class KnowbotQuestionService:
                     q.id, sent_at=self.now(), last_error=None
                 )
 
-    async def resend(self, draft: DraftRecord, request: RequestRecord) -> None:
-        """刷新前补送答过但没送到运行方的答案。"""
-        if draft.run_id is None:
-            return
+    async def resend(self, test: TestRecord, request: RequestRecord) -> None:
+        """刷新前补送这次测试答过但没送到运行方的答案。"""
         pending = [
             q.id
-            for q in await self.repo.list_questions(draft_id=draft.id)
-            if q.answer is not None and q.sent_at is None and q.run_id == draft.run_id
+            for q in await self.repo.list_questions(draft_id=test.draft_id)
+            if q.answer is not None and q.sent_at is None and q.run_id == test.run_id
         ]
-        await self._send(draft, request, pending)
+        await self._send(test.run_id, request, pending)

@@ -84,10 +84,10 @@ def test_manifest_limits_match_knowmart() -> None:
 def test_only_listed_moves_are_allowed() -> None:
     assert can_move("pending_test", "testing")
     assert can_move("testing", "pending_test")
-    assert can_move("passed", "delivered")
+    assert not can_move("passed", "delivered")  # 「已交付」不再用，上架记在专家上
     assert not can_move("pending_test", "passed")
-    assert not can_move("failed", "testing")  # 未通过就出新草稿，不在原地重测
-    assert not can_move("delivered", "pending_test")
+    assert not can_move("failed", "testing")  # 没通过就再孵化，不在原地重测
+    assert not can_move("passed", "pending_test")
 
 
 def test_a_passed_run_needs_every_case_passed() -> None:

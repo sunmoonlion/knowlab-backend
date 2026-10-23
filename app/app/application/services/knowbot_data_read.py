@@ -2,7 +2,8 @@
 
 运行方已经按自己的委托核过一次；这里按 knowlab 自己的记录再核一次，两道都过才给：
 - 调用方必须是这份草稿登记的运行方；
-- 分身：所有者、分身 id、版本、清单摘要和交付记录对得上；测试：这次测试正在跑；
+- 专家：上架了没停用、所有者、knowmart 的专家 id、版本、清单摘要对得上（SDD 0037）；
+  测试：这次测试正在跑；
 - 数据在这一版清单的 data_bindings 里、属于草稿所有者、没删、版本与 sha256 一致。
 不符一律「没有」（404），不说是哪一条没过。
 
@@ -54,6 +55,7 @@ from app.domain.knowbots.data_read import (
     pdf_pages,
     table_page,
 )
+from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 
 PDF = "application/pdf"
 
@@ -252,6 +254,10 @@ class KnowbotDataReader:
             raise ServiceUnavailableError(
                 "Reading data is not available yet", code="storage_unavailable"
             )
+        if record.object_key is None or record.version_id is None:
+            # 只在 knowbase 的（2026-10-23 起新传的）：经 knowbase 的运行授权读，
+            # 这里没有
+            raise _missing()
         try:
             return await self.store.get(
                 object_key=record.object_key,
@@ -282,23 +288,29 @@ class KnowbotDataReader:
     ) -> tuple[str, dict[str, tuple[str, str]]]:
         """这次能读谁的、哪几份：（草稿所有者，数据 id → （版本，sha256））。"""
         if isinstance(purpose, KnowbotPurpose):
-            draft = await self.repo.find_delivered_draft(
+            # 上架了、没停用的那版专家（SDD 0037）；摘要要对得上 knowmart 的回执
+            expert = await self.repo.find_listed_expert(
                 purpose.knowbot_id, purpose.version
             )
-            delivery = (draft.delivery or {}) if draft else {}
             if (
-                draft is None
-                or delivery.get("knowbot_id") != purpose.knowbot_id
-                or str(delivery.get("version")) != purpose.version
-                or delivery.get("digest") != purpose.digest
+                expert is None
+                or expert.knowmart_knowbot_id != purpose.knowbot_id
+                or str(expert.version) != purpose.version
+                or expert.digest != purpose.digest
             ):
+                raise _missing()
+            draft = await self.repo.get_draft(expert.draft_id)
+            if draft is None:
                 raise _missing()
             request = await self._request(draft, caller)
             if request.owner_subject != purpose.owner_subject:
                 raise _missing()
         else:
-            draft = await self.repo.find_testing_draft(purpose.run_id)
-            if draft is None or draft.run_id != purpose.run_id:
+            test = await self.repo.find_test_by_run(purpose.run_id)
+            if test is None or test.status not in ACTIVE_TESTS:
+                raise _missing()
+            draft = await self.repo.get_draft(test.draft_id)
+            if draft is None:
                 raise _missing()
             request = await self._request(draft, caller)
         return request.owner_subject, _bindings(draft)

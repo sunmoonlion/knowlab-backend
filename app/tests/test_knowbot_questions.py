@@ -1,6 +1,7 @@
 """有人值守的测试（SDD 0027 §3.4）。
 
-问题记下、谁来答、交回运行方、记回用例、等人不计超时。
+问题记下、谁来答、交回运行方、记下答过的开步前提问、等人不计超时；测试结束了的问题
+不再列、不能答。
 """
 
 from __future__ import annotations
@@ -17,15 +18,13 @@ from app.application.errors.exceptions import (
 )
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
-from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.test_run import CONTRACT, Answer, RunResultV1
 from tests.knowbot_fakes import (
     OWNER,
-    FakeKnowmart,
     FakeRuntime,
     MemoryKnowlab,
+    accepted_request,
     manifest,
-    request_body,
     result,
     waiting,
 )
@@ -43,15 +42,13 @@ class Clock:
 async def testing():
     repo, runtime, clock = MemoryKnowlab(), FakeRuntime(), Clock()
     asks = KnowbotQuestionService(repo, runtime, now=clock)
-    svc = KnowbotCreationService(
-        repo, runtime, FakeKnowmart(), now=clock, on_refresh=asks.resend
-    )
-    request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
+    svc = KnowbotCreationService(repo, runtime, now=clock, on_refresh=asks.resend)
+    request = await accepted_request(svc)
     draft = await svc.add_draft(str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     runtime.results[run.run_id] = waiting(run.run_id)
-    await svc.refresh(str(draft.id))
+    await svc.refresh(str(run.id))
     by_key = {q.question_id: q for q in repo.questions.values()}
     return svc, asks, repo, runtime, clock, draft, run, by_key
 
@@ -60,8 +57,8 @@ async def test_waiting_questions_are_recorded_once(testing) -> None:
     svc, asks, repo, _, _, draft, run, by_key = testing
     assert set(by_key) == {"q-approve", "q-scope", "q-judge"}
     assert repo.drafts[draft.id].status == "testing"
-    assert repo.drafts[draft.id].report["status"] == "waiting"
-    await svc.refresh(str(draft.id))
+    assert repo.tests[run.id].status == "waiting"
+    await svc.refresh(str(run.id))
     assert len(repo.questions) == 3
     assert len(await asks.operator_queue()) == 3
     # 先归谁（C-L1，审读第 2 条）：审批归我们，判断与开步前的提问归用户
@@ -116,14 +113,20 @@ async def test_knowbench_judgements_go_to_the_user_only(testing) -> None:
     assert runtime.answers[-1][1].answers[0].answered_by == "user"
 
 
-async def test_user_answers_to_ask_before_are_remembered_on_the_case(testing) -> None:
-    _, asks, repo, _, _, draft, _, by_key = testing
+async def test_user_answers_to_ask_before_are_remembered_for_retests(testing) -> None:
+    svc, asks, repo, runtime, _, draft, run, by_key = testing
     scope = str(by_key["q-scope"].id)
     with pytest.raises(BadRequestError):
         await asks.answer_as_user(OWNER, scope, AnswerIn(option_id="9y"))
     await asks.answer_as_user(OWNER, scope, AnswerIn(option_id="3y"))
     request = repo.requests[draft.request_id]
-    assert request.cases[0]["input"]["answers"] == {"period": "3y"}  # 重测不再问
+    assert request.case_answers == {"c1": {"period": "3y"}}
+    # 创意版本只插不改：答案另记，重测时并进用例，不再问
+    assert not repo.versions[(request.id, 1)].cases[0]["input"].get("answers")
+    runtime.results[run.run_id] = result(run.run_id, "error")
+    await svc.refresh(str(run.id))
+    await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    assert runtime.started[-1][1].cases[0].input.answers == {"period": "3y"}
     answered = await asks.answered(request.id)
     assert [(q.question_id, q.answered_by) for q in answered] == [("q-scope", "user")]
 
@@ -150,8 +153,8 @@ async def test_we_answer_a_judgement_only_after_taking_it_with_a_reason(
     done = await asks.answer_as_operator(scope, AnswerIn(option_id="3y"))
     assert done.answered_by == "operator"
     assert runtime.answers[-1][1].answers[0].answered_by == "operator"
-    # 运营答的不算用户确认：不写回用例，重测还会问
-    assert not repo.requests[draft.request_id].cases[0]["input"].get("answers")
+    # 运营答的不算用户确认：不记，重测还会问
+    assert repo.requests[draft.request_id].case_answers == {}
 
 
 async def test_a_taken_question_can_go_back_to_the_user(testing) -> None:
@@ -167,7 +170,7 @@ async def test_a_taken_question_can_go_back_to_the_user(testing) -> None:
 
 
 async def test_unsent_answers_are_resent_on_refresh(testing) -> None:
-    svc, asks, repo, runtime, _, draft, _, by_key = testing
+    svc, asks, repo, runtime, _, _, run, by_key = testing
     runtime.fail_answer = True
     kept = await asks.answer_as_operator(
         str(by_key["q-approve"].id), AnswerIn(decision="deny")
@@ -176,25 +179,26 @@ async def test_unsent_answers_are_resent_on_refresh(testing) -> None:
         kept.sent_at is None and kept.last_error == "send failed: knowbench_unavailable"
     )
     runtime.fail_answer = False
-    await svc.refresh(str(draft.id))
+    await svc.refresh(str(run.id))
     assert repo.questions[kept.id].sent_at is not None
     assert runtime.answers[-1][1].answers[0].decision == "deny"
 
 
-async def test_answers_for_a_returned_test_are_refused(testing) -> None:
-    svc, asks, _, _, clock, draft, _, by_key = testing
+async def test_questions_of_an_ended_test_are_gone_and_refused(testing) -> None:
+    svc, asks, _, _, clock, _, run, by_key = testing
     # 等人回答的时间不计超时：超时 + 已等 + 最长等待 + 宽限之前都不算卡住
     clock.at += timedelta(seconds=600 + 600 + 6 * 60)
     with pytest.raises(ConcurrencyConflictError) as raised:
-        await svc.reset_stuck(str(draft.id))
+        await svc.reset_stuck(str(run.id))
     assert raised.value.code == "not_stuck"
     clock.at += timedelta(days=3)
-    await svc.reset_stuck(str(draft.id))
+    await svc.reset_stuck(str(run.id))
     with pytest.raises(ConcurrencyConflictError) as raised:
         await asks.answer_as_operator(
             str(by_key["q-approve"].id), AnswerIn(decision="approve")
         )
     assert raised.value.code == "question_stale"
+    assert await asks.operator_queue() == [] and await asks.user_queue(OWNER) == []
 
 
 def test_the_contract_ties_waiting_to_questions() -> None:

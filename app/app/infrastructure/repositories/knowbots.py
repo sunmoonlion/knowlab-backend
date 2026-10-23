@@ -1,4 +1,4 @@
-"""分身提交与草稿的 PostgreSQL 实现（SDD 0027）。
+"""创意到专家的 PostgreSQL 实现（SDD 0027、0037）。
 
 一个实例对应一次请求的数据库会话；transaction 可嵌套，最外层提交、出错回滚。
 """
@@ -6,47 +6,69 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Collection, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import exists, func, or_, select, text, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.ports.knowbots import (
+    AcceptanceRecord,
     AmendmentRecord,
     DatasetRecord,
     DraftRecord,
+    ExpertRecord,
     QuestionRecord,
     RequestRecord,
+    RequestVersionRecord,
     TestOutputRecord,
+    TestRecord,
 )
 from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
+    KnowbotAcceptance,
     KnowbotAmendment,
     KnowbotDataset,
     KnowbotDraft,
+    KnowbotExpert,
     KnowbotQuestion,
     KnowbotRequest,
+    KnowbotRequestVersion,
+    KnowbotTest,
     KnowbotTestConsent,
     KnowbotTestOutput,
 )
 
+# 0012 起准专家只改这几栏；run、报告、交付几栏不再写（内容在测试、专家表）
 DRAFT_FIELDS = frozenset(
+    {"status", "rules_reviewed_by", "rules_reviewed_at", "user_review"}
+)
+TEST_FIELDS = frozenset({"status", "grant_id", "finished_at", "report", "error"})
+EXPERT_FIELDS = frozenset(
     {
-        "status",
-        "rules_reviewed_by",
-        "rules_reviewed_at",
-        "run_id",
-        "run_attempts",
-        "run_started_at",
-        "run_timeout_seconds",
-        "report",
+        "returned_by",
+        "returned_at",
+        "user_accepted",
+        "user_decided_by",
+        "user_decided_at",
+        "review_approved",
+        "review_listing",
+        "review_reason",
+        "reviewed_by",
+        "reviewed_at",
+        "listed_at",
+        "knowmart_knowbot_id",
+        "digest",
         "delivery",
-        "last_error",
-        "run_grant_id",
+        "delivery_error",
+        "stopped_at",
+        "stopped_by",
+        "stop_reason",
     }
 )
 
@@ -61,6 +83,33 @@ def _request(row: KnowbotRequest) -> RequestRecord:
         cases=row.cases,
         created_at=row.created_at,
         consent_version=row.consent_version,
+        latest_version=row.latest_version,
+        case_answers=row.case_answers or {},
+    )
+
+
+def _version(row: KnowbotRequestVersion) -> RequestVersionRecord:
+    return RequestVersionRecord(
+        request_id=row.request_id,
+        version=row.version,
+        idea=row.idea,
+        cases=row.cases,
+        consent_version=row.consent_version,
+        created_by=row.created_by,
+        created_at=row.created_at,
+    )
+
+
+def _acceptance(row: KnowbotAcceptance) -> AcceptanceRecord:
+    return AcceptanceRecord(
+        request_id=row.request_id,
+        version=row.version,
+        accepted=row.accepted,
+        checks=row.checks,
+        reason=row.reason,
+        decided_by=row.decided_by,
+        decided_at=row.decided_at,
+        trial=row.trial,
     )
 
 
@@ -74,15 +123,41 @@ def _draft(row: KnowbotDraft) -> DraftRecord:
         manifest=row.manifest,
         rules_reviewed_by=row.rules_reviewed_by,
         rules_reviewed_at=row.rules_reviewed_at,
-        run_id=row.run_id,
-        run_attempts=row.run_attempts,
-        run_started_at=row.run_started_at,
-        run_timeout_seconds=row.run_timeout_seconds,
-        report=row.report,
-        delivery=row.delivery,
-        last_error=row.last_error,
         created_at=row.created_at,
-        run_grant_id=row.run_grant_id,
+        request_version=row.request_version,
+        user_review=row.user_review,
+    )
+
+
+def _test(row: KnowbotTest) -> TestRecord:
+    return TestRecord(
+        id=row.id,
+        request_id=row.request_id,
+        number=row.number,
+        draft_id=row.draft_id,
+        status=row.status,
+        run_id=row.run_id,
+        started_at=row.started_at,
+        budget_limit=row.budget_limit,
+        timeout_seconds=row.timeout_seconds,
+        grant_id=row.grant_id,
+        started_by=row.started_by,
+        finished_at=row.finished_at,
+        report=row.report,
+        error=row.error,
+    )
+
+
+def _expert(row: KnowbotExpert) -> ExpertRecord:
+    return ExpertRecord(
+        id=row.id,
+        request_id=row.request_id,
+        version=row.version,
+        draft_id=row.draft_id,
+        created_at=row.created_at,
+        test_id=row.test_id,
+        **{name: getattr(row, name) for name in EXPERT_FIELDS},
+        trial=row.trial,
     )
 
 
@@ -191,14 +266,121 @@ class SqlKnowlabRepository:
             idea=idea,
             cases=cases,
             consent_version=consent_version,
+            latest_version=1,
+            case_answers={},
         )
         self.session.add(row)
+        await self.session.flush()
+        self.session.add(
+            KnowbotRequestVersion(
+                request_id=row.id,
+                version=1,
+                idea=idea,
+                cases=cases,
+                consent_version=consent_version,
+                created_by=owner_subject,
+            )
+        )
         await self.session.flush()
         await self.session.refresh(row)
         return _request(row)
 
+    # ---------- 创意版本与受理单 ----------
+    async def add_version(
+        self,
+        *,
+        request_id: uuid.UUID,
+        version: int,
+        idea: dict[str, Any],
+        cases: list[dict[str, Any]],
+        consent_version: int,
+        created_by: str,
+    ) -> RequestVersionRecord:
+        row = KnowbotRequestVersion(
+            request_id=request_id,
+            version=version,
+            idea=idea,
+            cases=cases,
+            consent_version=consent_version,
+            created_by=created_by,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        await self.session.execute(
+            update(KnowbotRequest)
+            .where(KnowbotRequest.id == request_id)
+            .values(
+                latest_version=version,
+                idea=idea,
+                cases=cases,
+                consent_version=consent_version,
+            )
+        )
+        await self.session.refresh(row)
+        return _version(row)
+
+    async def get_version(
+        self, request_id: uuid.UUID, version: int
+    ) -> RequestVersionRecord | None:
+        row = await self.session.get(KnowbotRequestVersion, (request_id, version))
+        return None if row is None else _version(row)
+
+    async def list_versions(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[RequestVersionRecord]:
+        query = select(KnowbotRequestVersion).order_by(
+            KnowbotRequestVersion.request_id, KnowbotRequestVersion.version
+        )
+        if request_ids is not None:
+            query = query.where(KnowbotRequestVersion.request_id.in_(request_ids))
+        return [_version(r) for r in (await self.session.execute(query)).scalars()]
+
+    async def add_acceptance(self, record: AcceptanceRecord) -> None:
+        self.session.add(
+            KnowbotAcceptance(
+                request_id=record.request_id,
+                version=record.version,
+                accepted=record.accepted,
+                checks=record.checks,
+                reason=record.reason,
+                decided_by=record.decided_by,
+                decided_at=record.decided_at,
+                trial=record.trial,
+            )
+        )
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "This version already has its acceptance", code="already_decided"
+            ) from exc
+
+    async def get_acceptance(
+        self, request_id: uuid.UUID, version: int
+    ) -> AcceptanceRecord | None:
+        row = await self.session.get(KnowbotAcceptance, (request_id, version))
+        return None if row is None else _acceptance(row)
+
+    async def list_acceptances(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[AcceptanceRecord]:
+        query = select(KnowbotAcceptance).order_by(
+            KnowbotAcceptance.request_id, KnowbotAcceptance.version
+        )
+        if request_ids is not None:
+            query = query.where(KnowbotAcceptance.request_id.in_(request_ids))
+        return [_acceptance(r) for r in (await self.session.execute(query)).scalars()]
+
     async def get_request(self, request_id: uuid.UUID) -> RequestRecord | None:
-        row = await self.session.get(KnowbotRequest, request_id)
+        # 改版、记答案走 update，身份表里那份可能旧了：每次都读库
+        row = (
+            await self.session.execute(
+                select(KnowbotRequest)
+                .where(KnowbotRequest.id == request_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
         return None if row is None else _request(row)
 
     async def list_requests_for_owner(
@@ -209,6 +391,7 @@ class SqlKnowlabRepository:
                 select(KnowbotRequest)
                 .where(KnowbotRequest.owner_subject == owner_subject)
                 .order_by(KnowbotRequest.created_at.desc(), KnowbotRequest.id)
+                .execution_options(populate_existing=True)
             )
         ).scalars()
         return [_request(r) for r in rows]
@@ -216,9 +399,9 @@ class SqlKnowlabRepository:
     async def list_requests(self) -> Sequence[RequestRecord]:
         rows = (
             await self.session.execute(
-                select(KnowbotRequest).order_by(
-                    KnowbotRequest.created_at.desc(), KnowbotRequest.id
-                )
+                select(KnowbotRequest)
+                .order_by(KnowbotRequest.created_at.desc(), KnowbotRequest.id)
+                .execution_options(populate_existing=True)
             )
         ).scalars()
         return [_request(r) for r in rows]
@@ -234,6 +417,7 @@ class SqlKnowlabRepository:
         self,
         *,
         request_id: uuid.UUID,
+        request_version: int,
         revision: int,
         version: str,
         manifest: dict[str, Any],
@@ -241,6 +425,7 @@ class SqlKnowlabRepository:
         row = KnowbotDraft(
             id=uuid.uuid4(),
             request_id=request_id,
+            request_version=request_version,
             revision=revision,
             version=version,
             status="pending_test",
@@ -264,7 +449,11 @@ class SqlKnowlabRepository:
         return None if row is None else _draft(row)
 
     async def list_drafts(
-        self, *, status: str | None = None, request_id: uuid.UUID | None = None
+        self,
+        *,
+        status: str | None = None,
+        request_id: uuid.UUID | None = None,
+        request_ids: Collection[uuid.UUID] | None = None,
     ) -> Sequence[DraftRecord]:
         query = select(KnowbotDraft).order_by(
             KnowbotDraft.created_at, KnowbotDraft.revision
@@ -273,6 +462,8 @@ class SqlKnowlabRepository:
             query = query.where(KnowbotDraft.status == status)
         if request_id is not None:
             query = query.where(KnowbotDraft.request_id == request_id)
+        if request_ids is not None:
+            query = query.where(KnowbotDraft.request_id.in_(request_ids))
         rows = (
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalars()
@@ -285,6 +476,150 @@ class SqlKnowlabRepository:
         await self.session.execute(
             update(KnowbotDraft).where(KnowbotDraft.id == draft_id).values(**changes)
         )
+
+    # ---------- 测试 ----------
+    async def create_test(self, record: TestRecord) -> TestRecord:
+        row = KnowbotTest(
+            id=record.id,
+            request_id=record.request_id,
+            number=record.number,
+            draft_id=record.draft_id,
+            status=record.status,
+            budget_limit=record.budget_limit,
+            timeout_seconds=record.timeout_seconds,
+            run_id=record.run_id,
+            grant_id=record.grant_id,
+            started_by=record.started_by,
+            started_at=record.started_at,
+        )
+        self.session.add(row)
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "Another test of this knowbot is running", code="test_running"
+            ) from exc
+        await self.session.refresh(row)
+        return _test(row)
+
+    async def get_test(
+        self, test_id: uuid.UUID, *, for_update: bool = False
+    ) -> TestRecord | None:
+        query = select(KnowbotTest).where(KnowbotTest.id == test_id)
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _test(row)
+
+    async def list_tests(
+        self,
+        *,
+        request_ids: Collection[uuid.UUID] | None = None,
+        draft_id: uuid.UUID | None = None,
+    ) -> Sequence[TestRecord]:
+        query = select(KnowbotTest).order_by(KnowbotTest.request_id, KnowbotTest.number)
+        if request_ids is not None:
+            query = query.where(KnowbotTest.request_id.in_(request_ids))
+        if draft_id is not None:
+            query = query.where(KnowbotTest.draft_id == draft_id)
+        rows = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_test(r) for r in rows]
+
+    async def update_test(self, test_id: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - TEST_FIELDS
+        if unknown:
+            raise ValueError(f"unknown test fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotTest).where(KnowbotTest.id == test_id).values(**changes)
+        )
+
+    async def find_test_by_run(self, run_id: str) -> TestRecord | None:
+        row = (
+            await self.session.execute(
+                select(KnowbotTest)
+                .where(KnowbotTest.run_id == run_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _test(row)
+
+    # ---------- 专家 ----------
+    async def create_expert(self, record: ExpertRecord) -> ExpertRecord:
+        row = KnowbotExpert(
+            id=record.id,
+            request_id=record.request_id,
+            version=record.version,
+            draft_id=record.draft_id,
+            test_id=record.test_id,
+            created_at=record.created_at,
+            trial=record.trial,
+        )
+        self.session.add(row)
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "This expert version already exists", code="expert_version_taken"
+            ) from exc
+        await self.session.refresh(row)
+        return _expert(row)
+
+    async def get_expert(
+        self, expert_id: uuid.UUID, *, for_update: bool = False
+    ) -> ExpertRecord | None:
+        query = select(KnowbotExpert).where(KnowbotExpert.id == expert_id)
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _expert(row)
+
+    async def list_experts(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[ExpertRecord]:
+        query = select(KnowbotExpert).order_by(
+            KnowbotExpert.request_id, KnowbotExpert.version
+        )
+        if request_ids is not None:
+            query = query.where(KnowbotExpert.request_id.in_(request_ids))
+        rows = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_expert(r) for r in rows]
+
+    async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - EXPERT_FIELDS
+        if unknown:
+            raise ValueError(f"unknown expert fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotExpert).where(KnowbotExpert.id == expert_id).values(**changes)
+        )
+
+    async def find_listed_expert(
+        self, knowbot_id: str, version: str
+    ) -> ExpertRecord | None:
+        if not version.isdigit() or len(version) > 9:
+            return None
+        row = (
+            await self.session.execute(
+                select(KnowbotExpert)
+                .where(
+                    KnowbotExpert.knowmart_knowbot_id == knowbot_id,
+                    KnowbotExpert.version == int(version),
+                    KnowbotExpert.listed_at.is_not(None),
+                    KnowbotExpert.stopped_at.is_(None),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _expert(row)
 
     # ---------- 用户的数据 ----------
     async def lock_owner_data(self, owner_subject: str) -> None:
@@ -390,36 +725,27 @@ class SqlKnowlabRepository:
         binding = func.jsonb_build_array(
             func.jsonb_build_object("dataset_id", str(dataset_id))
         )
+        # 还没走完、没停用的专家：用户没说不要、审核没驳回、没停用
+        live_expert = exists().where(
+            KnowbotExpert.draft_id == KnowbotDraft.id,
+            KnowbotExpert.stopped_at.is_(None),
+            KnowbotExpert.user_accepted.is_not(False),
+            KnowbotExpert.review_approved.is_not(False),
+        )
         found = await self.session.execute(
             select(KnowbotDraft.id)
             .join(KnowbotRequest, KnowbotRequest.id == KnowbotDraft.request_id)
             .where(
                 KnowbotRequest.owner_subject == owner_subject,
-                KnowbotDraft.status.in_(
-                    ("pending_test", "testing", "passed", "delivered")
+                or_(
+                    KnowbotDraft.status.in_(("pending_test", "testing")),
+                    live_expert,
                 ),
                 KnowbotDraft.manifest["data_bindings"].op("@>")(binding),
             )
             .limit(1)
         )
         return found.first() is not None
-
-    async def find_delivered_draft(
-        self, knowbot_id: str, version: str
-    ) -> DraftRecord | None:
-        row = (
-            await self.session.execute(
-                select(KnowbotDraft)
-                .where(
-                    KnowbotDraft.status == "delivered",
-                    KnowbotDraft.delivery["knowbot_id"].astext == knowbot_id,
-                    KnowbotDraft.version == version,
-                )
-                .order_by(KnowbotDraft.created_at)
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        return None if row is None else _draft(row)
 
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         await self.session.execute(
@@ -443,8 +769,9 @@ class SqlKnowlabRepository:
                set outputs = null, note = :note, updated_at = now()
                from knowbot_draft d
                where o.draft_id = d.id and o.outputs is not null and (
-                 (d.status = 'delivered'
-                  and (d.delivery ->> 'delivered_at')::timestamptz < :before)
+                 exists (
+                   select 1 from knowbot_expert e
+                   where e.draft_id = d.id and e.listed_at < :before)
                  or exists (
                    select 1 from knowbot_draft n
                    where n.request_id = d.request_id
@@ -494,23 +821,13 @@ class SqlKnowlabRepository:
             for r in rows
         ]
 
-    async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
-        row = (
-            await self.session.execute(
-                select(KnowbotDraft)
-                .where(KnowbotDraft.status == "testing", KnowbotDraft.run_id == run_id)
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        return None if row is None else _draft(row)
-
-    async def update_request_cases(
-        self, request_id: uuid.UUID, cases: list[dict[str, Any]]
+    async def set_case_answers(
+        self, request_id: uuid.UUID, answers: dict[str, Any]
     ) -> None:
         await self.session.execute(
             update(KnowbotRequest)
             .where(KnowbotRequest.id == request_id)
-            .values(cases=cases)
+            .values(case_answers=answers)
         )
 
     # ---------- 补充方法 ----------

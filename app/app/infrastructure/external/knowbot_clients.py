@@ -1,4 +1,4 @@
-"""knowlab 的两个外部调用（SDD 0027）：调运行方跑测试、交付 knowmart。
+"""knowlab 的两个外部调用（SDD 0027）：调运行方跑测试、交付与停用 knowmart 里的专家。
 
 运行方是「登记」出来的：本应用 service_clients 里每个 relation=testrun 的目标就是一个运
 行方，部署生成对应的环境变量（见 service_client.py）。现在只有 knowbench；加运行方只加
@@ -140,19 +140,14 @@ def _outputs(body: Any, run_id: str, case_id: str) -> CaseOutputsV1:
 
 
 class KnowmartDeliveryClient:
+    """交 knowmart、停用 knowmart 里的某一版（服务关系 knowmart:deliver）。"""
+
     def __init__(self, environ: Mapping[str, str] | None = None, **client_options: Any):
         self._environ = environ
         self._options = client_options
         self._client: ServiceClient | None = None
 
-    async def deliver(
-        self,
-        *,
-        delivery_id: str,
-        owner_subject: str,
-        knowbot_ref: str,
-        manifest: dict[str, Any],
-    ) -> dict[str, Any]:
+    def _service(self) -> ServiceClient:
         if self._client is None:
             relation = service_relation("knowmart", "deliver", self._environ)
             if relation is None:
@@ -161,22 +156,42 @@ class KnowmartDeliveryClient:
                     code="knowmart_unconfigured",
                 )
             self._client = ServiceClient(relation, **self._options)
-        _, body = await self._client.request(
-            "POST",
-            "/deliveries",
-            json={
-                "delivery_id": delivery_id,
-                "owner_subject": owner_subject,
-                "knowbot_ref": knowbot_ref,
-                "manifest": manifest,
-            },
-        )
+        return self._client
+
+    async def deliver(
+        self,
+        *,
+        delivery_id: str,
+        owner_subject: str,
+        knowbot_ref: str,
+        manifest: dict[str, Any],
+        request_public: bool = False,
+    ) -> dict[str, Any]:
+        body_out: dict[str, Any] = {
+            "delivery_id": delivery_id,
+            "owner_subject": owner_subject,
+            "knowbot_ref": knowbot_ref,
+            "manifest": manifest,
+        }
+        if request_public:
+            body_out["request_public"] = True
+        _, body = await self._service().request("POST", "/deliveries", json=body_out)
         if not isinstance(body, dict) or not body.get("knowbot_id"):
             raise BadGatewayError(
                 "knowmart answered without a knowbot", code="knowmart_contract_invalid"
             )
-        return {
+        found = {
             "knowbot_id": body["knowbot_id"],
             "version": body.get("version"),
             "digest": body.get("digest"),
         }
+        if isinstance(body.get("listing_status"), str):
+            found["listing_status"] = body["listing_status"]
+        return found
+
+    async def stop(self, *, owner_subject: str, knowbot_id: str, version: str) -> None:
+        owner, knowbot = quote(owner_subject, safe=""), quote(knowbot_id, safe="")
+        number = quote(version, safe="")
+        await self._service().request(
+            "POST", f"/owners/{owner}/knowbots/{knowbot}/versions/{number}/stop"
+        )

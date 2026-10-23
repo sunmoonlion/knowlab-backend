@@ -255,3 +255,48 @@ async def test_knowmart_delivery() -> None:
             delivery_id="x", owner_subject="u", knowbot_ref="r", manifest={}
         )
     assert raised.value.code == "knowmart_unconfigured"
+
+
+@pytest.mark.asyncio
+async def test_knowmart_public_request_and_stop() -> None:
+    """交付可带申请公开、回上架状态；停用某一版走内部接口（SDD 0037）。"""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/stop"):
+            return httpx.Response(204)
+        return httpx.Response(
+            201,
+            json={
+                "knowbot_id": "kb-1",
+                "version": "2",
+                "digest": "sha256:" + "b" * 64,
+                "listing_status": "pending",
+            },
+        )
+
+    client = KnowmartDeliveryClient(
+        KNOWMART, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+    )
+    delivered = await client.deliver(
+        delivery_id="knowlab-expert-1",
+        owner_subject="user-123",
+        knowbot_ref="knowlab-r1",
+        manifest=manifest("2"),
+        request_public=True,
+    )
+    assert delivered["listing_status"] == "pending"
+    assert json.loads(seen[0].content)["request_public"] is True
+    await client.deliver(
+        delivery_id="knowlab-expert-2",
+        owner_subject="user-123",
+        knowbot_ref="knowlab-r1",
+        manifest=manifest("3"),
+    )
+    assert "request_public" not in json.loads(seen[1].content)  # 自用不带这一栏
+    await client.stop(owner_subject="user-123", knowbot_id="kb-1", version="2")
+    assert seen[2].method == "POST"
+    assert seen[2].url.path.endswith(
+        "/api/internal/v1/knowmart/owners/user-123/knowbots/kb-1/versions/2/stop"
+    )

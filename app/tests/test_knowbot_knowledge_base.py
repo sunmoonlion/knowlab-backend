@@ -24,19 +24,17 @@ from app.application.services.knowbot_data import (
 )
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots import datasets
-from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.infrastructure.external.knowbase_user_data import (
     KnowbaseKnowledgeBase,
     KnowbaseRefused,
 )
 from tests.knowbot_fakes import (
     OWNER,
-    FakeKnowmart,
     FakeRuntime,
     MemoryDataStore,
     MemoryKnowlab,
+    accepted_request,
     manifest,
-    request_body,
     result,
 )
 
@@ -146,10 +144,8 @@ async def test_opening_the_page_refreshes_a_stale_consent_only(parts):
 async def test_bound_data_still_cannot_be_deleted(parts):
     data, repo, _, kb = parts
     found = await data.upload(OWNER, "a.pdf", PDF, token)
-    creation = KnowbotCreationService(repo, FakeRuntime(), FakeKnowmart())
-    request = await creation.submit(
-        OWNER, KnowbotRequestIn.model_validate(request_body())
-    )
+    creation = KnowbotCreationService(repo, FakeRuntime())
+    request = await accepted_request(creation)
     binding = [{"dataset_id": str(found.id), "version": "1", "sha256": found.sha256}]
     await creation.add_draft(str(request.id), manifest(data_bindings=binding))
     with pytest.raises(ConcurrencyConflictError):
@@ -220,8 +216,8 @@ def test_consent_covers_what_is_in_knowbase_in_a_stable_order() -> None:
 
 async def _tested(repo, data, kb, *, bound):  # type: ignore[no-untyped-def]
     runtime = FakeRuntime()
-    svc = KnowbotCreationService(repo, runtime, FakeKnowmart(), knowledge=kb)
-    request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
+    svc = KnowbotCreationService(repo, runtime, knowledge=kb)
+    request = await accepted_request(svc)
     binding = [
         {"dataset_id": str(d.id), "version": "1", "sha256": d.sha256} for d in bound
     ]
@@ -242,10 +238,11 @@ async def test_a_test_reads_its_bound_data_under_a_test_grant(parts):
     ]
     assert kb.grants[0]["ref"] == sent.run_id and kb.grants[0]["consent"] == "consent-1"
     assert kb.grants[0]["ttl"] == 600 + sent.max_wait_seconds + 3600
-    assert repo.drafts[draft.id].run_grant_id == "grant-1"
+    test = await repo.find_test_by_run(sent.run_id)
+    assert test is not None and test.grant_id == "grant-1"  # 授权记在这次测试上
     runtime.results[sent.run_id] = result(sent.run_id, "passed")
-    await svc.refresh(str(draft.id))
-    assert kb.revoked == ["grant-1"] and repo.drafts[draft.id].run_grant_id is None
+    await svc.refresh(str(test.id))
+    assert kb.revoked == ["grant-1"]
 
 
 async def test_without_a_grant_the_test_still_runs_the_old_way(parts):

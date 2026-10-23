@@ -22,17 +22,15 @@ from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots import datasets
 from app.domain.knowbots.datasets import Rejected
-from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.infrastructure.storage.object_storage import ObjectStorage, StorageUnavailable
 from core.config import Settings
 from tests.knowbot_fakes import (
     OWNER,
-    FakeKnowmart,
     FakeRuntime,
     MemoryDataStore,
     MemoryKnowlab,
+    accepted_request,
     manifest,
-    request_body,
 )
 
 PDF = b"%PDF-1.7\n..."
@@ -156,10 +154,8 @@ async def test_bound_data_cannot_be_deleted_and_drafts_only_bind_the_owners_data
     data, repo, _ = parts
     mine = await data.upload(OWNER, "年报.pdf", PDF)
     theirs = await data.upload("someone-else", "别人的.pdf", PDF)
-    creation = KnowbotCreationService(repo, FakeRuntime(), FakeKnowmart())
-    request = await creation.submit(
-        OWNER, KnowbotRequestIn.model_validate(request_body())
-    )
+    creation = KnowbotCreationService(repo, FakeRuntime())
+    request = await accepted_request(creation)
     binding = lambda d: [{"dataset_id": str(d.id), "version": "1", "sha256": d.sha256}]  # noqa: E731
     with pytest.raises(BadRequestError) as raised:
         await creation.add_draft(

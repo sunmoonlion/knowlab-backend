@@ -1,16 +1,16 @@
-"""分身草稿：状态、提交内容的形状、清单在 knowlab 这边要先核的几项（SDD 0027）。
+"""准专家（草稿）：状态、申请内容的形状、清单在 knowlab 这边要先核的几项。
 
-草稿状态：待测试 → 测试中 → 测试通过 → 已交付；测试中 → 测试未通过；测试中 → 待测试（调
-运行方失败，或超时由管理端退回）。只有测试通过、用户要了的才交付 knowmart：用户点
-「要这一版」先在 delivery 里记下 accepted_by、accepted_at，交付成功再并上 knowmart
-的回执（所有者 2026-10-20「按丙来」）。
+SDD 0027、0037。
 
-版本号在建草稿时定为「这个分身已交付几次 + 1」：测的是哪份清单，交付的就是哪份（摘要要对
-得上）。一次没测过、改出的新草稿沿用同一个版本号，修订号递增。
+准专家状态：待测 → 测试中 → 通过 / 没通过；测试中 → 待测（这次测试平台出错：运行方报错、
+超时、开跑失败、运营判定卡住）。测试的经过记在测试表，通过即出专家（专家表）；「已交付」
+0012 起不再用。
 
-补充方法（SDD 0035）：用户对自己的想法写的改动，原话进规则出处——来源仍是 `user_text`，
-`ref` 以 `amendment:<补充 id>` 开头。状态从各稿清单推：没被哪一稿引、也没「不照做」就是
-待处理；建稿之前提交的补充，这一稿要么引了、要么不照做，才能核对出处。
+版本号「x.y」：x 在建稿时定为「已有专家的最大版本号 + 1」，测的是哪份清单，上架的就是
+哪份（摘要要对得上）；y 是修订号，在一个名称里递增。
+
+补充方法（SDD 0035）已取消（SDD 0037 第三节）：旧稿的规则出处里 `ref` 以
+`amendment:<补充 id>` 开头的照旧可查，新稿不许再引。
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -26,23 +25,19 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.domain.knowbots.data_needs import parse_needs
 from app.domain.knowbots.test_run import RunCase
 
-DraftStatus = Literal["pending_test", "testing", "passed", "failed", "delivered"]
+DraftStatus = Literal["pending_test", "testing", "passed", "failed"]
 TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
     {
         ("pending_test", "testing"),
         ("testing", "pending_test"),
         ("testing", "passed"),
         ("testing", "failed"),
-        ("passed", "delivered"),
     }
 )
 MANIFEST_SCHEMA = "knowbot-manifest/v1"
 RULE_SOURCES = frozenset({"user_text", "user_confirmed"})
 
 
-MAX_AMENDMENT_CHARS = 4000
-MAX_AMENDMENTS = 200  # 一个想法最多这么多条补充
-MAX_DECLINE_CHARS = 500
 AMENDMENT_PREFIX = "amendment:"
 _AMENDMENT_REF = re.compile(
     r"^amendment:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])"
@@ -86,13 +81,13 @@ class Idea(Strict):
 
 # 用户同意的是哪一版测试数据说明（web端提交表单那一句）。
 # 1：「测试产出不给任何人看，7 天后删除」。
-# 2（SDD 0037）：成稿与各步结果只给本人和做测试的工作人员看，交付或被下一个分身
+# 2（SDD 0037）：成稿与各步结果只给本人和做测试的工作人员看，上架或被下一位准专家
 # 取代 90 天后清掉。老创意是在 1 下同意的：不取、不显示产出，用户点一次「同意新
 # 说明」才升到 2（审读 10-19）。
 CONSENT_VERSION = 2
 OUTPUTS_KEEP_DAYS = 90
 OUTPUTS_EXPIRED = (
-    "已按期清除：这个分身交付或被下一个分身取代 90 天后，成稿与交回物不再保留"
+    "已按期清除：这位准专家上架或被下一位取代 90 天后，成稿与交回物不再保留"
 )
 
 
@@ -200,23 +195,6 @@ def amendment_refs(manifest: object) -> tuple[set[str], list[str]]:
     return found, broken
 
 
-def amendment_ref_problems(manifest: object, amendments: dict[str, bool]) -> list[str]:
-    """建草稿时核：引的补充必须是这个想法的、没被「不照做」。
-
-    amendments：这个想法的补充 id → 是否已不照做。
-    """
-    cited, broken = amendment_refs(manifest)
-    problems = [
-        f"rule source {ref!r} must be user_text with amendment:<id>" for ref in broken
-    ]
-    for amendment_id in sorted(cited):
-        if amendment_id not in amendments:
-            problems.append(f"amendment {amendment_id} is not one of this request's")
-        elif amendments[amendment_id]:
-            problems.append(f"amendment {amendment_id} was declined")
-    return problems
-
-
 def amendment_status(
     amendment_id: str, declined: bool, drafts: Iterable[tuple[int, object]]
 ) -> tuple[str, int | None]:
@@ -227,29 +205,3 @@ def amendment_status(
         rev for rev, manifest in drafts if amendment_id in amendment_refs(manifest)[0]
     ]
     return ("used", max(used)) if used else ("open", None)
-
-
-def amendments_to_handle(
-    manifest: object,
-    draft_created_at: datetime | None,
-    amendments: Iterable[tuple[str, datetime | None, bool]],
-) -> tuple[list[str], int]:
-    """（这一稿核对出处前要处理的补充 id，这一稿建好之后才提交的条数）。
-
-    amendments：（id，提交时间，是否已不照做）。建稿之前（含同一刻）提交的、没不照做的，
-    这一稿的出处必须引它；上一稿引过不算（改版不许悄悄丢掉用户的补充，SDD 0035 §二.5）。
-    """
-    cited = amendment_refs(manifest)[0]
-    blocking: list[str] = []
-    newer = 0
-    for amendment_id, created_at, declined in amendments:
-        before = (
-            created_at is None
-            or draft_created_at is None
-            or created_at <= draft_created_at
-        )
-        if not before:
-            newer += 0 if declined else 1
-        elif not declined and amendment_id not in cited:
-            blocking.append(amendment_id)
-    return blocking, newer

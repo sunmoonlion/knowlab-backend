@@ -1,4 +1,4 @@
-"""分身创建测试共用：合格的提交与清单、内存仓储、假运行方、假 knowmart。"""
+"""创意到专家的测试共用：合格的申请与清单、内存仓储、假运行方、假 knowmart。"""
 
 from __future__ import annotations
 
@@ -12,15 +12,27 @@ from typing import Any
 
 from app.application.errors.exceptions import (
     BadGatewayError,
+    ConcurrencyConflictError,
     ServiceUnavailableError,
 )
 from app.application.ports.knowbots import (
+    AcceptanceRecord,
     AmendmentRecord,
     DatasetRecord,
     DraftRecord,
+    ExpertRecord,
     QuestionRecord,
     RequestRecord,
+    RequestVersionRecord,
     TestOutputRecord,
+    TestRecord,
+)
+from app.domain.knowbots.drafts import KnowbotRequestIn
+from app.domain.knowbots.lifecycle import (
+    ACTIVE_TESTS,
+    AcceptanceIn,
+    ExpertDecisionIn,
+    ExpertReviewIn,
 )
 from app.domain.knowbots.test_run import (
     CONTRACT,
@@ -110,9 +122,42 @@ def result(run_id: str, status: str = "passed", **extra: Any) -> RunResultV1:
     )
 
 
+def all_clear(**over: Any) -> AcceptanceIn:
+    """三样都过的受理单。"""
+    body: dict[str, Any] = {
+        "checks": {c: {"ok": True} for c in ("C-L5", "C-L2", "C-L1")},
+        "accepted": True,
+    }
+    return AcceptanceIn.model_validate(body | over)
+
+
+async def accepted_request(svc: Any, owner: str = OWNER, **body: Any) -> RequestRecord:
+    """申请并受理了 v1 的创意（孵化要从受理了的版本起）。"""
+    request = await svc.submit(
+        owner, KnowbotRequestIn.model_validate(request_body(**body))
+    )
+    await svc.accept(str(request.id), 1, all_clear(), "admin-1")
+    return request
+
+
+async def list_expert(
+    experts: Any, expert_id: Any, listing: str = "self", owner: str = OWNER
+) -> ExpertRecord:
+    """交回 → 用户要了 → 运营审过：上架。"""
+    await experts.return_to_user(str(expert_id), "admin-1")
+    await experts.decide(owner, str(expert_id), ExpertDecisionIn(accept=True))
+    return await experts.review(
+        str(expert_id), ExpertReviewIn(approved=True, listing=listing), "admin-1"
+    )
+
+
 class MemoryKnowlab:
     def __init__(self) -> None:
         self.requests: dict[uuid.UUID, RequestRecord] = {}
+        self.versions: dict[tuple[uuid.UUID, int], RequestVersionRecord] = {}
+        self.acceptances: dict[tuple[uuid.UUID, int], AcceptanceRecord] = {}
+        self.tests: dict[uuid.UUID, TestRecord] = {}
+        self.experts: dict[uuid.UUID, ExpertRecord] = {}
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
         self.datasets: dict[uuid.UUID, DatasetRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
@@ -136,6 +181,10 @@ class MemoryKnowlab:
             dict(self.questions),
             dict(self.amendments),
             dict(self.outputs),
+            dict(self.versions),
+            dict(self.acceptances),
+            dict(self.tests),
+            dict(self.experts),
         )
         try:
             yield
@@ -148,6 +197,10 @@ class MemoryKnowlab:
                 self.questions,
                 self.amendments,
                 self.outputs,
+                self.versions,
+                self.acceptances,
+                self.tests,
+                self.experts,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -157,7 +210,71 @@ class MemoryKnowlab:
             id=uuid.uuid4(), created_at=self._now(), **copy.deepcopy(fields)
         )
         self.requests[record.id] = record
+        self.versions[(record.id, 1)] = RequestVersionRecord(
+            request_id=record.id,
+            version=1,
+            idea=copy.deepcopy(record.idea),
+            cases=copy.deepcopy(record.cases),
+            consent_version=record.consent_version,
+            created_by=record.owner_subject,
+            created_at=record.created_at,
+        )
         return record
+
+    # ---------- 创意版本与受理单 ----------
+    async def add_version(self, **fields: Any) -> RequestVersionRecord:
+        record = RequestVersionRecord(created_at=self._now(), **copy.deepcopy(fields))
+        key = (record.request_id, record.version)
+        assert key not in self.versions
+        self.versions[key] = record
+        self.requests[record.request_id] = replace(
+            self.requests[record.request_id],
+            latest_version=record.version,
+            idea=copy.deepcopy(record.idea),
+            cases=copy.deepcopy(record.cases),
+            consent_version=record.consent_version,
+        )
+        return record
+
+    async def get_version(
+        self, request_id: uuid.UUID, version: int
+    ) -> RequestVersionRecord | None:
+        return self.versions.get((request_id, version))
+
+    async def list_versions(
+        self, request_ids: Any = None
+    ) -> Sequence[RequestVersionRecord]:
+        return sorted(
+            (
+                v
+                for v in self.versions.values()
+                if request_ids is None or v.request_id in request_ids
+            ),
+            key=lambda v: (str(v.request_id), v.version),
+        )
+
+    async def add_acceptance(self, record: AcceptanceRecord) -> None:
+        key = (record.request_id, record.version)
+        if key in self.acceptances:
+            raise ConcurrencyConflictError("decided", code="already_decided")
+        self.acceptances[key] = record
+
+    async def get_acceptance(
+        self, request_id: uuid.UUID, version: int
+    ) -> AcceptanceRecord | None:
+        return self.acceptances.get((request_id, version))
+
+    async def list_acceptances(
+        self, request_ids: Any = None
+    ) -> Sequence[AcceptanceRecord]:
+        return sorted(
+            (
+                a
+                for a in self.acceptances.values()
+                if request_ids is None or a.request_id in request_ids
+            ),
+            key=lambda a: (str(a.request_id), a.version),
+        )
 
     async def get_request(self, request_id: uuid.UUID) -> RequestRecord | None:
         return self.requests.get(request_id)
@@ -192,25 +309,105 @@ class MemoryKnowlab:
         return self.drafts.get(draft_id)
 
     async def list_drafts(
-        self, *, status: str | None = None, request_id: uuid.UUID | None = None
+        self,
+        *,
+        status: str | None = None,
+        request_id: uuid.UUID | None = None,
+        request_ids: Any = None,
     ) -> Sequence[DraftRecord]:
         found = [
             d
             for d in self.drafts.values()
             if (status is None or d.status == status)
             and (request_id is None or d.request_id == request_id)
+            and (request_ids is None or d.request_id in request_ids)
         ]
         return sorted(found, key=lambda d: d.created_at or 0)
 
     async def update_draft(self, draft_id: uuid.UUID, **changes: Any) -> None:
         self.drafts[draft_id] = replace(self.drafts[draft_id], **changes)
 
-    async def update_request_cases(
-        self, request_id: uuid.UUID, cases: list[dict[str, Any]]
+    async def set_case_answers(
+        self, request_id: uuid.UUID, answers: dict[str, Any]
     ) -> None:
         self.requests[request_id] = replace(
-            self.requests[request_id], cases=copy.deepcopy(cases)
+            self.requests[request_id], case_answers=copy.deepcopy(answers)
         )
+
+    # ---------- 测试 ----------
+    async def create_test(self, record: TestRecord) -> TestRecord:
+        if record.status in ACTIVE_TESTS and any(
+            t.request_id == record.request_id and t.status in ACTIVE_TESTS
+            for t in self.tests.values()
+        ):
+            raise ConcurrencyConflictError("running", code="test_running")
+        self.tests[record.id] = record
+        return record
+
+    async def get_test(
+        self, test_id: uuid.UUID, *, for_update: bool = False
+    ) -> TestRecord | None:
+        return self.tests.get(test_id)
+
+    async def list_tests(
+        self, *, request_ids: Any = None, draft_id: uuid.UUID | None = None
+    ) -> Sequence[TestRecord]:
+        return sorted(
+            (
+                t
+                for t in self.tests.values()
+                if (request_ids is None or t.request_id in request_ids)
+                and (draft_id is None or t.draft_id == draft_id)
+            ),
+            key=lambda t: (str(t.request_id), t.number),
+        )
+
+    async def update_test(self, test_id: uuid.UUID, **changes: Any) -> None:
+        self.tests[test_id] = replace(self.tests[test_id], **changes)
+
+    async def find_test_by_run(self, run_id: str) -> TestRecord | None:
+        return next((t for t in self.tests.values() if t.run_id == run_id), None)
+
+    # ---------- 专家 ----------
+    async def create_expert(self, record: ExpertRecord) -> ExpertRecord:
+        if any(
+            e.request_id == record.request_id and e.version == record.version
+            for e in self.experts.values()
+        ):
+            raise ConcurrencyConflictError("taken", code="expert_version_taken")
+        self.experts[record.id] = record
+        return record
+
+    async def get_expert(
+        self, expert_id: uuid.UUID, *, for_update: bool = False
+    ) -> ExpertRecord | None:
+        return self.experts.get(expert_id)
+
+    async def list_experts(self, request_ids: Any = None) -> Sequence[ExpertRecord]:
+        return sorted(
+            (
+                e
+                for e in self.experts.values()
+                if request_ids is None or e.request_id in request_ids
+            ),
+            key=lambda e: (str(e.request_id), e.version),
+        )
+
+    async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None:
+        self.experts[expert_id] = replace(self.experts[expert_id], **changes)
+
+    async def find_listed_expert(
+        self, knowbot_id: str, version: str
+    ) -> ExpertRecord | None:
+        for e in self.experts.values():
+            if (
+                e.knowmart_knowbot_id == knowbot_id
+                and str(e.version) == version
+                and e.listed_at is not None
+                and e.stopped_at is None
+            ):
+                return e
+        return None
 
     # ---------- 补充方法 ----------
     async def create_amendment(
@@ -338,27 +535,24 @@ class MemoryKnowlab:
         self.consents.pop(owner_subject, None)
 
     async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
+        """同 SQL：待测、测试中的准专家，或还没走完、没停用的专家绑着。"""
+        live = {
+            e.draft_id
+            for e in self.experts.values()
+            if e.stopped_at is None
+            and e.user_accepted is not False
+            and e.review_approved is not False
+        }
         for draft in self.drafts.values():
             request = self.requests[draft.request_id]
-            if request.owner_subject != owner_subject or draft.status == "failed":
+            if request.owner_subject != owner_subject:
+                continue
+            if draft.status not in ("pending_test", "testing") and draft.id not in live:
                 continue
             bindings = draft.manifest.get("data_bindings") or []
             if any(b.get("dataset_id") == str(dataset_id) for b in bindings):
                 return True
         return False
-
-    async def find_delivered_draft(
-        self, knowbot_id: str, version: str
-    ) -> DraftRecord | None:
-        for draft in sorted(self.drafts.values(), key=lambda d: d.created_at or 0):
-            delivery = draft.delivery or {}
-            if (
-                draft.status == "delivered"
-                and delivery.get("knowbot_id") == knowbot_id
-                and draft.version == version
-            ):
-                return draft
-        return None
 
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         self.requests[request_id] = replace(
@@ -369,17 +563,15 @@ class MemoryKnowlab:
         return {c for (d, r, c) in self.outputs if (d, r) == (draft_id, run_id)}
 
     async def expire_test_outputs(self, before: datetime) -> int:
-        """同 SQL：交付早于 before，或有更新的一稿建于 before 之前。"""
+        """同 SQL：上架早于 before，或有更新的一稿建于 before 之前。"""
         from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 
         count = 0
         for key, out in list(self.outputs.items()):
             draft = self.drafts[out.draft_id]
-            delivered = (draft.delivery or {}).get("delivered_at")
-            gone = (
-                draft.status == "delivered"
-                and delivered
-                and (datetime.fromisoformat(delivered) < before)
+            gone = any(
+                e.draft_id == draft.id and e.listed_at and e.listed_at < before
+                for e in self.experts.values()
             )
             newer = any(
                 d.request_id == draft.request_id
@@ -408,12 +600,6 @@ class MemoryKnowlab:
             ),
             key=lambda o: o.case_id,
         )
-
-    async def find_testing_draft(self, run_id: str) -> DraftRecord | None:
-        for draft in self.drafts.values():
-            if draft.status == "testing" and draft.run_id == run_id:
-                return draft
-        return None
 
 
 class FakeRuntime:
@@ -467,13 +653,26 @@ class FakeRuntime:
 class FakeKnowmart:
     def __init__(self) -> None:
         self.delivered: list[dict[str, Any]] = []
+        self.stopped: list[dict[str, Any]] = []
         self.fail = False
 
     async def deliver(self, **body: Any) -> dict[str, Any]:
         if self.fail:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
         self.delivered.append(body)
-        return {"knowbot_id": "kb-1", "version": body["manifest"]["version"]}
+        found = {
+            "knowbot_id": "kb-1",
+            "version": body["manifest"]["version"],
+            "digest": "sha256:" + "d" * 64,
+        }
+        if body.get("request_public"):
+            found["listing_status"] = "pending"
+        return found
+
+    async def stop(self, **body: Any) -> None:
+        if self.fail:
+            raise ServiceUnavailableError("down", code="knowmart_unavailable")
+        self.stopped.append(body)
 
 
 class MemoryDataStore:

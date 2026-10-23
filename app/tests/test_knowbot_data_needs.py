@@ -9,6 +9,7 @@ import pytest
 
 from app.application.errors.exceptions import BadRequestError
 from app.application.services.knowbot_data import KnowbotDataService
+from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.data_needs import (
     bound_problems,
@@ -16,15 +17,16 @@ from app.domain.knowbots.data_needs import (
     format_of,
     parse_needs,
 )
-from app.domain.knowbots.drafts import KnowbotRequestIn, draft_manifest_problems
+from app.domain.knowbots.drafts import draft_manifest_problems
 from tests.knowbot_fakes import (
     OWNER,
     FakeKnowmart,
     FakeRuntime,
     MemoryDataStore,
     MemoryKnowlab,
+    accepted_request,
+    list_expert,
     manifest,
-    request_body,
     result,
 )
 
@@ -111,8 +113,9 @@ async def test_a_new_format_draft_is_tested_with_its_bindings_and_delivered_with
     repo = MemoryKnowlab()
     data = KnowbotDataService(repo, MemoryDataStore())
     runtime, knowmart = FakeRuntime(), FakeKnowmart()
-    svc = KnowbotCreationService(repo, runtime, knowmart)
-    request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
+    svc = KnowbotCreationService(repo, runtime)
+    experts = KnowbotExpertService(repo, knowmart)
+    request = await accepted_request(svc)
     first = await data.upload(OWNER, "2023 年报.pdf", PDF)
     second = await data.upload(OWNER, "2024 年报.pdf", PDF + b"2")
     table = await data.upload(OWNER, "说明.txt", "口径".encode())
@@ -135,7 +138,10 @@ async def test_a_new_format_draft_is_tested_with_its_bindings_and_delivered_with
     _, sent = runtime.started[0]
     assert sent.manifest["data_bindings"] == doc["data_bindings"]  # 测试带绑定
     runtime.results[sent.run_id] = result(sent.run_id, "passed")
-    await svc.refresh(str(draft.id))
-    await svc.accept(OWNER, str(draft.id))
+    test = await repo.find_test_by_run(sent.run_id)
+    assert test is not None
+    await svc.refresh(str(test.id))
+    [expert] = repo.experts.values()
+    await list_expert(experts, expert.id)
     delivered = knowmart.delivered[0]["manifest"]
     assert "data_bindings" not in delivered and delivered["data_needs"] == [REPORTS]

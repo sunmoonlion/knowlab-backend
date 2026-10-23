@@ -1,4 +1,4 @@
-"""分身创建与测试的装配：每个请求一个数据库会话；外部客户端进程内共用（令牌缓存在里面）。"""
+"""创意到专家的装配：每个请求一个数据库会话；外部客户端进程内共用（令牌缓存在里面）。"""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ from functools import lru_cache
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ports.knowbots import KnowledgeBase
+from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_data_read import KnowbotDataReader
+from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.infrastructure.documents.table_extract import CachedTableExtractor
@@ -55,10 +57,19 @@ def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
     return KnowbotCreationService(
         repo,
         runtime_clients(),
-        knowmart_client(),
         on_refresh=questions.resend,
         knowledge=knowledge_base(),
     )
+
+
+def knowbot_expert_service(session: AsyncSession) -> KnowbotExpertService:
+    """专家的交回、两道门、上架、停用（SDD 0037）。"""
+    return KnowbotExpertService(SqlKnowlabRepository(session), knowmart_client())
+
+
+def knowbot_board(session: AsyncSession) -> KnowbotBoard:
+    """两端的栏、大类、详情页（只读）。"""
+    return KnowbotBoard(SqlKnowlabRepository(session))
 
 
 @lru_cache(maxsize=1)

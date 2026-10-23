@@ -54,6 +54,7 @@ def test_one_linear_canonical_migration_chain() -> None:
         "20261019_0009_knowbot_test_outputs.py",
         "20261019_0010_knowbot_consent_version.py",
         "20261023_0011_knowbase_items.py",
+        "20261024_0012_knowbot_lifecycle.py",
     ]
     contents = [path.read_text() for path in revisions]
     assert sum("down_revision = None" in content for content in contents) == 1

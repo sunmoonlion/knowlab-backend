@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from app.application.errors.exceptions import NotFoundError, ValidationError
-from app.application.ports.knowbots import DatasetRecord
+from app.application.ports.knowbots import DatasetRecord, ExpertRecord, TestRecord
 from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.domain.knowbots.data_read import (
     PAGE_BYTES,
@@ -68,7 +68,7 @@ CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contracts/knowbot-data/v1"
 
 
 class World:
-    """一个用户、两份数据（一份绑定、一份没绑）、一版已交付、一版在测试。"""
+    """一个用户、两份数据（一份绑定、一份没绑）、一版上架了的专家、一位在测试的准专家。"""
 
     def __init__(self) -> None:
         self.repo = MemoryKnowlab()
@@ -95,21 +95,44 @@ class World:
         doc = manifest("1", data_bindings=[binding])
         self.digest = "sha256:" + "a" * 64
         self.delivered = await self.repo.create_draft(
-            request_id=self.request.id, revision=1, version="1", manifest=doc
+            request_id=self.request.id,
+            request_version=1,
+            revision=1,
+            version="1",
+            manifest=doc,
         )
-        await self.repo.update_draft(
-            self.delivered.id,
-            status="delivered",
-            delivery={"knowbot_id": KNOWBOT, "version": "1", "digest": self.digest},
+        await self.repo.update_draft(self.delivered.id, status="passed")
+        now = self.repo._now()
+        await self.repo.create_expert(
+            ExpertRecord(
+                id=uuid.uuid4(),
+                request_id=self.request.id,
+                version=1,
+                draft_id=self.delivered.id,
+                created_at=now,
+                listed_at=now,
+                knowmart_knowbot_id=KNOWBOT,
+                digest=self.digest,
+            )
         )
         self.testing = await self.repo.create_draft(
             request_id=self.request.id,
+            request_version=1,
             revision=2,
             version="2",
             manifest=manifest("2", data_bindings=[binding]),
         )
-        await self.repo.update_draft(
-            self.testing.id, status="testing", run_id="knowlab-run-0002"
+        await self.repo.update_draft(self.testing.id, status="testing")
+        self.test = await self.repo.create_test(
+            TestRecord(
+                id=uuid.uuid4(),
+                request_id=self.request.id,
+                number=1,
+                draft_id=self.testing.id,
+                status="running",
+                run_id="knowlab-run-0002",
+                started_at=now,
+            )
         )
 
     async def _dataset(
@@ -264,7 +287,7 @@ async def test_unbound_or_deleted_or_changed_data_is_not_found(world: World) -> 
 async def test_a_finished_or_other_test_cannot_read(world: World) -> None:
     for run_id in ("knowlab-run-9999", "knowlab-run-0002"):
         if run_id == "knowlab-run-0002":
-            await world.repo.update_draft(world.testing.id, status="passed")
+            await world.repo.update_test(world.test.id, status="passed")
         with pytest.raises(NotFoundError):
             await world.reader.list(
                 "knowbench", world.listing({"kind": "test", "run_id": run_id})
