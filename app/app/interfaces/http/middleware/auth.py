@@ -85,9 +85,11 @@ async def get_web_current_user(
 
 # 部署只给角色、不发权限（账 134），所以管理角色换算成权限（待办 98，
 # 所有者 2026-10-18 采纳审读第 4 条）：admin 什么都能做；白名单里别的角色
-# （operator）只拿到管理端的基本权限（看、发起测试、答跑法问题）。交付、退回
-# 这类接口在基本权限之外再要一项，只有 admin 有。
+# （operator）拿管理端的基本权限，交付、退回这类接口在基本权限之外再要一项。
+# 所有者 2026-10-23 改定：角色仍分 admin、operator，但现在 operator 也给这一项，
+# 管理端的事两种角色都能做；admin 比 operator 多哪些权限以后定，定了就从这里拿掉。
 FULL_ADMIN_ROLE = "admin"
+OPERATOR_SCOPES = frozenset({"knowlab:release"})
 
 
 def granted_scopes(principal: Principal) -> frozenset[str] | None:
@@ -95,7 +97,9 @@ def granted_scopes(principal: Principal) -> frozenset[str] | None:
     roles = set(principal.roles) & _admin_profile.role_allowlist
     if FULL_ADMIN_ROLE in roles:
         return None
-    base = frozenset(_admin_profile.required_scopes) if roles else frozenset()
+    if not roles:
+        return frozenset(principal.scopes)
+    base = frozenset(_admin_profile.required_scopes) | OPERATOR_SCOPES
     return frozenset(principal.scopes) | base
 
 
@@ -115,7 +119,8 @@ def require_admin_scopes(*required: str) -> Callable[..., Awaitable[Principal]]:
 
 
 require_knowlab_admin = require_admin_scopes(*_admin_profile.required_scopes)
-# 建草稿、核出处、交付、退回只留给 admin（所有者 2026-10-18 采纳审读第 4 条）
+# 建草稿、核出处、交付、退回：多要一项 knowlab:release（2026-10-18 审读第 4 条）；
+# 现在 operator 也有这一项（所有者 2026-10-23，见 OPERATOR_SCOPES）
 require_knowlab_release = require_admin_scopes(
     *_admin_profile.required_scopes, "knowlab:release"
 )

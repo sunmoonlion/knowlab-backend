@@ -38,8 +38,10 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     admin = FakeAuthService(
         {
             "admin": session("admin", "knowlab:admin", "knowlab:release"),
-            # 运营：只有基本权限（白名单角色 operator 换算出来的就是这个，见 auth）
-            "operator": session("admin", "knowlab:admin"),
+            # 只有管理端基本权限、没有 knowlab:release 的人。所有者 2026-10-23 起
+            # operator 角色也换算出 knowlab:release（见 auth.OPERATOR_SCOPES）；
+            # 以后 admin 多出的权限定了，operator 会落回这里
+            "base": session("admin", "knowlab:admin"),
             "no-scope": session("admin", "profile:read"),
         }
     )
@@ -99,8 +101,9 @@ async def test_admin_routes_need_the_admin_scope_and_not_a_web_session(wired) ->
 
 
 @pytest.mark.asyncio
-async def test_operators_cannot_draft_review_deliver_or_reset(wired) -> None:
-    """运营只能看、发起测试、答跑法问题；建草稿、核出处、交付、退回只留给 admin。"""
+async def test_base_scope_cannot_draft_review_deliver_or_reset(wired) -> None:
+    """只有基本权限的能看、发起测试、答跑法问题；
+    建草稿、核出处、交付、退回要多一项 knowlab:release。"""
     svc, *_ = wired
     from app.domain.knowbots.drafts import KnowbotRequestIn
 
@@ -109,7 +112,7 @@ async def test_operators_cannot_draft_review_deliver_or_reset(wired) -> None:
     )
     draft = await svc.add_draft(str(request.id), manifest())
     async with client() as c:
-        c.cookies.set(ADMIN_SID, "operator")
+        c.cookies.set(ADMIN_SID, "base")
         assert (await c.get("/api/admin/v1/knowbot-drafts")).status_code == 200
         base = f"/api/admin/v1/knowbot-drafts/{draft.id}"
         for path, body in [
@@ -121,7 +124,7 @@ async def test_operators_cannot_draft_review_deliver_or_reset(wired) -> None:
             json = {"manifest": body} if body else None
             refused = await c.post(path, json=json, headers=ADMIN)
             assert refused.status_code == 403, path
-        # 核过出处之后，发起测试运营可以做
+        # 核过出处之后，只有基本权限也能发起测试
         await svc.review_rules(str(draft.id), "admin-1")
         started = await c.post(
             f"{base}/test",
@@ -481,7 +484,7 @@ async def test_amendments_through_the_api(wired) -> None:
         assert review.json()["code"] == "amendments_open"
 
         decline = f"/api/admin/v1/knowbot-amendments/{amendment_id}/decline"
-        c.cookies.set(ADMIN_SID, "operator")
+        c.cookies.set(ADMIN_SID, "base")
         assert (
             await c.post(decline, json={"reason": "这一版先不做"}, headers=ADMIN)
         ).status_code == 403
@@ -561,7 +564,7 @@ async def test_ideas_avatars_outputs_and_experts_through_the_api(wired) -> None:
         experts = (await c.get("/api/web/v1/knowbots")).json()["knowbots"]
         assert experts[0]["knowbot_id"] == "kb-1" and experts[0]["delivered_at"]
 
-        c.cookies.set(ADMIN_SID, "operator")  # 运营也能看产出（验证这一稿）
+        c.cookies.set(ADMIN_SID, "base")  # 只有基本权限也能看产出（验证这一稿）
         admin = await c.get(f"/api/admin/v1/knowbot-drafts/{draft.id}/outputs")
         assert admin.json()["cases"][0]["case_id"] == "c1"
         doc = await c.get(f"/api/admin/v1/knowbot-drafts/{draft.id}/manifest")

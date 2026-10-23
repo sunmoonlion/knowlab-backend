@@ -168,19 +168,20 @@ async def test_admin_business_routes_accept_the_admin_roles(
     ("roles", "scopes", "granted"),
     [
         (("admin",), (), None),  # 全部
-        (("operator",), (), {"knowlab:admin"}),  # 只有基本权限
+        (("operator",), (), {"knowlab:admin", "knowlab:release"}),  # 现在也能交付、退回
         (("operator",), ("knowlab:release",), {"knowlab:admin", "knowlab:release"}),
         (("editor",), (), set()),
         ((), ("knowlab:admin",), {"knowlab:admin"}),
     ],
 )
-def test_admin_roles_become_scopes_and_only_admin_gets_everything(
+def test_admin_roles_become_scopes(
     monkeypatch: pytest.MonkeyPatch,
     roles: tuple[str, ...],
     scopes: tuple[str, ...],
     granted: set[str] | None,
 ) -> None:
-    """operator 不等于 admin（审读第 4 条）：要多一项权限的（交付、退回）它过不了。"""
+    """角色换算成权限（审读第 4 条）；所有者 2026-10-23：现在 operator 也能交付、退回，
+    admin 多出的权限以后定。白名单外的角色什么都没有。"""
     monkeypatch.setattr(
         auth_middleware,
         "_admin_profile",
