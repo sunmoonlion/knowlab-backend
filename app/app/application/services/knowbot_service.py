@@ -39,6 +39,12 @@ from app.application.ports.knowbots import (
     RuntimeTestClient,
     TestOutputRecord,
 )
+from app.domain.knowbots.data_needs import (
+    bound_problems,
+    for_knowmart,
+    format_of,
+    parse_needs,
+)
 from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
@@ -236,13 +242,18 @@ class KnowbotCreationService:
                 manifest, runtime=request.runtime, version=version
             )
             if not problems:
-                # 分身运行时只读这一版绑定的、这个用户自己的数据（C-L2）
+                # 测试只读这一版绑定的、这个用户自己的数据（C-L2）；写了数据需求声明的，
+                # 绑定按声明核（SDD 0042 第五节）
                 assert isinstance(manifest, dict)
-                owned = {
-                    str(d.id): (d.version, d.sha256)
-                    for d in await self.repo.list_datasets(request.owner_subject)
-                }
+                datasets = await self.repo.list_datasets(request.owner_subject)
+                owned = {str(d.id): (d.version, d.sha256) for d in datasets}
                 problems = binding_problems(manifest.get("data_bindings"), owned)
+                if not problems:
+                    problems = bound_problems(
+                        parse_needs(manifest.get("data_needs"))[0],
+                        manifest.get("data_bindings"),
+                        {str(d.id): format_of(d.content_type) for d in datasets},
+                    )
             if not problems:
                 # 出处引的补充必须是这个想法的、没被「不照做」（SDD 0035 §二.3）
                 problems = amendment_ref_problems(
@@ -575,7 +586,7 @@ class KnowbotCreationService:
                 delivery_id=f"knowlab-draft-{draft.id}",
                 owner_subject=request.owner_subject,
                 knowbot_ref=f"knowlab-{request.id}",
-                manifest=draft.manifest,
+                manifest=for_knowmart(draft.manifest),
             )
         except AppException as exc:
             async with self.repo.transaction():

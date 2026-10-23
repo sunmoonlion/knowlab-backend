@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowbots.data_needs import parse_needs
 from app.domain.knowbots.test_run import RunCase
 
 DraftStatus = Literal["pending_test", "testing", "passed", "failed", "delivered"]
@@ -169,6 +170,7 @@ def draft_manifest_problems(
         problems.append(
             "each rule source must be user_text or user_confirmed with a ref"
         )
+    problems += parse_needs(doc.get("data_needs"))[1]
     bindings = doc.get("data_bindings", [])
     if not isinstance(bindings, list):
         problems.append("data_bindings must be a list")
