@@ -511,3 +511,58 @@ async def test_consent_version_and_output_expiry_on_the_real_database(db) -> Non
         connection = await session.connection()
         await connection.run_sync(_step(name, "downgrade"))
         await connection.run_sync(_step(name, "upgrade"))
+
+
+@pytest.mark.asyncio
+async def test_the_knowledge_base_moves_into_knowbase(db) -> None:
+    """SDD 0042 第七节：资料编号、测试同意、草稿的测试授权都记得住；旧数据搬一次。"""
+    from tests.test_knowbot_knowledge_base import FakeKnowledge, token
+
+    store, kb = MemoryDataStore(), FakeKnowledge()
+    async with db() as session:
+        legacy = KnowbotDataService(SqlKnowlabRepository(session), store)
+        old = await legacy.upload(OWNER, "老年报.pdf", b"%PDF-1.7 old")
+    async with db() as session:
+        data = KnowbotDataService(SqlKnowlabRepository(session), store, knowledge=kb)
+        new = await data.upload(OWNER, "新年报.pdf", b"%PDF-1.7 new", token)
+        assert (new.item_id, new.object_key) == ("item-1", None)
+        repo = SqlKnowlabRepository(session)
+        assert [d.id for d in await repo.datasets_to_import()] == [old.id]
+        assert await data.import_old() == 1
+        assert await repo.datasets_to_import() == []
+        await data.ensure_consent(OWNER, token)
+        consent = await repo.get_test_consent(OWNER)
+        assert consent is not None and consent["consent_id"] == "consent-2"
+        assert sorted(i["item_id"] for i in kb.consents["consent-2"]) == [
+            "imported-" + str(old.id),
+            "item-1",
+        ]
+    async with db() as session:
+        svc = service(session)
+        request = await svc.submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+        draft = await svc.add_draft(str(request.id), manifest())
+        repo = SqlKnowlabRepository(session)
+        async with repo.transaction():
+            await repo.update_draft(draft.id, run_grant_id="grant-9")
+        found = await repo.get_draft(draft.id)
+        assert found is not None and found.run_grant_id == "grant-9"
+    # 一份资料要么有 knowbase 的编号，要么有旧对象
+    async with db() as session:
+        with pytest.raises(DBAPIError, match="ck_knowbot_dataset_somewhere"):
+            async with session.begin():
+                await session.execute(
+                    text(
+                        "update knowbot_dataset"
+                        " set object_key = null, version_id = null where id = :i"
+                    ),
+                    {"i": new.id},
+                )
+                await session.execute(
+                    text(
+                        "update knowbot_dataset"
+                        " set knowbase_item_id = null where id = :i"
+                    ),
+                    {"i": new.id},
+                )

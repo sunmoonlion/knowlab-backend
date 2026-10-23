@@ -30,6 +30,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotDraft,
     KnowbotQuestion,
     KnowbotRequest,
+    KnowbotTestConsent,
     KnowbotTestOutput,
 )
 
@@ -45,6 +46,7 @@ DRAFT_FIELDS = frozenset(
         "report",
         "delivery",
         "last_error",
+        "run_grant_id",
     }
 )
 
@@ -80,6 +82,7 @@ def _draft(row: KnowbotDraft) -> DraftRecord:
         delivery=row.delivery,
         last_error=row.last_error,
         created_at=row.created_at,
+        run_grant_id=row.run_grant_id,
     )
 
 
@@ -96,6 +99,7 @@ def _dataset(row: KnowbotDataset) -> DatasetRecord:
         version_id=row.version_id,
         created_at=row.created_at,
         deleted_at=row.deleted_at,
+        item_id=row.knowbase_item_id,
     )
 
 
@@ -300,6 +304,7 @@ class SqlKnowlabRepository:
             sha256=record.sha256,
             object_key=record.object_key,
             version_id=record.version_id,
+            knowbase_item_id=record.item_id,
         )
         self.session.add(row)
         await self.session.flush()
@@ -329,6 +334,57 @@ class SqlKnowlabRepository:
             .where(KnowbotDataset.id == dataset_id)
             .values(deleted_at=at)
         )
+
+    async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
+        await self.session.execute(
+            update(KnowbotDataset)
+            .where(KnowbotDataset.id == dataset_id)
+            .values(knowbase_item_id=item_id)
+        )
+
+    async def datasets_to_import(self, limit: int = 50) -> Sequence[DatasetRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotDataset)
+                .where(
+                    KnowbotDataset.knowbase_item_id.is_(None),
+                    KnowbotDataset.object_key.is_not(None),
+                    KnowbotDataset.deleted_at.is_(None),
+                )
+                .order_by(KnowbotDataset.created_at, KnowbotDataset.id)
+                .limit(limit)
+            )
+        ).scalars()
+        return [_dataset(r) for r in rows]
+
+    async def get_test_consent(self, owner_subject: str) -> dict[str, str] | None:
+        row = await self.session.get(KnowbotTestConsent, owner_subject)
+        if row is None:
+            return None
+        return {"consent_id": row.consent_id, "items_digest": row.items_digest}
+
+    async def put_test_consent(
+        self, owner_subject: str, consent_id: str, items_digest: str
+    ) -> None:
+        row = await self.session.get(KnowbotTestConsent, owner_subject)
+        if row is None:
+            self.session.add(
+                KnowbotTestConsent(
+                    owner_subject=owner_subject,
+                    consent_id=consent_id,
+                    items_digest=items_digest,
+                )
+            )
+        else:
+            row.consent_id = consent_id
+            row.items_digest = items_digest
+        await self.session.flush()
+
+    async def delete_test_consent(self, owner_subject: str) -> None:
+        row = await self.session.get(KnowbotTestConsent, owner_subject)
+        if row is not None:
+            await self.session.delete(row)
+            await self.session.flush()
 
     async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
         binding = func.jsonb_build_array(

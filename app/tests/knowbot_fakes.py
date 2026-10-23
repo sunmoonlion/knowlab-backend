@@ -118,6 +118,7 @@ class MemoryKnowlab:
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
         self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
+        self.consents: dict[str, dict[str, str]] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -309,6 +310,32 @@ class MemoryKnowlab:
 
     async def mark_dataset_deleted(self, dataset_id: uuid.UUID, at: Any) -> None:
         self.datasets[dataset_id] = replace(self.datasets[dataset_id], deleted_at=at)
+
+    async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
+        self.datasets[dataset_id] = replace(self.datasets[dataset_id], item_id=item_id)
+
+    async def datasets_to_import(self, limit: int = 50) -> Sequence[DatasetRecord]:
+        found = [
+            d
+            for d in self.datasets.values()
+            if d.item_id is None and d.object_key and d.deleted_at is None
+        ]
+        return sorted(found, key=lambda d: d.created_at or 0)[:limit]
+
+    async def get_test_consent(self, owner_subject: str) -> dict[str, str] | None:
+        found = self.consents.get(owner_subject)
+        return dict(found) if found else None
+
+    async def put_test_consent(
+        self, owner_subject: str, consent_id: str, items_digest: str
+    ) -> None:
+        self.consents[owner_subject] = {
+            "consent_id": consent_id,
+            "items_digest": items_digest,
+        }
+
+    async def delete_test_consent(self, owner_subject: str) -> None:
+        self.consents.pop(owner_subject, None)
 
     async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
         for draft in self.drafts.values():

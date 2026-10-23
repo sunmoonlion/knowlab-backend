@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.ports.knowbots import KnowledgeBase
 from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.infrastructure.documents.table_extract import CachedTableExtractor
 from app.infrastructure.documents.text_extract import CachedTextExtractor
+from app.infrastructure.external.knowbase_user_data import (
+    KnowbaseKnowledgeBase,
+    KnowbaseUserData,
+)
 from app.infrastructure.external.knowbot_clients import (
     KnowmartDeliveryClient,
     RuntimeTestClients,
@@ -34,11 +40,24 @@ def knowbot_question_service(session: AsyncSession) -> KnowbotQuestionService:
     return KnowbotQuestionService(SqlKnowlabRepository(session), runtime_clients())
 
 
+@lru_cache(maxsize=1)
+def knowledge_base() -> KnowledgeBase | None:
+    """knowbase 里 knowlab 的知识库分区（SDD 0042 第七节）；没配 knowbase 的地址就没有，
+    知识库照旧放本应用的对象存储、测试照旧经 knowlab 读。"""
+    if not os.environ.get("KNOWBASE_INTERNAL_URL", "").strip():
+        return None
+    return KnowbaseKnowledgeBase(KnowbaseUserData())
+
+
 def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
     repo = SqlKnowlabRepository(session)
     questions = KnowbotQuestionService(repo, runtime_clients())
     return KnowbotCreationService(
-        repo, runtime_clients(), knowmart_client(), on_refresh=questions.resend
+        repo,
+        runtime_clients(),
+        knowmart_client(),
+        on_refresh=questions.resend,
+        knowledge=knowledge_base(),
     )
 
 
@@ -48,7 +67,9 @@ def data_store() -> S3DataStore:
 
 
 def knowbot_data_service(session: AsyncSession) -> KnowbotDataService:
-    return KnowbotDataService(SqlKnowlabRepository(session), data_store())
+    return KnowbotDataService(
+        SqlKnowlabRepository(session), data_store(), knowledge=knowledge_base()
+    )
 
 
 @lru_cache(maxsize=1)

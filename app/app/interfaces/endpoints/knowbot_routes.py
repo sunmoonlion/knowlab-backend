@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Path, Query, UploadFile
@@ -50,6 +50,7 @@ from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.http.middleware.auth import (
     get_web_current_user,
+    get_web_knowbase_token_provider,
     require_knowlab_admin,
     require_knowlab_release,
 )
@@ -83,6 +84,10 @@ def question_service(
 Service = Annotated[KnowbotCreationService, Depends(service)]
 Questions = Annotated[KnowbotQuestionService, Depends(question_service)]
 DataService = Annotated[KnowbotDataService, Depends(data_service)]
+# knowbase 用户令牌：真要动 knowbase 时才换（SDD 0042 第七节）
+KnowbaseToken = Annotated[
+    Callable[[], Awaitable[str]], Depends(get_web_knowbase_token_provider)
+]
 User = Annotated[Principal, Depends(get_web_current_user)]
 Admin = Annotated[Principal, Depends(require_knowlab_admin)]
 # 运营（operator）只能看、发起测试、答跑法问题；下面这几步只有 admin 能做
@@ -436,8 +441,14 @@ async def amend(
 
 
 @web_router.get("/knowbot-datasets")
-async def my_datasets(principal: User, data: DataService) -> JSONResponse:
-    """我的数据：只有自己的、没删的，和用了多少。"""
+async def my_datasets(
+    principal: User, data: DataService, user_token: KnowbaseToken
+) -> JSONResponse:
+    """知识库：只有自己的、没删的，和用了多少。
+
+    顺带让测试同意跟上（SDD 0042 第七节）。
+    """
+    await data.ensure_consent(principal.subject, user_token)
     found, used = await data.mine(principal.subject)
     return _ok(
         {
@@ -453,20 +464,24 @@ async def my_datasets(principal: User, data: DataService) -> JSONResponse:
 async def upload_dataset(
     principal: User,
     data: DataService,
+    user_token: KnowbaseToken,
     file: Annotated[UploadFile, File()],
 ) -> JSONResponse:
-    """上传一份数据。只收 PDF、Excel、CSV、文本；单个不超过 50 MB，每人不超过 1 GB。"""
+    """上传一份数据。只收 PDF、Excel、CSV、文本。
+
+    单个不超过 50 MB，每人不超过 1 GB、1000 份。
+    """
     body = await file.read(MAX_FILE_BYTES + 1)
-    found = await data.upload(principal.subject, file.filename, body)
+    found = await data.upload(principal.subject, file.filename, body, user_token)
     return _ok({"dataset": _dataset_view(found)}, status_code=201)
 
 
 @web_router.delete("/knowbot-datasets/{dataset_id}", status_code=204)
 async def delete_dataset(
-    principal: User, data: DataService, dataset_id: ItemId
+    principal: User, data: DataService, user_token: KnowbaseToken, dataset_id: ItemId
 ) -> Response:
     """删一份数据。在做的或已交付的分身绑着的不能删（先停用那一版）。"""
-    await data.delete(principal.subject, dataset_id)
+    await data.delete(principal.subject, dataset_id, user_token)
     return Response(status_code=204, headers=NO_STORE)
 
 

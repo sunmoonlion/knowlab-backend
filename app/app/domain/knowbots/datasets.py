@@ -15,6 +15,7 @@ from typing import Any
 
 MAX_FILE_BYTES = 50 * 1024 * 1024
 QUOTA_BYTES = 1024 * 1024 * 1024
+MAX_DATASETS = 1000
 DATASET_VERSION = "1"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # 扩展名 → （内容类型，文件头）。文本类没有文件头，要求是 UTF-8
@@ -70,6 +71,15 @@ def check_size(size: int, used: int) -> None:
         raise Rejected("dataset_too_large", "A file can be at most 50 MB")
     if used + size > QUOTA_BYTES:
         raise Rejected("dataset_quota_exceeded", "Your data can be at most 1 GB")
+
+
+def check_count(count: int) -> None:
+    """一个人最多 1000 份。
+
+    测试同意一条覆盖他全部的资料，knowbase 一条同意依据最多 1000 份。
+    """
+    if count >= MAX_DATASETS:
+        raise Rejected("dataset_count_exceeded", "You can keep at most 1000 files")
 
 
 def object_key(owner_subject: str, dataset_id: str) -> str:

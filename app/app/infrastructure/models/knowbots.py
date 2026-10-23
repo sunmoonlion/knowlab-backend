@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -65,6 +66,8 @@ class KnowbotDraft(TimestampMixin, Base):
     report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     delivery: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     last_error: Mapped[str | None] = mapped_column(Text)
+    # 这次测试的运行授权（SDD 0042 第七节）：knowbase 签给运行方，测试结束撤
+    run_grant_id: Mapped[str | None] = mapped_column(String(64))
 
     __table_args__ = (
         UniqueConstraint("request_id", "revision", name="uq_knowbot_draft_revision"),
@@ -85,13 +88,21 @@ class KnowbotDataset(TimestampMixin, Base):
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    object_key: Mapped[str] = mapped_column(String(256), nullable=False)
-    version_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    # knowlab 自己的旧对象（2026-10-23 前传的）；新传的只在 knowbase，这两栏为空
+    object_key: Mapped[str | None] = mapped_column(String(256))
+    version_id: Mapped[str | None] = mapped_column(String(256))
+    # knowbase 里 knowlab 分区的那份（SDD 0042 第七节）
+    knowbase_item_id: Mapped[str | None] = mapped_column(String(64))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         Index("ix_knowbot_dataset_owner_subject", "owner_subject"),
         CheckConstraint("size_bytes > 0", name="ck_knowbot_dataset_size"),
+        CheckConstraint(
+            "knowbase_item_id IS NOT NULL"
+            " OR (object_key IS NOT NULL AND version_id IS NOT NULL)",
+            name="ck_knowbot_dataset_somewhere",
+        ),
     )
 
 
@@ -205,4 +216,17 @@ class KnowbotTestOutput(TimestampMixin, Base):
         CheckConstraint(
             "outputs IS NOT NULL OR note IS NOT NULL", name="ck_knowbot_test_output_any"
         ),
+    )
+
+
+class KnowbotTestConsent(Base):
+    """每个用户一条测试同意（SDD 0042 第七节）：范围是他 knowlab 知识库里的全部资料。"""
+
+    __tablename__ = "knowbot_test_consent"
+
+    owner_subject: Mapped[str] = mapped_column(String(512), primary_key=True)
+    consent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    items_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

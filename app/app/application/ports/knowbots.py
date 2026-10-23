@@ -48,6 +48,8 @@ class DraftRecord:
     delivery: dict[str, Any] | None = None
     last_error: str | None = None
     created_at: datetime | None = None
+    # 这次测试的运行授权（SDD 0042 第七节），测试结束撤
+    run_grant_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,10 +61,13 @@ class DatasetRecord:
     content_type: str
     size_bytes: int
     sha256: str
-    object_key: str
-    version_id: str
+    # knowlab 自己的旧对象（10-23 前传的）；新传的只在 knowbase，这两栏为空
+    object_key: str | None
+    version_id: str | None
     created_at: datetime | None = None
     deleted_at: datetime | None = None
+    # knowbase 里 knowlab 分区的那份（SDD 0042 第七节）
+    item_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +239,24 @@ class KnowlabRepository(Protocol):
         """这个人的草稿里，在做的或已交付的有没有绑着这份数据。"""
         ...
 
+    async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
+        """记下搬进 knowbase 后的资料编号。"""
+        ...
+
+    async def datasets_to_import(self, limit: int = 50) -> Sequence[DatasetRecord]:
+        """还没搬进 knowbase 的旧数据（有旧对象、没删、没有资料编号）。"""
+        ...
+
+    async def get_test_consent(self, owner_subject: str) -> dict[str, str] | None:
+        """这个人在 knowbase 的测试同意：{consent_id, items_digest}；没有就是 None。"""
+        ...
+
+    async def put_test_consent(
+        self, owner_subject: str, consent_id: str, items_digest: str
+    ) -> None: ...
+
+    async def delete_test_consent(self, owner_subject: str) -> None: ...
+
     async def find_delivered_draft(
         self, knowbot_id: str, version: str
     ) -> DraftRecord | None:
@@ -294,6 +317,51 @@ class RuntimeTestClient(Protocol):
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1
     ) -> RunResultV1: ...
+
+
+class KnowledgeBase(Protocol):
+    """knowbase 里 knowlab 的知识库分区（契约 user-data/v1，SDD 0042 第七节）。
+
+    本人的操作凭换来的用户令牌；签测试授权、撤、搬旧数据凭 knowlab 的服务身份。
+    knowbase 拒了按情形转成本应用的错（资料在用 409 dataset_in_use 等）；不可达、
+    没配好是 503。
+    """
+
+    async def upload(self, user_token: str, name: str, data: bytes) -> dict[str, Any]:
+        """传一份，回 knowbase 的资料（item_id、sha256……）。"""
+        ...
+
+    async def delete(self, user_token: str, item_id: str) -> None:
+        """删一份；已经没有了当删过了。"""
+        ...
+
+    async def consent(
+        self, user_token: str, ref: str, items: list[dict[str, str]]
+    ) -> str:
+        """立一条测试同意（范围是这几份），回同意编号。"""
+        ...
+
+    async def withdraw(self, user_token: str, consent_id: str) -> None: ...
+
+    async def test_grant(
+        self,
+        *,
+        owner: str,
+        consent_id: str,
+        ref: str,
+        items: list[dict[str, str]],
+        ttl_seconds: int,
+    ) -> str:
+        """凭同意签测试运行授权（读的一方是 knowbench），回授权编号。"""
+        ...
+
+    async def revoke_test_grant(self, grant_id: str) -> None: ...
+
+    async def import_item(
+        self, *, owner: str, name: str, data: bytes, ref: str
+    ) -> dict[str, Any]:
+        """把一份旧数据搬进这个用户的 knowlab 分区（按 ref 幂等），回资料。"""
+        ...
 
 
 class DataStore(Protocol):

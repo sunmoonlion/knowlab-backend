@@ -21,7 +21,12 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
-from app.application.errors.exceptions import ServiceUnavailableError
+from app.application.errors.exceptions import (
+    BadGatewayError,
+    BadRequestError,
+    ConcurrencyConflictError,
+    ServiceUnavailableError,
+)
 from app.infrastructure.external.service_client import ServiceClient, service_relation
 
 BASE = "/api/internal/v1/user-data"
@@ -153,6 +158,20 @@ class KnowbaseUserData:
         token = await self._service_token("user-data-grant-test")
         await self._send("POST", f"/test-grants/{_segment(grant_id)}/revoke", token)
 
+    async def import_item(
+        self, *, owner: str, name: str, content: bytes, ref: str
+    ) -> dict[str, Any]:
+        """把应用自己原来存的一份搬进这个用户的本应用分区（按 ref 幂等）。"""
+        token = await self._service_token("user-data-import")
+        _, body, _ = await self._send(
+            "POST",
+            "/imports",
+            token,
+            content=content,
+            params={"owner": owner, "name": name, "ref": ref},
+        )
+        return body
+
     async def view_grant(self, grant_id: str) -> dict[str, Any]:
         token = await self._service_token("user-data-read")
         _, body, _ = await self._send("GET", f"/grants/{_segment(grant_id)}", token)
@@ -274,3 +293,107 @@ class KnowbaseUserData:
         if response.status_code == 204 or not response.content:
             return response.status_code, None, response.headers
         return response.status_code, response.json(), response.headers
+
+
+TEST_PURPOSE = "knowlab-test"
+# knowbase 的拒绝码 → 给 knowlab 网页的码（网页按码说人话）
+UPLOAD_REFUSALS = {
+    "too_large": "dataset_too_large",
+    "quota_exceeded": "dataset_quota_exceeded",
+    "type_not_allowed": "dataset_type_not_allowed",
+    "content_mismatch": "dataset_type_mismatch",
+    "not_utf8": "dataset_text_not_utf8",
+    "empty": "dataset_empty",
+    "name_invalid": "dataset_name_invalid",
+}
+
+
+class KnowbaseKnowledgeBase:
+    """端口 KnowledgeBase 的实现：knowbase 里 knowlab 的分区（SDD 0042 第七节）。"""
+
+    def __init__(self, client: KnowbaseUserData) -> None:
+        self.client = client
+
+    async def upload(self, user_token: str, name: str, data: bytes) -> dict[str, Any]:
+        try:
+            return await self.client.upload(user_token, name, data)
+        except KnowbaseRefused as exc:
+            code = UPLOAD_REFUSALS.get(exc.code, "dataset_refused")
+            raise BadRequestError("The file was not taken", code=code) from None
+
+    async def delete(self, user_token: str, item_id: str) -> None:
+        try:
+            await self.client.delete(user_token, item_id)
+        except KnowbaseRefused as exc:
+            if exc.status == 404:
+                return
+            if exc.code == "in_use":
+                raise ConcurrencyConflictError(
+                    "This data is being read by a test", code="dataset_in_use"
+                ) from None
+            raise BadGatewayError("knowbase refused", code="knowbase_refused") from None
+
+    async def consent(
+        self, user_token: str, ref: str, items: list[dict[str, str]]
+    ) -> str:
+        try:
+            body = await self.client.consent(user_token, TEST_PURPOSE, ref, items)
+        except KnowbaseRefused as exc:
+            raise BadGatewayError(
+                "knowbase refused the consent", code=f"consent_{exc.code}"
+            ) from None
+        return str(body["consent_id"])
+
+    async def withdraw(self, user_token: str, consent_id: str) -> None:
+        try:
+            await self.client.withdraw_consent(user_token, consent_id)
+        except KnowbaseRefused as exc:
+            if exc.status != 404:
+                raise BadGatewayError(
+                    "knowbase refused", code="knowbase_refused"
+                ) from None
+
+    async def test_grant(
+        self,
+        *,
+        owner: str,
+        consent_id: str,
+        ref: str,
+        items: list[dict[str, str]],
+        ttl_seconds: int,
+    ) -> str:
+        try:
+            body = await self.client.test_grant(
+                owner=owner,
+                consent_id=consent_id,
+                reader_app="knowbench",
+                ref=ref,
+                items=items,
+                ttl_seconds=ttl_seconds,
+            )
+        except KnowbaseRefused as exc:
+            raise BadGatewayError(
+                "knowbase refused the test grant", code=f"grant_{exc.code}"
+            ) from None
+        return str(body["grant_id"])
+
+    async def revoke_test_grant(self, grant_id: str) -> None:
+        try:
+            await self.client.revoke_test_grant(grant_id)
+        except KnowbaseRefused as exc:
+            if exc.status != 404:
+                raise BadGatewayError(
+                    "knowbase refused", code="knowbase_refused"
+                ) from None
+
+    async def import_item(
+        self, *, owner: str, name: str, data: bytes, ref: str
+    ) -> dict[str, Any]:
+        try:
+            return await self.client.import_item(
+                owner=owner, name=name, content=data, ref=ref
+            )
+        except KnowbaseRefused as exc:
+            raise BadGatewayError(
+                "knowbase refused the import", code=f"import_{exc.code}"
+            ) from None

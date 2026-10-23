@@ -74,6 +74,32 @@ class Budget(Strict):
     currency: Literal["CNY"] = "CNY"
 
 
+class GrantedData(Strict):
+    """测试读的一份：knowlab 的数据编号与 knowbase 那份。
+
+    清单绑定、格子地址、引文写的都是 knowlab 的数据编号。
+    """
+
+    dataset_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
+    item_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(min_length=1, max_length=128)
+    size_bytes: int = Field(ge=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DataGrant(Strict):
+    """测试运行授权（SDD 0042 第七节）：knowbase 签给运行方的，只读绑定的这几份。
+
+    运行方把这几份钉进每条用例的委托，凭授权向 knowbase 读、核摘要；
+    测试结束 knowlab 撤。
+    v1 冻结后加的可选字段：没有它时运行方照旧经 knowlab 读（knowbot-data/v1）。
+    """
+
+    grant_id: str = Field(min_length=1, max_length=64)
+    items: tuple[GrantedData, ...] = Field(min_length=1, max_length=64)
+
+
 class RunRequestV1(Strict):
     contract: Literal["knowbot-test-run/v1"]
     run_id: str = Field(pattern=RUN_ID)
@@ -85,6 +111,10 @@ class RunRequestV1(Strict):
     timeout_seconds: int = Field(ge=60, le=86400)  # 不含等人回答的时间
     # 一个问题最多等多久；过了没人答，那条用例记 needs_human（所有者定 3 天）
     max_wait_seconds: int = Field(default=259200, ge=60, le=604800)
+    # 没有就不发这一栏：老的运行方不认它（SDD 0042 第七节）
+    data_grant: DataGrant | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _unique_cases(self) -> RunRequestV1:

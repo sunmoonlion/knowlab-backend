@@ -34,6 +34,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     KnowlabRepository,
+    KnowledgeBase,
     KnowmartClient,
     RequestRecord,
     RuntimeTestClient,
@@ -62,6 +63,8 @@ from app.domain.knowbots.drafts import (
 )
 from app.domain.knowbots.test_run import (
     CONTRACT,
+    DataGrant,
+    GrantedData,
     RunRequestV1,
     RunResultV1,
     first_route,
@@ -73,6 +76,9 @@ OWNER = re.compile(r"^[A-Za-z0-9._:@-]{1,512}$")
 NO_OUTPUTS = "这次测试没有取产出：运行方没有这条用例的成稿与交回物"
 OUTPUTS_PER_REFRESH = 10  # 一次刷新最多取几条用例的产出，其余下次刷新再取
 STUCK_GRACE = timedelta(minutes=5)
+# 测试运行授权的时限：测试的超时加最长等人，再留一小时；knowbase 最长给 7 天
+GRANT_MARGIN_SECONDS = 3600
+GRANT_MAX_SECONDS = 7 * 24 * 3600
 # 一个问题最多等多久（所有者定 3 天）；过了运行方把那条用例记 needs_human
 MAX_WAIT_SECONDS = 3 * 24 * 3600
 
@@ -100,12 +106,15 @@ class KnowbotCreationService:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         on_refresh: Callable[[DraftRecord, RequestRecord], Awaitable[None]]
         | None = None,
+        knowledge: KnowledgeBase | None = None,
     ) -> None:
         self.repo = repo
         self.runtimes = runtimes
         self.knowmart = knowmart
         self.now = now
         self.on_refresh = on_refresh
+        # 配了 knowbase：测试读绑定的数据凭测试运行授权（SDD 0042 第七节）
+        self.knowledge = knowledge
 
     # ---------- 用户：提交与查看 ----------
     async def submit(self, owner_subject: str, body: KnowbotRequestIn) -> RequestRecord:
@@ -424,6 +433,11 @@ class KnowbotCreationService:
                 report=None,
                 last_error=None,
             )
+        grant = await self._data_grant(request.owner_subject, run, draft.manifest)
+        if grant is not None:
+            run = run.model_copy(update={"data_grant": grant})
+            async with self.repo.transaction():
+                await self.repo.update_draft(draft.id, run_grant_id=grant.grant_id)
         try:
             result = await self.runtimes.start(request.runtime, run)
         except AppException as exc:
@@ -431,12 +445,92 @@ class KnowbotCreationService:
                 current = await self._locked(draft.id)
                 if current.status == "testing" and current.run_id == run.run_id:
                     await self._move(
-                        current, "pending_test", last_error=f"start failed: {exc.code}"
+                        current,
+                        "pending_test",
+                        last_error=f"start failed: {exc.code}",
+                        run_grant_id=None,
                     )
+            await self._revoke(grant.grant_id if grant else None)
             raise
         if result.final:
             await self._finish(draft.id, result)
         return result
+
+    async def _data_grant(
+        self, owner_subject: str, run: RunRequestV1, manifest: dict[str, Any]
+    ) -> DataGrant | None:
+        """这次测试读绑定数据的测试运行授权（SDD 0042 第七节）。
+
+        要绑定的每一份都已搬进 knowbase、摘要对得上、有测试同意；有一样不满足就不签，
+        运行方照旧经 knowlab 读（knowbot-data/v1），测试照跑。
+        """
+        if self.knowledge is None:
+            return None
+        raw = manifest.get("data_bindings")
+        bindings = (
+            [b for b in raw if isinstance(b, dict)] if isinstance(raw, list) else []
+        )
+        if not bindings:
+            return None
+        records = []
+        for binding in bindings:
+            try:
+                found = await self.repo.get_dataset(
+                    uuid.UUID(str(binding.get("dataset_id")))
+                )
+            except ValueError:
+                return None
+            if (
+                found is None
+                or not found.item_id
+                or found.owner_subject != owner_subject
+                or found.sha256 != binding.get("sha256")
+            ):
+                return None
+            records.append(found)
+        consent = await self.repo.get_test_consent(owner_subject)
+        if consent is None:
+            return None
+        ttl = min(
+            GRANT_MAX_SECONDS,
+            run.timeout_seconds + run.max_wait_seconds + GRANT_MARGIN_SECONDS,
+        )
+        try:
+            grant_id = await self.knowledge.test_grant(
+                owner=owner_subject,
+                consent_id=consent["consent_id"],
+                ref=run.run_id,
+                items=[
+                    {"item_id": str(d.item_id), "sha256": d.sha256} for d in records
+                ],
+                ttl_seconds=ttl,
+            )
+        except AppException as exc:
+            log.warning("test grant not issued run=%s code=%s", run.run_id, exc.code)
+            return None
+        return DataGrant(
+            grant_id=grant_id,
+            items=tuple(
+                GrantedData(
+                    dataset_id=str(d.id),
+                    item_id=str(d.item_id),
+                    name=d.name,
+                    media_type=d.content_type,
+                    size_bytes=d.size_bytes,
+                    sha256=d.sha256,
+                )
+                for d in records
+            ),
+        )
+
+    async def _revoke(self, grant_id: str | None) -> None:
+        """测试结束撤运行授权；撤不成只记一行（授权到期自己失效）。"""
+        if grant_id is None or self.knowledge is None:
+            return
+        try:
+            await self.knowledge.revoke_test_grant(grant_id)
+        except AppException as exc:
+            log.warning("test grant not revoked grant=%s code=%s", grant_id, exc.code)
 
     async def refresh(self, draft_id: str) -> DraftRecord:
         """问运行方结果；有了结论就记下。通过的不在这里交付，等用户要（accept）。"""
@@ -546,7 +640,9 @@ class KnowbotCreationService:
                 draft,
                 "passed" if result.status == "passed" else "failed",
                 report=result.model_dump(mode="json"),
+                run_grant_id=None,
             )
+        await self._revoke(draft.run_grant_id)
 
     async def accept(self, owner_subject: str, draft_id: str) -> DraftRecord:
         """用户看过成稿、要这一版：记下谁、何时要的，接着交付。
@@ -629,4 +725,10 @@ class KnowbotCreationService:
             )
             if self.now() < deadline:
                 raise _conflict("The test is still within its time", "not_stuck")
-            await self._move(draft, "pending_test", last_error="timed out; returned")
+            await self._move(
+                draft,
+                "pending_test",
+                last_error="timed out; returned",
+                run_grant_id=None,
+            )
+        await self._revoke(draft.run_grant_id)
