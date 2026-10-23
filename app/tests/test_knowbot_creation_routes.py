@@ -256,13 +256,17 @@ async def test_admin_sees_a_test_that_was_accepted_but_has_not_started(wired) ->
     draft = await svc.add_draft(str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
-    runtime.results[run.run_id] = result(run.run_id, "accepted")
+    runtime.results[run.run_id] = result(
+        run.run_id, "accepted", blocked="computer_offline"
+    )
     await svc.refresh(str(draft.id))
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
         [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
         assert shown["run_status"] == "accepted"
         assert shown["run_running_since"] is None
+        # 账 141：已受理没开跑时，写明在等什么
+        assert shown["run_blocked"] == "computer_offline"
         behind = "03e447a0-0000-4000-8000-000000000000"
         queued = {
             "case_id": "c1",
@@ -283,6 +287,7 @@ async def test_admin_sees_a_test_that_was_accepted_but_has_not_started(wired) ->
         [shown] = (await c.get("/api/admin/v1/knowbot-drafts")).json()["drafts"]
         assert shown["run_running_since"].startswith("2026-10-19T00:49:14")
         assert shown["progress"]["queued_behind"] == behind
+        assert shown["run_blocked"] is None
 
 
 @pytest.mark.asyncio

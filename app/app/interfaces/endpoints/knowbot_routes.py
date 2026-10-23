@@ -153,6 +153,8 @@ def _draft_for_admin(
         # （账 136 第 ②：还没开跑却显示「已跑 x 分钟」）
         "run_status": _while_testing(draft, "status"),
         "run_running_since": _while_testing(draft, "started_at"),
+        # 已受理还没开跑时在等什么（账 141）：computer_offline / folder_not_ready
+        "run_blocked": _while_testing(draft, "blocked"),
         # 补充方法（SDD 0035）：核对出处前要处理的补充；这一稿建好后才提交的，下一稿处理
         "amendments_open": blocking,
         "amendments_newer": newer,

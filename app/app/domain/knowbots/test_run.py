@@ -190,11 +190,20 @@ class RunResultV1(Strict):
     questions: tuple[PendingQuestion, ...] = Field(default=(), max_length=50)
     waited_seconds: int = Field(default=0, ge=0)  # 到现在一共等了人多久
     progress: Progress | None = None  # 没结论时：跑着的那条走到哪了
+    # 还没开跑时在等什么（账 141）：测试电脑不在线，或测试电脑还没给出干净的目录。
+    # 只在已受理时出现
+    blocked: Literal["computer_offline", "folder_not_ready"] | None = None
 
     @model_validator(mode="after")
     def _waiting_means_questions(self) -> RunResultV1:
         if (self.status == "waiting") != bool(self.questions):
             raise ValueError("waiting has questions and only waiting has questions")
+        return self
+
+    @model_validator(mode="after")
+    def _blocked_only_before_the_start(self) -> RunResultV1:
+        if self.blocked is not None and self.status != "accepted":
+            raise ValueError("blocked is only for an accepted run that has not started")
         return self
 
     @model_validator(mode="after")

@@ -118,3 +118,31 @@ def test_a_running_result_may_say_how_far_it_got() -> None:
         RunResultV1.model_validate(
             base | {"progress": progress | {"queued_behind": "排在张三的委托后面"}}
         )
+
+
+def test_an_accepted_result_may_say_what_it_waits_for() -> None:
+    """v1 冻结后加的可选字段 blocked（账 141）：已受理还没开跑时，写明在等
+    测试电脑上线，还是等干净的目录；别的状态不许带。"""
+    from pydantic import ValidationError
+
+    from app.domain.knowbots.test_run import RunResultV1
+
+    base = {
+        "contract": "knowbot-test-run/v1",
+        "run_id": "knowlab-run-0001",
+        "status": "accepted",
+    }
+    assert RunResultV1.model_validate(base).blocked is None
+    jsonschema = pytest.importorskip("jsonschema")
+    for reason in ("computer_offline", "folder_not_ready"):
+        got = RunResultV1.model_validate(base | {"blocked": reason})
+        assert got.blocked == reason
+        jsonschema.validate(
+            got.model_dump(mode="json"), _schema("test-run-result.schema.json")
+        )
+    with pytest.raises(ValidationError):
+        RunResultV1.model_validate(base | {"blocked": "sleeping"})
+    with pytest.raises(ValidationError):
+        RunResultV1.model_validate(
+            base | {"status": "running", "blocked": "computer_offline"}
+        )
