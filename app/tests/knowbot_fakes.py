@@ -506,6 +506,9 @@ class MemoryKnowlab:
     async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None:
         return self.datasets.get(dataset_id)
 
+    async def get_dataset_by_item(self, item_id: str) -> DatasetRecord | None:
+        return next((d for d in self.datasets.values() if d.item_id == item_id), None)
+
     async def mark_dataset_deleted(self, dataset_id: uuid.UUID, at: Any) -> None:
         self.datasets[dataset_id] = replace(self.datasets[dataset_id], deleted_at=at)
 

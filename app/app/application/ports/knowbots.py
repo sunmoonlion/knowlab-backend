@@ -393,6 +393,10 @@ class KnowlabRepository(Protocol):
         """这个人没删的数据，新的在前。"""
         ...
 
+    async def get_dataset_by_item(self, item_id: str) -> DatasetRecord | None:
+        """knowbase 那份对应的数据记录（删了的也算）。"""
+        ...
+
     async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None: ...
 
     async def mark_dataset_deleted(
@@ -496,6 +500,13 @@ class KnowledgeBase(Protocol):
 
     async def delete(self, user_token: str, item_id: str) -> None:
         """删一份；已经没有了当删过了。"""
+        ...
+
+    async def items(self, user_token: str) -> list[dict[str, Any]]:
+        """本人 knowlab 分区里的全部资料。
+
+        每份有 item_id、name、media_type、size_bytes、sha256。
+        """
         ...
 
     async def consent(

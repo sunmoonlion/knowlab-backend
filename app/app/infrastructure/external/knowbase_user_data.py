@@ -333,6 +333,12 @@ class KnowbaseKnowledgeBase:
                 ) from None
             raise BadGatewayError("knowbase refused", code="knowbase_refused") from None
 
+    async def items(self, user_token: str) -> list[dict[str, Any]]:
+        try:
+            return await self.client.items(user_token)
+        except KnowbaseRefused:
+            raise BadGatewayError("knowbase refused", code="knowbase_refused") from None
+
     async def consent(
         self, user_token: str, ref: str, items: list[dict[str, str]]
     ) -> str:

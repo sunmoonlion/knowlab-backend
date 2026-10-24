@@ -660,6 +660,14 @@ class SqlKnowlabRepository:
         ).scalars()
         return [_dataset(r) for r in rows]
 
+    async def get_dataset_by_item(self, item_id: str) -> DatasetRecord | None:
+        row = (
+            await self.session.execute(
+                select(KnowbotDataset).where(KnowbotDataset.knowbase_item_id == item_id)
+            )
+        ).scalar_one_or_none()
+        return _dataset(row) if row else None
+
     async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None:
         row = await self.session.get(KnowbotDataset, dataset_id)
         return None if row is None else _dataset(row)

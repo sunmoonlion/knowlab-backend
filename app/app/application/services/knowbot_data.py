@@ -6,6 +6,9 @@ knowlab 分区（配了 knowbase 时）：网页 → 这里凭本人令牌传、
 引文都写 knowlab 的数据编号，所以搬家前后编号对得上、摘要不变。没配 knowbase 时
 照旧放本应用的对象存储。
 
+在 knowmart 买进 knowlab 的资料只落在 knowbase：本人打开知识库页时把 knowlab 分区里有、
+这里没登记的补登记（数据编号按资料编号定，重来不重复；Astra 评审 F04）。
+
 测试同意：本人传、删、打开知识库页时（本人在场），凭本人令牌在 knowbase 更新一条
 「测试」同意依据，范围是他知识库里的全部资料；发起测试时凭它签测试运行授权
 （knowbot_service）。
@@ -48,6 +51,9 @@ UserToken = Callable[[], Awaitable[str]]
 # 测试同意在 knowbase 里的编号写法：一个用户一条，范围是他 knowlab 知识库的全部资料
 CONSENT_REF = "knowlab-kb"
 MAX_CONSENT_ITEMS = 1000  # knowbase 一条同意依据最多这么多份
+# 补登记的数据编号 = uuid5(这个, knowbase 的资料编号)：同一份怎么重来都是同一个编号
+ADOPTED = uuid.UUID("6a689190-6bfb-42f3-bd35-8f8f932a6d60")
+ADOPTABLE = frozenset(kind for kind, _ in datasets.KINDS.values())
 
 
 def _parse(value: str) -> uuid.UUID:
@@ -160,13 +166,19 @@ class KnowbotDataService:
             await self.store.delete(object_key=found.object_key)
 
     async def ensure_consent(self, owner_subject: str, user_token: UserToken) -> None:
-        """本人打开知识库页时：测试同意的范围对不上就更新。
+        """本人打开知识库页时：先补登记 knowbase 里有、这里没有的，再让测试同意跟上。
 
-        搬家后的旧数据靠这一步补上同意。
+        搬家后的旧数据、买来的资料靠这一步补上同意。
 
-        更新不成不挡页面：测试照旧经 knowlab 读，下次再补。
+        不成不挡页面，下次再补。
         """
         if self.knowledge is None:
+            return
+        try:
+            token = await user_token()
+            await self.adopt(owner_subject, token)
+        except AppException as exc:
+            log.warning("knowbase items not caught up code=%s", exc.code)
             return
         items = consent_items(await self.repo.list_datasets(owner_subject))
         current = await self.repo.get_test_consent(owner_subject)
@@ -175,7 +187,42 @@ class KnowbotDataService:
             or (current is not None and current["items_digest"] == items_digest(items))
         ) and not await self.repo.consent_withdrawals(owner_subject):
             return
-        await self._refresh_quietly(owner_subject, await user_token())
+        await self._refresh_quietly(owner_subject, token)
+
+    async def adopt(self, owner_subject: str, token: str) -> int:
+        """knowbase 里本人 knowlab 分区有、这里没登记的补登记，回补了几份。
+
+        在 knowmart 买进 knowlab 的、传进 knowbase 了这里没记上的都在这里收拢。
+        这里认不了的类型不收（两边收的类型一样，只防万一）。删了的不再登记回来。
+        """
+        assert self.knowledge is not None
+        known = {d.item_id for d in await self.repo.list_datasets(owner_subject)}
+        adopted = 0
+        for item in await self.knowledge.items(token):
+            item_id = str(item.get("item_id") or "")
+            media_type = str(item.get("media_type") or "")
+            if not item_id or item_id in known or media_type not in ADOPTABLE:
+                continue
+            async with self.repo.transaction():
+                await self.repo.lock_owner_data(owner_subject)
+                if await self.repo.get_dataset_by_item(item_id) is not None:
+                    continue
+                await self.repo.create_dataset(
+                    DatasetRecord(
+                        id=uuid.uuid5(ADOPTED, item_id),
+                        owner_subject=owner_subject,
+                        name=str(item.get("name") or item_id)[:200],
+                        version=datasets.DATASET_VERSION,
+                        content_type=media_type,
+                        size_bytes=int(item.get("size_bytes") or 0),
+                        sha256=str(item.get("sha256") or ""),
+                        object_key=None,
+                        version_id=None,
+                        item_id=item_id,
+                    )
+                )
+            adopted += 1
+        return adopted
 
     async def import_old(self, limit: int = 50) -> int:
         """把还在本应用对象存储里的旧数据搬进 knowbase。

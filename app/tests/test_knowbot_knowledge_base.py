@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from app.application.errors.exceptions import (
     ServiceUnavailableError,
 )
 from app.application.services.knowbot_data import (
+    ADOPTED,
     CONSENT_REF,
     KnowbotDataService,
     consent_items,
@@ -49,7 +51,7 @@ class FakeKnowledge:
     """
 
     def __init__(self) -> None:
-        self.items: dict[str, bytes] = {}
+        self.stored: dict[str, dict[str, Any]] = {}  # 本人 knowlab 分区里的
         self.deleted: list[str] = []
         self.consents: dict[str, list[dict[str, str]]] = {}
         self.withdrawn: list[str] = []
@@ -63,9 +65,24 @@ class FakeKnowledge:
 
     async def upload(self, user_token: str, name: str, data: bytes) -> dict[str, Any]:
         self.tokens.append(user_token)
-        item_id = f"item-{len(self.items) + 1}"
-        self.items[item_id] = data
-        return {"item_id": item_id, "sha256": hashlib.sha256(data).hexdigest()}
+        item_id = f"item-{len(self.stored) + 1}"
+        return self._keep(item_id, name, data)
+
+    def _keep(self, item_id: str, name: str, data: bytes) -> dict[str, Any]:
+        kind = "application/pdf" if data.startswith(b"%PDF-") else "text/plain"
+        self.stored[item_id] = {
+            "item_id": item_id,
+            "name": name,
+            "media_type": kind,
+            "size_bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        return dict(self.stored[item_id])
+
+    async def items(self, user_token: str) -> list[dict[str, Any]]:
+        return [
+            dict(i) for i in self.stored.values() if i["item_id"] not in self.deleted
+        ]
 
     async def delete(self, user_token: str, item_id: str) -> None:
         held = any(
@@ -113,8 +130,7 @@ class FakeKnowledge:
     ) -> dict[str, Any]:
         self.imported.append(ref)
         item_id = f"imported-{ref.rsplit(':', 1)[-1]}"
-        self.items[item_id] = data
-        return {"item_id": item_id, "sha256": hashlib.sha256(data).hexdigest()}
+        return self._keep(item_id, name, data)
 
 
 async def token() -> str:
@@ -194,6 +210,35 @@ async def test_data_still_read_by_a_grant_keeps_its_place_in_the_consent(parts):
     assert kb.deleted == []
     current = kb.consents[repo.consents[OWNER]["consent_id"]]
     assert [i["item_id"] for i in current] == ["item-1", "item-2"]  # 放回去了
+
+
+async def test_data_bought_into_knowlab_shows_up_and_can_be_tested(parts):
+    """在 knowmart 买进 knowlab 的只落在 knowbase：打开知识库页就补登记，编号稳定，
+    能绑进清单、签测试授权（Astra 评审 F04）。"""
+    data, repo, _, kb = parts
+    kb._keep("bought-1", "买来的年报.pdf", PDF + b"bought")
+    kb._keep("odd-1", "图.png", b"\x89PNG")  # 这里认不了的类型不收
+    await data.ensure_consent(OWNER, token)
+    await data.ensure_consent(OWNER, token)  # 再开一次不重复
+    [found] = (await data.mine(OWNER))[0]
+    assert found.id == uuid.uuid5(ADOPTED, "bought-1") and found.item_id == "bought-1"
+    assert (found.name, found.content_type) == ("买来的年报.pdf", "application/pdf")
+    current = kb.consents[repo.consents[OWNER]["consent_id"]]
+    assert [i["item_id"] for i in current] == ["bought-1"]
+    _, runtime, _ = await _tested(repo, data, kb, bound=[found])
+    grant = runtime.started[0][1].data_grant
+    assert grant is not None and grant.items[0].item_id == "bought-1"
+
+
+async def test_a_knowbase_that_cannot_list_does_not_stop_the_page(parts):
+    data, repo, _, kb = parts
+
+    async def refused(user_token: str) -> list[dict[str, Any]]:
+        raise BadGatewayError("knowbase refused", code="knowbase_refused")
+
+    kb.items = refused  # type: ignore[method-assign]
+    await data.ensure_consent(OWNER, token)
+    assert (await data.mine(OWNER))[0] == []
 
 
 async def test_bound_data_still_cannot_be_deleted(parts):
@@ -368,6 +413,9 @@ class Client:
     async def delete(self, *a: Any, **k: Any) -> Any:
         raise self.refusal
 
+    async def items(self, *a: Any, **k: Any) -> Any:
+        raise self.refusal
+
 
 async def test_knowbase_refusals_become_knowlab_codes() -> None:
     with pytest.raises(BadRequestError) as refused:
@@ -382,6 +430,11 @@ async def test_knowbase_refusals_become_knowlab_codes() -> None:
             "t", "i"
         )  # type: ignore[arg-type]
     assert in_use.value.code == "dataset_in_use"
+    with pytest.raises(BadGatewayError) as listing:
+        await KnowbaseKnowledgeBase(Client(KnowbaseRefused(403, "app_denied"))).items(
+            "t"
+        )  # type: ignore[arg-type]
+    assert listing.value.code == "knowbase_refused"
     # 已经没有了：当删过了
     await KnowbaseKnowledgeBase(Client(KnowbaseRefused(404, "item_not_found"))).delete(
         "t", "i"
