@@ -240,6 +240,25 @@ async def test_a_running_test_reads_the_same_way(world: World) -> None:
     assert read.name == "年报.csv"
 
 
+async def test_a_test_reads_here_only_what_is_not_in_knowbase(world: World) -> None:
+    """测试签了运行授权、或这一份已搬进 knowbase：只能凭授权读（Astra F02）。"""
+    purpose = {"kind": "test", "run_id": "knowlab-run-0002"}
+    world.repo.datasets[world.bound.id] = replace(world.bound, item_id="item-1")
+    with pytest.raises(NotFoundError):
+        await world.reader.read(
+            "knowbench", world.reading(purpose, str(world.bound.id))
+        )
+    # 上架的第 1 版照旧经这里读，搬没搬都一样（SDD 0042 第七节）
+    read = await world.reader.read(
+        "knowbench", world.reading(world.knowbot(), str(world.bound.id))
+    )
+    assert read.name == "年报.csv"
+    world.repo.datasets[world.bound.id] = world.bound
+    await world.repo.update_test(world.test.id, grant_id="grant-1")
+    with pytest.raises(NotFoundError):
+        await world.reader.list("knowbench", world.listing(purpose))
+
+
 @pytest.mark.parametrize(
     "change",
     [

@@ -214,7 +214,7 @@ def test_consent_covers_what_is_in_knowbase_in_a_stable_order() -> None:
 # ---------- 测试读数凭测试运行授权 ----------
 
 
-async def _tested(repo, data, kb, *, bound):  # type: ignore[no-untyped-def]
+async def _tested(repo, data, kb, *, bound, start=True):  # type: ignore[no-untyped-def]
     runtime = FakeRuntime()
     svc = KnowbotCreationService(repo, runtime, knowledge=kb)
     request = await accepted_request(svc)
@@ -223,8 +223,13 @@ async def _tested(repo, data, kb, *, bound):  # type: ignore[no-untyped-def]
     ]
     draft = await svc.add_draft(str(request.id), manifest(data_bindings=binding))
     await svc.review_rules(str(draft.id), "admin-1")
-    await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    if start:
+        await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     return svc, runtime, draft
+
+
+async def _start(svc, draft):  # type: ignore[no-untyped-def]
+    await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
 
 
 async def test_a_test_reads_its_bound_data_under_a_test_grant(parts):
@@ -255,12 +260,44 @@ async def test_without_a_grant_the_test_still_runs_the_old_way(parts):
     assert "data_grant" not in runtime.started[0][1].model_dump(mode="json")
 
 
-async def test_a_refused_grant_does_not_stop_the_test(parts):
+async def test_a_refused_grant_stops_the_test_before_it_runs(parts):
+    """签不出测试运行授权就不开跑，不退回旧读路（Astra 评审 F02）。"""
     data, repo, _, kb = parts
     found = await data.upload(OWNER, "a.pdf", PDF, token)
     kb.refuse_grant = True
-    _, runtime, _ = await _tested(repo, data, kb, bound=[found])
-    assert runtime.started[0][1].data_grant is None
+    svc, runtime, draft = await _tested(repo, data, kb, bound=[found], start=False)
+    with pytest.raises(BadGatewayError) as refused:
+        await _start(svc, draft)
+    assert refused.value.code == "grant_outside_consent"
+    assert runtime.started == []
+    [test] = await repo.list_tests(request_ids=[draft.request_id])
+    assert test.status == "platform_error" and "grant_outside_consent" in test.error
+    again = await repo.get_draft(draft.id)
+    assert again is not None and again.status == "pending_test"  # 可以再测
+
+
+async def test_no_consent_or_half_moved_data_is_refused_up_front(parts):
+    data, repo, store, kb = parts
+    found = await data.upload(OWNER, "a.pdf", PDF, token)
+    svc, runtime, draft = await _tested(repo, data, kb, bound=[found], start=False)
+    await repo.delete_test_consent(OWNER)
+    with pytest.raises(ConcurrencyConflictError) as refused:
+        await _start(svc, draft)
+    assert refused.value.code == "test_consent_missing"
+    old = await KnowbotDataService(repo, store).upload(OWNER, "老.pdf", PDF + b"o")
+    svc, _, mixed = await _tested(repo, data, kb, bound=[found, old], start=False)
+    with pytest.raises(ConcurrencyConflictError) as refused:
+        await _start(svc, mixed)
+    assert refused.value.code == "data_not_imported"
+    assert runtime.started == [] and kb.grants == []
+    for d in (draft, mixed):  # 一次测试也没开
+        assert await repo.list_tests(request_ids=[d.request_id]) == []
+
+
+async def test_a_test_without_bound_data_needs_no_grant(parts):
+    data, repo, _, kb = parts
+    _, runtime, _ = await _tested(repo, data, kb, bound=[])
+    assert runtime.started[0][1].data_grant is None and kb.grants == []
 
 
 # ---------- 适配器：knowbase 的拒绝转成本应用的码 ----------

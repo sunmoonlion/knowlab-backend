@@ -38,6 +38,7 @@ from app.application.errors.exceptions import (
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
+    DatasetRecord,
     DraftRecord,
     ExpertRecord,
     KnowlabRepository,
@@ -447,6 +448,7 @@ class KnowbotCreationService:
                 draft.request_id, draft.request_version
             )
             assert request is not None and version is not None
+            needs = await self._grant_needs(request.owner_subject, draft.manifest)
             test_id = uuid.uuid4()
             run = RunRequestV1.model_validate(
                 {
@@ -475,8 +477,14 @@ class KnowbotCreationService:
                 )
             )
             await self._move(draft, "testing")
-        grant = await self._data_grant(request.owner_subject, run, draft.manifest)
-        if grant is not None:
+        grant = None
+        if needs is not None:
+            try:
+                grant = await self._data_grant(request.owner_subject, run, *needs)
+            except AppException as exc:
+                # 签不出就不开跑（SDD 0042「申请不到不开跑」）：这一次记平台出错
+                await self._end_on_platform(test.id, f"test grant refused: {exc.code}")
+                raise
             run = run.model_copy(update={"data_grant": grant})
             async with self.repo.transaction():
                 await self.repo.update_test(test.id, grant_id=grant.grant_id)
@@ -494,22 +502,20 @@ class KnowbotCreationService:
         assert started is not None
         return started
 
-    async def _data_grant(
-        self, owner_subject: str, run: RunRequestV1, manifest: dict[str, Any]
-    ) -> DataGrant | None:
-        """这次测试读绑定数据的测试运行授权（SDD 0042 第七节）。
+    async def _grant_needs(
+        self, owner_subject: str, manifest: dict[str, Any]
+    ) -> tuple[list[DatasetRecord], dict[str, Any]] | None:
+        """这次测试要不要签测试运行授权（SDD 0042 第七节，Astra 评审 F02）。
 
-        要绑定的每一份都已搬进 knowbase、摘要对得上、有测试同意；有一样不满足就不签，
-        运行方照旧经 knowlab 读（knowbot-data/v1），测试照跑。
+        三种：没绑数据，不签（None）；绑的都还没搬进 knowbase（没有资料编号），照旧经
+        knowlab 读，不签（None，第 1 版停用后这条路撤掉）；有搬进去的，就必须签，回
+        （要读的那几份，测试同意）。缺一样（搬了一半、数据变了、没有测试同意、knowbase
+        没配）就报明原因、不开跑，不退回旧读路。
         """
-        if self.knowledge is None:
-            return None
         raw = manifest.get("data_bindings")
         bindings = (
             [b for b in raw if isinstance(b, dict)] if isinstance(raw, list) else []
         )
-        if not bindings:
-            return None
         records = []
         for binding in bindings:
             try:
@@ -517,35 +523,58 @@ class KnowbotCreationService:
                     uuid.UUID(str(binding.get("dataset_id")))
                 )
             except ValueError:
-                return None
+                found = None
             if (
                 found is None
-                or not found.item_id
                 or found.owner_subject != owner_subject
+                or found.deleted_at is not None
                 or found.sha256 != binding.get("sha256")
             ):
-                return None
+                raise _conflict(
+                    "A bound dataset is gone or changed; incubate again",
+                    "data_binding_stale",
+                )
             records.append(found)
+        imported = [d for d in records if d.item_id]
+        if not imported:
+            return None
+        if len(imported) != len(records):
+            raise _conflict(
+                "Some bound data is not in knowbase yet; run import_datasets first",
+                "data_not_imported",
+            )
+        if self.knowledge is None:
+            raise ServiceUnavailableError(
+                "knowbase is not configured", code="knowbase_unconfigured"
+            )
         consent = await self.repo.get_test_consent(owner_subject)
         if consent is None:
-            return None
+            raise _conflict(
+                "The owner has not consented to testing with this data",
+                "test_consent_missing",
+            )
+        return records, consent
+
+    async def _data_grant(
+        self,
+        owner_subject: str,
+        run: RunRequestV1,
+        records: list[DatasetRecord],
+        consent: dict[str, Any],
+    ) -> DataGrant:
+        """向 knowbase 签这次测试读绑定数据的测试运行授权；拒了、不可达照原样抛出。"""
+        assert self.knowledge is not None
         ttl = min(
             GRANT_MAX_SECONDS,
             run.timeout_seconds + run.max_wait_seconds + GRANT_MARGIN_SECONDS,
         )
-        try:
-            grant_id = await self.knowledge.test_grant(
-                owner=owner_subject,
-                consent_id=consent["consent_id"],
-                ref=run.run_id,
-                items=[
-                    {"item_id": str(d.item_id), "sha256": d.sha256} for d in records
-                ],
-                ttl_seconds=ttl,
-            )
-        except AppException as exc:
-            log.warning("test grant not issued run=%s code=%s", run.run_id, exc.code)
-            return None
+        grant_id = await self.knowledge.test_grant(
+            owner=owner_subject,
+            consent_id=consent["consent_id"],
+            ref=run.run_id,
+            items=[{"item_id": str(d.item_id), "sha256": d.sha256} for d in records],
+            ttl_seconds=ttl,
+        )
         return DataGrant(
             grant_id=grant_id,
             items=tuple(

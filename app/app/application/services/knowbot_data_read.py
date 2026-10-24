@@ -3,7 +3,7 @@
 运行方已经按自己的委托核过一次；这里按 knowlab 自己的记录再核一次，两道都过才给：
 - 调用方必须是这份草稿登记的运行方；
 - 专家：上架了没停用、所有者、knowmart 的专家 id、版本、清单摘要对得上（SDD 0037）；
-  测试：这次测试正在跑；
+  测试：这次测试正在跑、没签测试运行授权，数据还没搬进 knowbase（SDD 0042）；
 - 数据在这一版清单的 data_bindings 里、属于草稿所有者、没删、版本与 sha256 一致。
 不符一律「没有」（404），不说是哪一条没过。
 
@@ -78,10 +78,10 @@ class KnowbotDataReader:
         self.tables = tables
 
     async def list(self, caller: str, request: ListRequestV1) -> ListResultV1:
-        owner, bound = await self._scope(caller, request.purpose)
+        owner, bound, tested = await self._scope(caller, request.purpose)
         found = []
         for dataset_id in bound:
-            record = await self._dataset(owner, bound, dataset_id)
+            record = await self._dataset(owner, bound, dataset_id, tested)
             if record is not None:
                 found.append(
                     DatasetEntry(
@@ -96,8 +96,8 @@ class KnowbotDataReader:
         return ListResultV1(datasets=tuple(found))
 
     async def read(self, caller: str, request: ReadRequestV1) -> ReadResultV1:
-        owner, bound = await self._scope(caller, request.purpose)
-        record = await self._dataset(owner, bound, request.dataset_id)
+        owner, bound, tested = await self._scope(caller, request.purpose)
+        record = await self._dataset(owner, bound, request.dataset_id, tested)
         if record is None:
             raise _missing()
         data = await self._content(record)
@@ -128,8 +128,8 @@ class KnowbotDataReader:
         )
 
     async def table(self, caller: str, request: TableRequestV1) -> TableResultV1:
-        owner, bound = await self._scope(caller, request.purpose)
-        record = await self._dataset(owner, bound, request.dataset_id)
+        owner, bound, tested = await self._scope(caller, request.purpose)
+        record = await self._dataset(owner, bound, request.dataset_id, tested)
         if record is None:
             raise _missing()
         tables = await self._tables(record)
@@ -169,13 +169,13 @@ class KnowbotDataReader:
         )
 
     async def cells(self, caller: str, request: CellsRequestV1) -> CellsResultV1:
-        owner, bound = await self._scope(caller, request.purpose)
+        owner, bound, tested = await self._scope(caller, request.purpose)
         records: dict[str, DatasetRecord] = {}
         loaded: dict[str, Tables] = {}
         for ref in request.cells:
             if ref.dataset_id in records:
                 continue
-            record = await self._dataset(owner, bound, ref.dataset_id)
+            record = await self._dataset(owner, bound, ref.dataset_id, tested)
             if record is None:
                 raise _missing()
             records[ref.dataset_id] = record
@@ -206,14 +206,14 @@ class KnowbotDataReader:
         return CellsResultV1(cells=tuple(found))
 
     async def quotes(self, caller: str, request: QuotesRequestV1) -> QuotesResultV1:
-        owner, bound = await self._scope(caller, request.purpose)
+        owner, bound, tested = await self._scope(caller, request.purpose)
         pages: dict[str, dict[int, str]] = {}
         truncated: set[str] = set()  # 抽取被截断的
         records: dict[str, DatasetRecord] = {}
         for ref in request.quotes:
             if ref.dataset_id in records:
                 continue
-            record = await self._dataset(owner, bound, ref.dataset_id)
+            record = await self._dataset(owner, bound, ref.dataset_id, tested)
             if record is None:
                 raise _missing()
             records[ref.dataset_id] = record
@@ -285,8 +285,13 @@ class KnowbotDataReader:
 
     async def _scope(
         self, caller: str, purpose: KnowbotPurpose | RunPurpose
-    ) -> tuple[str, dict[str, tuple[str, str]]]:
-        """这次能读谁的、哪几份：（草稿所有者，数据 id → （版本，sha256））。"""
+    ) -> tuple[str, dict[str, tuple[str, str]], bool]:
+        """这次能读谁的、哪几份：（所有者，数据 id → （版本，sha256），是不是测试）。
+
+        测试经这里读只给还没搬进 knowbase 的（SDD 0042 第七节「没搬完的」）：
+        这次测试签了测试运行授权、或这一份已经在 knowbase 里，就得凭授权向
+        knowbase 读，这里一律「没有」，授权被拒、撤了就绕不过去（Astra 评审 F02）。
+        """
         if isinstance(purpose, KnowbotPurpose):
             # 上架了、没停用的那版专家（SDD 0037）；摘要要对得上 knowmart 的回执
             expert = await self.repo.find_listed_expert(
@@ -307,13 +312,17 @@ class KnowbotDataReader:
                 raise _missing()
         else:
             test = await self.repo.find_test_by_run(purpose.run_id)
-            if test is None or test.status not in ACTIVE_TESTS:
+            if test is None or test.status not in ACTIVE_TESTS or test.grant_id:
                 raise _missing()
             draft = await self.repo.get_draft(test.draft_id)
             if draft is None:
                 raise _missing()
             request = await self._request(draft, caller)
-        return request.owner_subject, _bindings(draft)
+        return (
+            request.owner_subject,
+            _bindings(draft),
+            not isinstance(purpose, KnowbotPurpose),
+        )
 
     async def _request(self, draft: DraftRecord, caller: str) -> RequestRecord:
         request = await self.repo.get_request(draft.request_id)
@@ -322,7 +331,11 @@ class KnowbotDataReader:
         return request
 
     async def _dataset(
-        self, owner: str, bound: dict[str, tuple[str, str]], dataset_id: str
+        self,
+        owner: str,
+        bound: dict[str, tuple[str, str]],
+        dataset_id: str,
+        tested: bool,
     ) -> DatasetRecord | None:
         if dataset_id not in bound:
             return None
@@ -335,6 +348,7 @@ class KnowbotDataReader:
             or record.owner_subject != owner
             or record.deleted_at is not None
             or (record.version, record.sha256) != bound[dataset_id]
+            or (tested and record.item_id is not None)
         ):
             return None
         return record
