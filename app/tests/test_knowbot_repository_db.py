@@ -26,6 +26,7 @@ from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import ExpertDecisionIn, RevisionIn
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
@@ -35,6 +36,7 @@ from tests.knowbot_fakes import (
     FakeRuntime,
     MemoryDataStore,
     accepted_request,
+    all_clear,
     list_expert,
     manifest,
     request_body,
@@ -309,6 +311,25 @@ async def test_concurrent_starts_leave_one_test_running(db) -> None:
             await session.execute(text("SELECT count(*) FROM knowbot_test"))
         ).scalar()
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_two_acceptances_of_one_version_leave_one_and_a_409(db) -> None:
+    """两个运营同时给同一版写受理单：一张，后到的 409（Kimi 评审第 6 条）。"""
+    async with db() as session:
+        request = await service(session).submit(
+            OWNER, KnowbotRequestIn.model_validate(request_body())
+        )
+
+    async def accept() -> object:
+        async with db() as session:
+            return await service(session).accept(
+                str(request.id), 1, all_clear(), "admin-1"
+            )
+
+    results = await asyncio.gather(accept(), accept(), return_exceptions=True)
+    conflicts = [r for r in results if isinstance(r, ConcurrencyConflictError)]
+    assert len(conflicts) == 1 and conflicts[0].code == "already_decided", results
 
 
 @pytest.mark.asyncio
@@ -805,3 +826,4 @@ async def test_0012_backfills_versions_acceptances_tests_and_experts() -> None:
             assert expert.trial and stage_of(expert) == "listed"
     finally:
         await _drop(engine, schema)
+

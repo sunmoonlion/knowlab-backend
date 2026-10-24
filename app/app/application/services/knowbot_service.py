@@ -257,9 +257,14 @@ class KnowbotCreationService:
     async def accept(
         self, request_id: str, version: int, body: AcceptanceIn, decider: str
     ) -> AcceptanceRecord:
-        """给创意的某一版写受理单。一个版本一张，写了不改。"""
+        """给创意的某一版写受理单。一个版本一张，写了不改。
+
+        先锁这个名称：两个运营同时写同一版，后到的回 409 而不是撞主键（Kimi 评审
+        第 6 条）。
+        """
         rid = parse_id(request_id, "request")
         async with self.repo.transaction():
+            await self.repo.lock_request(rid)
             if await self.repo.get_version(rid, version) is None:
                 raise NotFoundError("No such version", code="version_not_found")
             if await self.repo.get_acceptance(rid, version) is not None:
