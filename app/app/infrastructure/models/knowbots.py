@@ -417,6 +417,21 @@ class KnowbotTestOutput(TimestampMixin, Base):
     )
 
 
+class KnowbotConsentWithdrawal(Base):
+    """换下来、还要在 knowbase 撤的旧测试同意：撤成了才删这一行，撤不成下次再撤。
+
+    knowbase 有没撤的同意含着一份资料就不让删它，旧编号不能丢（Astra 评审 F03）。
+    """
+
+    __tablename__ = "knowbot_consent_withdrawal"
+
+    consent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class KnowbotTestConsent(Base):
     """每个用户一条测试同意（SDD 0042 第七节）：范围是他 knowlab 知识库里的全部资料。"""
 

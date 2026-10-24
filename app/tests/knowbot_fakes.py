@@ -164,6 +164,7 @@ class MemoryKnowlab:
         self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
         self.consents: dict[str, dict[str, str]] = {}
+        self.withdrawals: dict[str, str] = {}  # 待撤的旧同意 → 所有者
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -533,6 +534,15 @@ class MemoryKnowlab:
 
     async def delete_test_consent(self, owner_subject: str) -> None:
         self.consents.pop(owner_subject, None)
+
+    async def add_consent_withdrawal(self, owner_subject: str, consent_id: str) -> None:
+        self.withdrawals.setdefault(consent_id, owner_subject)
+
+    async def consent_withdrawals(self, owner_subject: str) -> list[str]:
+        return [c for c, o in self.withdrawals.items() if o == owner_subject]
+
+    async def drop_consent_withdrawal(self, consent_id: str) -> None:
+        self.withdrawals.pop(consent_id, None)
 
     async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
         """同 SQL：待测、测试中的准专家，或还没走完、没停用的专家绑着。"""

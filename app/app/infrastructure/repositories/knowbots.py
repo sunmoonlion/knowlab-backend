@@ -33,6 +33,7 @@ from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
     KnowbotAcceptance,
     KnowbotAmendment,
+    KnowbotConsentWithdrawal,
     KnowbotDataset,
     KnowbotDraft,
     KnowbotExpert,
@@ -717,6 +718,29 @@ class SqlKnowlabRepository:
 
     async def delete_test_consent(self, owner_subject: str) -> None:
         row = await self.session.get(KnowbotTestConsent, owner_subject)
+        if row is not None:
+            await self.session.delete(row)
+            await self.session.flush()
+
+    async def add_consent_withdrawal(self, owner_subject: str, consent_id: str) -> None:
+        if await self.session.get(KnowbotConsentWithdrawal, consent_id) is None:
+            self.session.add(
+                KnowbotConsentWithdrawal(
+                    consent_id=consent_id, owner_subject=owner_subject
+                )
+            )
+            await self.session.flush()
+
+    async def consent_withdrawals(self, owner_subject: str) -> list[str]:
+        rows = await self.session.execute(
+            select(KnowbotConsentWithdrawal.consent_id)
+            .where(KnowbotConsentWithdrawal.owner_subject == owner_subject)
+            .order_by(KnowbotConsentWithdrawal.created_at)
+        )
+        return list(rows.scalars())
+
+    async def drop_consent_withdrawal(self, consent_id: str) -> None:
+        row = await self.session.get(KnowbotConsentWithdrawal, consent_id)
         if row is not None:
             await self.session.delete(row)
             await self.session.flush()

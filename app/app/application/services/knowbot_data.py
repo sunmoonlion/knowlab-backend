@@ -11,7 +11,10 @@ knowlab 分区（配了 knowbase 时）：网页 → 这里凭本人令牌传、
 （knowbot_service）。
 
 先存资料再记元数据：资料存好了、元数据没记上，只多一份没人引用的资料，不会有指向
-空处的记录。删除先核引用（在做的、已交付的草稿绑着的不能删），再删资料、再记删除。
+空处的记录。删除先核引用（在做的、已交付的草稿绑着的不能删），再把测试同意收窄到不含
+这一份、撤掉旧同意（knowbase 有没撤的同意含着它就不让删），再删资料、再记删除。换下来的
+旧同意记进待撤，撤成了才划掉；撤不成删除就停在这儿报明，下次本人在场时接着撤
+（Astra 评审 F03）。
 """
 
 from __future__ import annotations
@@ -132,29 +135,29 @@ class KnowbotDataService:
         self, owner_subject: str, dataset_id: str, user_token: UserToken | None = None
     ) -> None:
         did = _parse(dataset_id)
-        token = None
         async with self.repo.transaction():
-            await self.repo.lock_owner_data(owner_subject)
-            found = await self.repo.get_dataset(did)
-            if (
-                found is None
-                or found.owner_subject != owner_subject
-                or found.deleted_at is not None
-            ):
-                raise NotFoundError("No such data", code="dataset_not_found")
-            if await self.repo.dataset_in_use(owner_subject, did):
-                raise ConcurrencyConflictError(
-                    "This data is used by a knowbot in progress or delivered",
-                    code="dataset_in_use",
+            found = await self._deletable(owner_subject, did)
+        token = None
+        if found.item_id and self.knowledge is not None:
+            token = await self._token(user_token)
+            if not await self._refresh_consent(owner_subject, token, leaving=did):
+                raise ServiceUnavailableError(
+                    "The old test consent could not be withdrawn yet; try again",
+                    code="consent_not_withdrawn",
                 )
-            if found.item_id and self.knowledge is not None:
-                token = await self._token(user_token)
-                await self.knowledge.delete(token, found.item_id)
-            await self.repo.mark_dataset_deleted(did, self.now())
+        try:
+            async with self.repo.transaction():
+                found = await self._deletable(owner_subject, did)
+                if token is not None and found.item_id:
+                    assert self.knowledge is not None
+                    await self.knowledge.delete(token, found.item_id)
+                await self.repo.mark_dataset_deleted(did, self.now())
+        except AppException:
+            if token is not None:  # 没删成：同意放回这一份
+                await self._refresh_quietly(owner_subject, token)
+            raise
         if found.object_key and self.store.enabled:
             await self.store.delete(object_key=found.object_key)
-        if token is not None:
-            await self._refresh_consent(owner_subject, token)
 
     async def ensure_consent(self, owner_subject: str, user_token: UserToken) -> None:
         """本人打开知识库页时：测试同意的范围对不上就更新。
@@ -167,14 +170,12 @@ class KnowbotDataService:
             return
         items = consent_items(await self.repo.list_datasets(owner_subject))
         current = await self.repo.get_test_consent(owner_subject)
-        if (current is None and not items) or (
-            current is not None and current["items_digest"] == items_digest(items)
-        ):
+        if (
+            (current is None and not items)
+            or (current is not None and current["items_digest"] == items_digest(items))
+        ) and not await self.repo.consent_withdrawals(owner_subject):
             return
-        try:
-            await self._refresh_consent(owner_subject, await user_token())
-        except AppException as exc:
-            log.warning("test consent not refreshed code=%s", exc.code)
+        await self._refresh_quietly(owner_subject, await user_token())
 
     async def import_old(self, limit: int = 50) -> int:
         """把还在本应用对象存储里的旧数据搬进 knowbase。
@@ -264,24 +265,74 @@ class KnowbotDataService:
             )
         return await user_token()
 
-    async def _refresh_consent(self, owner_subject: str, token: str) -> None:
-        """测试同意跟上知识库：立一条新的、记下，再撤旧的（撤不成只记一行）。"""
+    async def _deletable(
+        self, owner_subject: str, dataset_id: uuid.UUID
+    ) -> DatasetRecord:
+        await self.repo.lock_owner_data(owner_subject)
+        found = await self.repo.get_dataset(dataset_id)
+        if (
+            found is None
+            or found.owner_subject != owner_subject
+            or found.deleted_at is not None
+        ):
+            raise NotFoundError("No such data", code="dataset_not_found")
+        if await self.repo.dataset_in_use(owner_subject, dataset_id):
+            raise ConcurrencyConflictError(
+                "This data is used by a knowbot in progress or delivered",
+                code="dataset_in_use",
+            )
+        return found
+
+    async def _refresh_quietly(self, owner_subject: str, token: str) -> None:
+        """跟上测试同意；不成不挡（下次本人在场再补）。"""
+        try:
+            await self._refresh_consent(owner_subject, token)
+        except AppException as exc:
+            log.warning("test consent not refreshed code=%s", exc.code)
+
+    async def _refresh_consent(
+        self, owner_subject: str, token: str, *, leaving: uuid.UUID | None = None
+    ) -> bool:
+        """测试同意跟上知识库：立一条新的、记下，旧的记进待撤，再撤待撤的。
+
+        leaving：要删的那一份，新同意里先不含它。回：待撤的都撤成了没有。
+        """
         assert self.knowledge is not None
-        items = consent_items(await self.repo.list_datasets(owner_subject))
+        records = [
+            d for d in await self.repo.list_datasets(owner_subject) if d.id != leaving
+        ]
+        items = consent_items(records)
         current = await self.repo.get_test_consent(owner_subject)
         digest = items_digest(items)
-        if current is not None and current["items_digest"] == digest:
-            return
-        consent_id = (
-            await self.knowledge.consent(token, CONSENT_REF, items) if items else None
-        )
+        if current is None or current["items_digest"] != digest:
+            consent_id = (
+                await self.knowledge.consent(token, CONSENT_REF, items)
+                if items
+                else None
+            )
+            async with self.repo.transaction():
+                if consent_id is None:
+                    await self.repo.delete_test_consent(owner_subject)
+                else:
+                    await self.repo.put_test_consent(owner_subject, consent_id, digest)
+                if current is not None:
+                    await self.repo.add_consent_withdrawal(
+                        owner_subject, current["consent_id"]
+                    )
+        return await self._withdraw_old(owner_subject, token)
+
+    async def _withdraw_old(self, owner_subject: str, token: str) -> bool:
+        assert self.knowledge is not None
         async with self.repo.transaction():
-            if consent_id is None:
-                await self.repo.delete_test_consent(owner_subject)
-            else:
-                await self.repo.put_test_consent(owner_subject, consent_id, digest)
-        if current is not None:
+            pending = list(await self.repo.consent_withdrawals(owner_subject))
+        done = True
+        for consent_id in pending:
             try:
-                await self.knowledge.withdraw(token, current["consent_id"])
+                await self.knowledge.withdraw(token, consent_id)
             except AppException as exc:
                 log.warning("old test consent not withdrawn code=%s", exc.code)
+                done = False
+                continue
+            async with self.repo.transaction():
+                await self.repo.drop_consent_withdrawal(consent_id)
+        return done

@@ -3,6 +3,7 @@
 - 数据记录加 knowbase 的资料编号；新传的只在 knowbase，没有 knowlab 自己的对象（对象键、版本可空）。
   旧对象留到「财务分析与预测」第 1 版停用（第 1 版运行时照旧经 knowlab 读）。
 - 测试同意：每个用户一条，范围是他 knowlab 知识库里的全部资料；记 knowbase 的同意编号与那时的范围摘要。
+  换下来的旧同意记进待撤，撤成了才划掉（knowbase 有没撤的同意含着一份就不让删它）。
 - 草稿记这次测试的运行授权编号，测试结束撤。
 
 Revision ID: 20261023_0011
@@ -50,9 +51,26 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
+    op.create_table(
+        "knowbot_consent_withdrawal",
+        sa.Column("consent_id", sa.String(64), primary_key=True),
+        sa.Column("owner_subject", sa.String(512), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+    )
+    op.create_index(
+        "ix_knowbot_consent_withdrawal_owner_subject",
+        "knowbot_consent_withdrawal",
+        ["owner_subject"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("knowbot_consent_withdrawal")
     op.drop_table("knowbot_test_consent")
     op.drop_column("knowbot_draft", "run_grant_id")
     op.drop_constraint("ck_knowbot_dataset_somewhere", "knowbot_dataset", type_="check")

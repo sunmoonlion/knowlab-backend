@@ -607,6 +607,16 @@ async def test_the_knowledge_base_moves_into_knowbase(db) -> None:
             "imported-" + str(old.id),
             "item-1",
         ]
+        # 换下来的旧同意记在待撤，撤成了划掉（Astra 评审 F03）
+        assert await repo.consent_withdrawals(OWNER) == []
+        async with repo.transaction():
+            await repo.add_consent_withdrawal(OWNER, "old-1")
+            await repo.add_consent_withdrawal(OWNER, "old-1")
+            await repo.add_consent_withdrawal("someone-else", "old-2")
+        assert await repo.consent_withdrawals(OWNER) == ["old-1"]
+        async with repo.transaction():
+            await repo.drop_consent_withdrawal("old-1")
+        assert await repo.consent_withdrawals(OWNER) == []
     _, draft = await _reviewed(db)
     test = await _start(db, draft)
     async with db() as session:

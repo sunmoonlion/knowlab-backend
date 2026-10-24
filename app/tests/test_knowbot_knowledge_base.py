@@ -15,6 +15,7 @@ from app.application.errors.exceptions import (
     BadGatewayError,
     BadRequestError,
     ConcurrencyConflictError,
+    ServiceUnavailableError,
 )
 from app.application.services.knowbot_data import (
     CONSENT_REF,
@@ -42,7 +43,10 @@ PDF = b"%PDF-1.7\n..."
 
 
 class FakeKnowledge:
-    """knowbase 的替身：记下传了什么、同意与授权。"""
+    """knowbase 的替身：记下传了什么、同意与授权。
+
+    同 knowbase：有没撤的同意含着、或有活动授权读着一份，就不让删它（in_use）。
+    """
 
     def __init__(self) -> None:
         self.items: dict[str, bytes] = {}
@@ -53,6 +57,8 @@ class FakeKnowledge:
         self.revoked: list[str] = []
         self.imported: list[str] = []
         self.refuse_grant = False
+        self.refuse_withdraw = False
+        self.reading: set[str] = set()  # 活动授权读着的
         self.tokens: list[str] = []
 
     async def upload(self, user_token: str, name: str, data: bytes) -> dict[str, Any]:
@@ -62,6 +68,13 @@ class FakeKnowledge:
         return {"item_id": item_id, "sha256": hashlib.sha256(data).hexdigest()}
 
     async def delete(self, user_token: str, item_id: str) -> None:
+        held = any(
+            item_id in {i["item_id"] for i in items}
+            for c, items in self.consents.items()
+            if c not in self.withdrawn
+        )
+        if held or item_id in self.reading:
+            raise ConcurrencyConflictError("in use", code="dataset_in_use")
         self.deleted.append(item_id)
 
     async def consent(
@@ -73,7 +86,10 @@ class FakeKnowledge:
         return consent_id
 
     async def withdraw(self, user_token: str, consent_id: str) -> None:
-        self.withdrawn.append(consent_id)
+        if self.refuse_withdraw:
+            raise BadGatewayError("knowbase refused", code="knowbase_refused")
+        if consent_id not in self.withdrawn:
+            self.withdrawn.append(consent_id)
 
     async def test_grant(self, *, owner, consent_id, ref, items, ttl_seconds) -> str:  # type: ignore[no-untyped-def]
         if self.refuse_grant:
@@ -139,6 +155,45 @@ async def test_opening_the_page_refreshes_a_stale_consent_only(parts):
     repo.consents.pop(OWNER)
     await data.ensure_consent(OWNER, token)
     assert len(kb.consents) == calls + 1
+
+
+async def test_a_failed_withdrawal_stops_the_delete_and_is_retried(parts):
+    """撤旧同意不成：删除停下报明，旧同意记在待撤；再删时接着撤（Astra 评审 F03）。"""
+    data, repo, _, kb = parts
+    found = await data.upload(OWNER, "a.pdf", PDF, token)
+    kb.refuse_withdraw = True
+    with pytest.raises(ServiceUnavailableError) as refused:
+        await data.delete(OWNER, str(found.id), token)
+    assert refused.value.code == "consent_not_withdrawn"
+    assert kb.deleted == [] and repo.withdrawals == {"consent-1": OWNER}
+    assert (await repo.get_dataset(found.id)).deleted_at is None  # type: ignore[union-attr]
+    kb.refuse_withdraw = False
+    await data.delete(OWNER, str(found.id), token)
+    assert kb.deleted == ["item-1"] and kb.withdrawn == ["consent-1"]
+    assert repo.withdrawals == {} and OWNER not in repo.consents
+
+
+async def test_opening_the_page_withdraws_what_is_left(parts):
+    data, repo, _, kb = parts
+    await data.upload(OWNER, "a.pdf", PDF, token)
+    kb.refuse_withdraw = True
+    await data.upload(OWNER, "b.pdf", PDF + b"b", token)
+    assert repo.withdrawals == {"consent-1": OWNER}
+    kb.refuse_withdraw = False
+    await data.ensure_consent(OWNER, token)  # 范围对得上，待撤的照样撤
+    assert kb.withdrawn == ["consent-1"] and repo.withdrawals == {}
+
+
+async def test_data_still_read_by_a_grant_keeps_its_place_in_the_consent(parts):
+    data, repo, _, kb = parts
+    a = await data.upload(OWNER, "a.pdf", PDF, token)
+    await data.upload(OWNER, "b.pdf", PDF + b"b", token)
+    kb.reading.add(str(a.item_id))
+    with pytest.raises(ConcurrencyConflictError):
+        await data.delete(OWNER, str(a.id), token)
+    assert kb.deleted == []
+    current = kb.consents[repo.consents[OWNER]["consent_id"]]
+    assert [i["item_id"] for i in current] == ["item-1", "item-2"]  # 放回去了
 
 
 async def test_bound_data_still_cannot_be_deleted(parts):

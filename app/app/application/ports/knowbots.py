@@ -421,6 +421,18 @@ class KnowlabRepository(Protocol):
 
     async def delete_test_consent(self, owner_subject: str) -> None: ...
 
+    async def add_consent_withdrawal(self, owner_subject: str, consent_id: str) -> None:
+        """记下一条换下来、还要在 knowbase 撤的旧测试同意（Astra 评审 F03）。"""
+        ...
+
+    async def consent_withdrawals(self, owner_subject: str) -> Sequence[str]:
+        """这个人还没撤成的旧测试同意编号。"""
+        ...
+
+    async def drop_consent_withdrawal(self, consent_id: str) -> None:
+        """撤成了，划掉。"""
+        ...
+
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         """用户同意了新一版测试数据说明。"""
         ...
