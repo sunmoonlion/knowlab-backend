@@ -573,3 +573,10 @@ class KnowmartClient(Protocol):
     async def stop(self, *, owner_subject: str, knowbot_id: str, version: str) -> None:
         """停用 knowmart 里的这一版；停过的再停也成功。"""
         ...
+
+    async def set_unlisted(
+        self, *, owner_subject: str, knowbot_ref: str, versions: list[dict[str, str]]
+    ) -> None:
+        """这个创意没上架那几版的结局（[{version, outcome: declined | rejected}]），
+        整份替换（SDD 0037 第三节：knowmart 详情页写明空号那一版）。"""
+        ...

@@ -8,6 +8,9 @@
   公开）/ 不通过与理由。通过即交 knowmart；交付失败记下错误，可重试，不重复交
   （knowmart 按交付单号幂等）。试行期上架的（两道门之前交付）可以补一次审核记录。
 - 停用（用户或管理端）：上架了的才停；先停 knowmart 那一版，停成了才记。
+- 没上架的那几版（用户不要、审核不过）的结局交给 knowmart，详情页写明空号那一版
+  （第三节）：有了这样的结局、或交付成功时把整份名单交过去；交不到只记一行，下一次
+  再交整份。
 """
 
 from __future__ import annotations
@@ -124,6 +127,8 @@ class KnowbotExpertService:
                 user_decided_by=owner_subject,
                 user_decided_at=self.now(),
             )
+        if not body.accept:
+            await self._tell_unlisted(found.request_id)
         return await self._reload(found.id)
 
     # ---------- 运营审核门 ----------
@@ -158,6 +163,8 @@ class KnowbotExpertService:
                 return await self.deliver(str(found.id))
             except AppException:
                 pass  # 错误已记在专家上；审核结论照样留着，等重试
+        elif not body.approved:
+            await self._tell_unlisted(found.request_id)
         return await self._reload(found.id)
 
     async def deliver(self, expert_id: str) -> ExpertRecord:
@@ -192,7 +199,28 @@ class KnowbotExpertService:
                     delivery=delivered,
                     delivery_error=None,
                 )
+        await self._tell_unlisted(found.request_id)
         return await self._reload(found.id)
+
+    async def _tell_unlisted(self, request_id: uuid.UUID) -> None:
+        """把这个名称没上架那几版的结局整份交给 knowmart；交不到只记一行。"""
+        request = await self.repo.get_request(request_id)
+        assert request is not None
+        versions = [
+            {"version": str(e.version), "outcome": stage}
+            for e in await self.repo.list_experts([request_id])
+            if (stage := stage_of(e)) in ("declined", "rejected")
+        ]
+        try:
+            await self.knowmart.set_unlisted(
+                owner_subject=request.owner_subject,
+                knowbot_ref=f"knowlab-{request.id}",
+                versions=versions,
+            )
+        except AppException as exc:
+            log.warning(
+                "unlisted versions not sent request=%s code=%s", request_id, exc.code
+            )
 
     # ---------- 停用 ----------
     async def stop(

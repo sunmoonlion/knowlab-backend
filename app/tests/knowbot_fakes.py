@@ -654,6 +654,7 @@ class FakeKnowmart:
     def __init__(self) -> None:
         self.delivered: list[dict[str, Any]] = []
         self.stopped: list[dict[str, Any]] = []
+        self.unlisted: list[dict[str, Any]] = []
         self.fail = False
 
     async def deliver(self, **body: Any) -> dict[str, Any]:
@@ -673,6 +674,11 @@ class FakeKnowmart:
         if self.fail:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
         self.stopped.append(body)
+
+    async def set_unlisted(self, **body: Any) -> None:
+        if self.fail:
+            raise ServiceUnavailableError("down", code="knowmart_unavailable")
+        self.unlisted.append(body)
 
 
 class MemoryDataStore:

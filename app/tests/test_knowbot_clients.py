@@ -264,7 +264,7 @@ async def test_knowmart_public_request_and_stop() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        if request.url.path.endswith("/stop"):
+        if request.url.path.endswith(("/stop", "/unlisted")):
             return httpx.Response(204)
         return httpx.Response(
             201,
@@ -296,6 +296,18 @@ async def test_knowmart_public_request_and_stop() -> None:
     )
     assert "request_public" not in json.loads(seen[1].content)  # 自用不带这一栏
     await client.stop(owner_subject="user-123", knowbot_id="kb-1", version="2")
+    await client.set_unlisted(
+        owner_subject="user-123",
+        knowbot_ref="knowlab-r1",
+        versions=[{"version": "1", "outcome": "declined"}],
+    )
+    assert (seen[3].method, seen[3].url.path) == (
+        "PUT",
+        "/api/internal/v1/knowmart/owners/user-123/sources/knowlab-r1/unlisted",
+    )
+    assert json.loads(seen[3].content) == {
+        "versions": [{"version": "1", "outcome": "declined"}]
+    }
     assert seen[2].method == "POST"
     assert seen[2].url.path.endswith(
         "/api/internal/v1/knowmart/owners/user-123/knowbots/kb-1/versions/2/stop"

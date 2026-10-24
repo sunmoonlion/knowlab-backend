@@ -198,3 +198,23 @@ async def test_a_trial_expert_gets_a_review_record_without_delivery(parts):
     assert knowmart.delivered == []
     with pytest.raises(ConcurrencyConflictError):  # 补一次就够
         await experts.review(str(expert.id), SELF, "ops-1")
+
+
+@pytest.mark.asyncio
+async def test_knowmart_learns_what_became_of_versions_never_listed(parts):
+    """SDD 0037 第三节：knowmart 详情页写明空号那一版——不要、审核不过时交整份名单。"""
+    creation, experts, repo, runtime, knowmart = parts
+    request, expert = await passed_expert(creation, runtime)
+    await experts.return_to_user(str(expert.id), "ops-1")
+    knowmart.fail = True  # 交不到不挡用户的决定
+    declined = await experts.decide(
+        OWNER, str(expert.id), ExpertDecisionIn(accept=False)
+    )
+    assert stage_of(declined) == "declined" and knowmart.unlisted == []
+    knowmart.fail = False
+    await experts._tell_unlisted(request.id)
+    assert knowmart.unlisted[-1] == {
+        "owner_subject": OWNER,
+        "knowbot_ref": f"knowlab-{request.id}",
+        "versions": [{"version": "1", "outcome": "declined"}],
+    }

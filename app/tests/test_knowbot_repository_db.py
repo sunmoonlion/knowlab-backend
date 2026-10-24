@@ -445,10 +445,11 @@ async def test_old_amendments_on_the_real_database(db) -> None:
     async with db() as session:
         svc = service(session)
         views = await svc.amendments(request.id, [])
-        assert [(a.text, status) for a, status, _ in views] == [
-            ("第 6 步改成对照", "declined"),
-            ("第 7 步多一种", "open"),
-        ]
+        # 同一个事务里写的两条，提交时间一样：不按先后比
+        assert {a.text: status for a, status, _ in views} == {
+            "第 6 步改成对照": "declined",
+            "第 7 步多一种": "open",
+        }
     for bad in (
         "UPDATE knowbot_amendment SET text = ''",
         "UPDATE knowbot_amendment SET declined_reason = NULL"
