@@ -247,6 +247,8 @@ class KnowbotExpert(Base):
     stopped_by: Mapped[str | None] = mapped_column(String(512))
     stop_reason: Mapped[str | None] = mapped_column(Text)
     trial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # 没上架的结局送到 knowmart 的时刻；空着就是还要送（定时补发，Astra 评审 F08）
+    unlisted_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("request_id", "version", name="uq_knowbot_expert_version"),

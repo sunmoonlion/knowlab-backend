@@ -186,6 +186,8 @@ def upgrade() -> None:
         sa.Column("stopped_by", sa.String(512)),
         sa.Column("stop_reason", sa.Text()),
         sa.Column("trial", sa.Boolean(), nullable=False, server_default="false"),
+        # 没上架的结局送到 knowmart 的时刻；空着就是还要送（定时补发，Astra 评审 F08）
+        sa.Column("unlisted_sent_at", sa.DateTime(timezone=True)),
         sa.UniqueConstraint("request_id", "version", name="uq_knowbot_expert_version"),
         sa.UniqueConstraint("draft_id", name="uq_knowbot_expert_draft"),
         sa.CheckConstraint("version >= 1", name="ck_knowbot_expert_version_positive"),

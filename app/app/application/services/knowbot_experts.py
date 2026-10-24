@@ -203,24 +203,43 @@ class KnowbotExpertService:
         return await self._reload(found.id)
 
     async def _tell_unlisted(self, request_id: uuid.UUID) -> None:
-        """把这个名称没上架那几版的结局整份交给 knowmart；交不到只记一行。"""
-        request = await self.repo.get_request(request_id)
+        """把这个名称没上架、结局还没送到的那几版逐条交给 knowmart（Astra 评审 F08）。
+
+        按版本送，结局是终态，重发、乱序都无害；送到一条记一条，交不到的留着，由
+        定时任务 resend_unlisted 补发。
+        """
+        for expert in await self.repo.list_experts([request_id]):
+            if expert.unlisted_sent_at is None:
+                await self._send_unlisted(expert)
+
+    async def resend_unlisted(self, limit: int = 100) -> int:
+        """定时补发：没上架、结局还没送到 knowmart 的，逐条再送；回送到了几条。"""
+        sent = 0
+        for expert in await self.repo.experts_unlisted_unsent(limit):
+            sent += await self._send_unlisted(expert)
+        return sent
+
+    async def _send_unlisted(self, expert: ExpertRecord) -> bool:
+        outcome = stage_of(expert)
+        if outcome not in ("declined", "rejected"):
+            return False
+        request = await self.repo.get_request(expert.request_id)
         assert request is not None
-        versions = [
-            {"version": str(e.version), "outcome": stage}
-            for e in await self.repo.list_experts([request_id])
-            if (stage := stage_of(e)) in ("declined", "rejected")
-        ]
         try:
             await self.knowmart.set_unlisted(
                 owner_subject=request.owner_subject,
                 knowbot_ref=f"knowlab-{request.id}",
-                versions=versions,
+                version=str(expert.version),
+                outcome=outcome,
             )
         except AppException as exc:
             log.warning(
-                "unlisted versions not sent request=%s code=%s", request_id, exc.code
+                "unlisted outcome not sent expert=%s code=%s", expert.id, exc.code
             )
+            return False
+        async with self.repo.transaction():
+            await self.repo.update_expert(expert.id, unlisted_sent_at=self.now())
+        return True
 
     # ---------- 停用 ----------
     async def stop(

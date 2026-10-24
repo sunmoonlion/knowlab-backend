@@ -130,6 +130,7 @@ class ExpertRecord:
     stopped_by: str | None = None
     stop_reason: str | None = None
     trial: bool = False
+    unlisted_sent_at: datetime | None = None  # 没上架的结局送到 knowmart 的时刻
 
 
 @dataclass(frozen=True)
@@ -334,6 +335,10 @@ class KnowlabRepository(Protocol):
         self, request_ids: Collection[uuid.UUID] | None = None
     ) -> Sequence[ExpertRecord]:
         """按创意、版本号排。"""
+        ...
+
+    async def experts_unlisted_unsent(self, limit: int = 100) -> Sequence[ExpertRecord]:
+        """没上架（用户不要 / 审核没过）、结局还没送到 knowmart 的专家。"""
         ...
 
     async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None: ...
@@ -598,8 +603,8 @@ class KnowmartClient(Protocol):
         ...
 
     async def set_unlisted(
-        self, *, owner_subject: str, knowbot_ref: str, versions: list[dict[str, str]]
+        self, *, owner_subject: str, knowbot_ref: str, version: str, outcome: str
     ) -> None:
-        """这个创意没上架那几版的结局（[{version, outcome: declined | rejected}]），
-        整份替换（SDD 0037 第三节：knowmart 详情页写明空号那一版）。"""
+        """这个创意没上架的那一版的结局（declined | rejected），按版本逐条写、重发无害
+        （SDD 0037 第三节：knowmart 详情页写明空号那一版）。"""
         ...

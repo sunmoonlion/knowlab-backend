@@ -202,7 +202,8 @@ async def test_a_trial_expert_gets_a_review_record_without_delivery(parts):
 
 @pytest.mark.asyncio
 async def test_knowmart_learns_what_became_of_versions_never_listed(parts):
-    """SDD 0037 第三节：knowmart 详情页写明空号那一版——不要、审核不过时交整份名单。"""
+    """SDD 0037 第三节：knowmart 详情页写明空号那一版——不要、审核不过时逐条交结局；
+    交不到的记着，定时补发，送到为止（Astra 评审 F08）。"""
     creation, experts, repo, runtime, knowmart = parts
     request, expert = await passed_expert(creation, runtime)
     await experts.return_to_user(str(expert.id), "ops-1")
@@ -211,10 +212,18 @@ async def test_knowmart_learns_what_became_of_versions_never_listed(parts):
         OWNER, str(expert.id), ExpertDecisionIn(accept=False)
     )
     assert stage_of(declined) == "declined" and knowmart.unlisted == []
+    assert declined.unlisted_sent_at is None  # 还要送
+    assert await experts.resend_unlisted() == 0  # 还是送不到
     knowmart.fail = False
-    await experts._tell_unlisted(request.id)
-    assert knowmart.unlisted[-1] == {
-        "owner_subject": OWNER,
-        "knowbot_ref": f"knowlab-{request.id}",
-        "versions": [{"version": "1", "outcome": "declined"}],
-    }
+    assert await experts.resend_unlisted() == 1
+    assert knowmart.unlisted == [
+        {
+            "owner_subject": OWNER,
+            "knowbot_ref": f"knowlab-{request.id}",
+            "version": "1",
+            "outcome": "declined",
+        }
+    ]
+    sent = await repo.get_expert(expert.id)
+    assert sent is not None and sent.unlisted_sent_at is not None
+    assert await experts.resend_unlisted() == 0  # 送到的不再送

@@ -397,6 +397,17 @@ class MemoryKnowlab:
     async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None:
         self.experts[expert_id] = replace(self.experts[expert_id], **changes)
 
+    async def experts_unlisted_unsent(self, limit: int = 100) -> Sequence[ExpertRecord]:
+        """同 SQL：没上架、用户不要或审核没过、还没送。"""
+        found = [
+            e
+            for e in self.experts.values()
+            if e.unlisted_sent_at is None
+            and e.listed_at is None
+            and (e.user_accepted is False or e.review_approved is False)
+        ]
+        return sorted(found, key=lambda e: (e.created_at, str(e.id)))[:limit]
+
     async def find_listed_expert(
         self, knowbot_id: str, version: str
     ) -> ExpertRecord | None:

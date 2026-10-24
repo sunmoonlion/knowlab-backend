@@ -70,6 +70,7 @@ EXPERT_FIELDS = frozenset(
         "stopped_at",
         "stopped_by",
         "stop_reason",
+        "unlisted_sent_at",
     }
 )
 
@@ -592,6 +593,24 @@ class SqlKnowlabRepository:
             query = query.where(KnowbotExpert.request_id.in_(request_ids))
         rows = (
             await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_expert(r) for r in rows]
+
+    async def experts_unlisted_unsent(self, limit: int = 100) -> Sequence[ExpertRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotExpert)
+                .where(
+                    KnowbotExpert.unlisted_sent_at.is_(None),
+                    KnowbotExpert.listed_at.is_(None),
+                    or_(
+                        KnowbotExpert.user_accepted.is_(False),
+                        KnowbotExpert.review_approved.is_(False),
+                    ),
+                )
+                .order_by(KnowbotExpert.created_at, KnowbotExpert.id)
+                .limit(limit)
+            )
         ).scalars()
         return [_expert(r) for r in rows]
 

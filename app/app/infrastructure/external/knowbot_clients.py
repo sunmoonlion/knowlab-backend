@@ -197,11 +197,12 @@ class KnowmartDeliveryClient:
         )
 
     async def set_unlisted(
-        self, *, owner_subject: str, knowbot_ref: str, versions: list[dict[str, str]]
+        self, *, owner_subject: str, knowbot_ref: str, version: str, outcome: str
     ) -> None:
         owner, ref = quote(owner_subject, safe=""), quote(knowbot_ref, safe="")
+        number = quote(version, safe="")
         await self._service().request(
             "PUT",
-            f"/owners/{owner}/sources/{ref}/unlisted",
-            json={"versions": versions},
+            f"/owners/{owner}/sources/{ref}/unlisted/{number}",
+            json={"outcome": outcome},
         )

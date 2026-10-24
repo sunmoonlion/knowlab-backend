@@ -173,6 +173,38 @@ async def test_the_whole_life_round_trips(db) -> None:
 
 
 @pytest.mark.asyncio
+async def test_declined_outcomes_wait_until_knowmart_has_them(db) -> None:
+    """用户不要的那一版：结局没送到 knowmart 就待补发，送到了就不在（Astra F08）。"""
+    request, draft = await _reviewed(db)
+    test = await _start(db, draft)
+    RUNTIME.results[test.run_id] = result(test.run_id, "passed")
+    async with db() as session:
+        await service(session).refresh(str(test.id))
+    async with db() as session:
+        [expert] = await SqlKnowlabRepository(session).list_experts([request.id])
+    async with db() as session:
+        await experts(session).return_to_user(str(expert.id), "admin-1")
+    KNOWMART.fail = True
+    try:
+        async with db() as session:
+            await experts(session).decide(
+                OWNER, str(expert.id), ExpertDecisionIn(accept=False)
+            )
+        async with db() as session:
+            unsent = await SqlKnowlabRepository(session).experts_unlisted_unsent()
+            assert [e.id for e in unsent] == [expert.id]
+    finally:
+        KNOWMART.fail = False
+    async with db() as session:
+        assert await experts(session).resend_unlisted() == 1
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        assert await repo.experts_unlisted_unsent() == []
+        sent = await repo.get_expert(expert.id)
+        assert sent is not None and sent.unlisted_sent_at is not None
+
+
+@pytest.mark.asyncio
 async def test_revising_keeps_old_versions_and_points_the_name_at_the_new_one(
     db,
 ) -> None:
