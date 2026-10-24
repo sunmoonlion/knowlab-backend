@@ -827,3 +827,28 @@ async def test_0012_backfills_versions_acceptances_tests_and_experts() -> None:
     finally:
         await _drop(engine, schema)
 
+
+@pytest.mark.asyncio
+async def test_0012_stops_and_names_the_rows_its_backfill_cannot_take() -> None:
+    """回填依赖的旧规矩在数据上不成立：停下、列出是哪几行（Kimi 评审第 2 条）。"""
+    engine, schema = await _schema("20261023_0011_knowbase_items")
+    try:
+        factory = make_session_factory(engine)
+        async with factory() as session, session.begin():
+            ids = await _old_rows(session)
+            await session.execute(
+                text("UPDATE knowbot_draft SET version = '1.0' WHERE id = :d"),
+                {"d": ids["d2"]},
+            )
+        path = ROOT / "alembic/versions/20261024_0012_knowbot_lifecycle.py"
+        with pytest.raises(RuntimeError, match="not a whole number") as stopped:
+            async with engine.begin() as c:
+                await c.run_sync(lambda conn: _run(conn, [path]))
+        assert str(ids["d2"]) in str(stopped.value)
+        async with factory() as session:  # 什么都没动
+            found = await session.execute(
+                text("SELECT to_regclass('knowbot_test') IS NULL")
+            )
+            assert found.scalar() is True
+    finally:
+        await _drop(engine, schema)

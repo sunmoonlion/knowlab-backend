@@ -7,7 +7,10 @@
   以后另记（case_answers），版本只插不改。
 - 受理单：每个 v1 回填「受理（试行期自动受理）」。
 - 准专家：加出自创意第几版（回填 1）与请用户审核。
-- 测试：每个测过的准专家回填一次测试（编号按开跑时间排，状态按准专家与报告：测试中的按
+- 先核回填依赖的旧规矩（Kimi 评审第 2 条）：通过、已交付的准专家版本号是整数、同一创意里
+  不重号，同一创意至多一个测试中的；不成立就停下、列出是哪几行，不半途撞约束。
+- 测试：每个测过的准专家回填一次测试（编号按开跑时间排，同时刻再按建立时间、修订号、编号，
+  结果确定（Qwen 评审 Q-01）；状态按准专家与报告：测试中的按
   报告是排队 / 进行中 / 等用户答；通过、已交付的是通过；没通过的是没通过；退回待测试的是
   平台出错）。之前被盖掉的几次找不回。
 - 专家：测试通过、已交付的准专家回填专家，版本号就是准专家的版本号。已交付的标试行期、
@@ -44,7 +47,41 @@ def _now() -> sa.sql.elements.TextClause:
     return sa.text("now()")
 
 
+PREFLIGHT = (
+    (
+        "a passed or delivered draft has a version that is not a whole number",
+        """SELECT id, version FROM knowbot_draft
+           WHERE status IN ('passed', 'delivered') AND version !~ '^[0-9]+$'""",
+    ),
+    (
+        "two passed or delivered drafts of one request share a version",
+        """SELECT request_id, version, count(*) FROM knowbot_draft
+           WHERE status IN ('passed', 'delivered')
+           GROUP BY request_id, version HAVING count(*) > 1""",
+    ),
+    (
+        "a request has more than one draft in testing",
+        """SELECT request_id, count(*) FROM knowbot_draft
+           WHERE status = 'testing' AND run_id IS NOT NULL
+           GROUP BY request_id HAVING count(*) > 1""",
+    ),
+)
+
+
+def _preflight() -> None:
+    """回填依赖的旧规矩在现网数据上成立才往下走；不成立列出是哪几行。"""
+    bind = op.get_bind()
+    problems = []
+    for what, query in PREFLIGHT:
+        rows = bind.execute(sa.text(query)).fetchall()
+        if rows:
+            problems.append(f"{what}: {[tuple(r) for r in rows[:20]]}")
+    if problems:
+        raise RuntimeError("0012 cannot backfill: " + "; ".join(problems))
+
+
 def upgrade() -> None:
+    _preflight()
     op.add_column(
         "knowbot_request",
         sa.Column("latest_version", sa.Integer(), nullable=False, server_default="1"),
@@ -251,7 +288,8 @@ def _backfill() -> None:
            SELECT gen_random_uuid(), d.request_id,
              row_number() OVER (
                PARTITION BY d.request_id
-               ORDER BY coalesce(d.run_started_at, d.updated_at), d.revision),
+               ORDER BY coalesce(d.run_started_at, d.updated_at), d.created_at,
+                        d.revision, d.id),
              d.id,
              CASE
                WHEN d.status = 'testing' THEN
