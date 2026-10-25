@@ -293,6 +293,8 @@ class KnowbotDataset(TimestampMixin, Base):
     version_id: Mapped[str | None] = mapped_column(String(256))
     # knowbase 里 knowlab 分区的那份（SDD 0042 第七节）
     knowbase_item_id: Mapped[str | None] = mapped_column(String(64))
+    # 在 knowmart 买来、卖家写明不许转卖的（Fable 评审 P2-16）
+    no_resale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (

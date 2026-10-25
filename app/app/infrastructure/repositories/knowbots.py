@@ -177,6 +177,7 @@ def _dataset(row: KnowbotDataset) -> DatasetRecord:
         created_at=row.created_at,
         deleted_at=row.deleted_at,
         item_id=row.knowbase_item_id,
+        no_resale=row.no_resale,
     )
 
 
@@ -660,6 +661,7 @@ class SqlKnowlabRepository:
             object_key=record.object_key,
             version_id=record.version_id,
             knowbase_item_id=record.item_id,
+            no_resale=record.no_resale,
         )
         self.session.add(row)
         await self.session.flush()

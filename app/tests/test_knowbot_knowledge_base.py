@@ -219,12 +219,14 @@ async def test_data_bought_into_knowlab_shows_up_and_can_be_tested(parts):
     能绑进清单、签测试授权（Astra 评审 F04）。"""
     data, repo, _, kb = parts
     kb._keep("bought-1", "买来的年报.pdf", PDF + b"bought")
+    kb.stored["bought-1"]["no_resale"] = True  # 卖家写明不许转卖（Fable P2-16）
     kb._keep("odd-1", "图.png", b"\x89PNG")  # 这里认不了的类型不收
     await data.ensure_consent(OWNER, token)
     await data.ensure_consent(OWNER, token)  # 再开一次不重复
     [found] = (await data.mine(OWNER))[0]
     assert found.id == uuid.uuid5(ADOPTED, "bought-1") and found.item_id == "bought-1"
     assert (found.name, found.content_type) == ("买来的年报.pdf", "application/pdf")
+    assert found.no_resale
     current = kb.consents[repo.consents[OWNER]["consent_id"]]
     assert [i["item_id"] for i in current] == ["bought-1"]
     _, runtime, _ = await _tested(repo, data, kb, bound=[found])

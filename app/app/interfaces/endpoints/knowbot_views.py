@@ -261,6 +261,7 @@ def dataset_view(found: DatasetRecord) -> dict[str, Any]:
         "size_bytes": found.size_bytes,
         "sha256": found.sha256,
         "created_at": iso(found.created_at),
+        "no_resale": found.no_resale,
     }
 
 

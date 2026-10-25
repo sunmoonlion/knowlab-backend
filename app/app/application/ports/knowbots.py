@@ -149,6 +149,7 @@ class DatasetRecord:
     deleted_at: datetime | None = None
     # knowbase 里 knowlab 分区的那份（SDD 0042 第七节）
     item_id: str | None = None
+    no_resale: bool = False  # 在 knowmart 买来、不许转卖的（Fable 评审 P2-16）
 
 
 @dataclass(frozen=True)

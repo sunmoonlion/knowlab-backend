@@ -225,6 +225,7 @@ class KnowbotDataService:
                         object_key=None,
                         version_id=None,
                         item_id=item_id,
+                        no_resale=item.get("no_resale") is True,
                     )
                 )
             adopted += 1

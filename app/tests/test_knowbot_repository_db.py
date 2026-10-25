@@ -673,6 +673,7 @@ async def test_the_knowledge_base_moves_into_knowbase(db) -> None:
         # 按 knowbase 的资料编号找回数据记录（补登记买来的用，Astra 评审 F04）
         by_item = await repo.get_dataset_by_item("item-1")
         assert by_item is not None and by_item.id == new.id
+        assert by_item.no_resale is False
         assert await repo.get_dataset_by_item("no-such-item") is None
     _, draft = await _reviewed(db)
     test = await _start(db, draft)

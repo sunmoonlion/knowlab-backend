@@ -24,6 +24,11 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column("knowbot_dataset", sa.Column("knowbase_item_id", sa.String(64)))
+    # 在 knowmart 买来、卖家写明不许转卖的（补登记时照 knowbase 记下，Fable 评审 P2-16）
+    op.add_column(
+        "knowbot_dataset",
+        sa.Column("no_resale", sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
     op.create_index(
         "uq_knowbot_dataset_knowbase_item",
         "knowbot_dataset",
@@ -77,4 +82,5 @@ def downgrade() -> None:
     op.alter_column("knowbot_dataset", "version_id", nullable=False)
     op.alter_column("knowbot_dataset", "object_key", nullable=False)
     op.drop_index("uq_knowbot_dataset_knowbase_item", table_name="knowbot_dataset")
+    op.drop_column("knowbot_dataset", "no_resale")
     op.drop_column("knowbot_dataset", "knowbase_item_id")
