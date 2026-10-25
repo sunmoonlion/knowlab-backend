@@ -33,6 +33,7 @@ from app.application.ports.knowbots import (
     RuntimeTestClient,
     TestRecord,
 )
+from app.domain.knowbots.drafts import case_question_digest
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.domain.knowbots.test_run import CONTRACT, Answer, AnswersV1
 
@@ -238,21 +239,47 @@ class KnowbotQuestionService:
             )
             # 只有用户答的才算他确认过：运营答的不记，重测还会问
             if by == "user" and question.kind == "ask_before" and question.key:
-                await self._remember(request, question, answer)
+                await self._remember(request, draft, question, answer)
         await self._send(question.run_id, request, [question.id])
         found = await self.repo.get_question(question.id)
         assert found is not None
         return found
 
     async def _remember(
-        self, request: RequestRecord, question: QuestionRecord, answer: dict[str, Any]
+        self,
+        request: RequestRecord,
+        draft: DraftRecord,
+        question: QuestionRecord,
+        answer: dict[str, Any],
     ) -> None:
-        """开步前的提问记进这个创意答过的开步前提问：开跑时并进用例，重测不再问。"""
+        """开步前的提问记进这个创意答过的开步前提问：开跑时并进用例，重测不再问。
+
+        按用例编号记，连同那条用例当时问的是哪一句（摘要）：以后编号换了位置、问题改了字，
+        旧答案就不套上去（Fable 评审 P1-6）。先锁名称再读再写，两问同时答不丢一个。
+        """
         value = answer.get("option_id") or answer.get("text")
         if not value or not question.key:
             return
-        answers = copy.deepcopy(request.case_answers)
-        answers.setdefault(question.case_id, {})[question.key] = value
+        version = await self.repo.get_version(request.id, draft.request_version)
+        case = next(
+            (
+                c
+                for c in (version.cases if version else [])
+                if str(c.get("case_id")) == question.case_id
+            ),
+            None,
+        )
+        if case is None:
+            return
+        digest = case_question_digest(case)
+        await self.repo.lock_request(request.id)
+        fresh = await self.repo.get_request(request.id)
+        answers = copy.deepcopy(fresh.case_answers if fresh else {})
+        entry = answers.get(question.case_id)
+        if not isinstance(entry, dict) or entry.get("question") != digest:
+            entry = {"question": digest, "answers": {}}
+        entry["answers"][question.key] = value
+        answers[question.case_id] = entry
         await self.repo.set_case_answers(request.id, answers)
 
     async def _send(

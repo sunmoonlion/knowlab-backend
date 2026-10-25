@@ -17,7 +17,11 @@ from app.application.errors.exceptions import (
     NotFoundError,
 )
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
-from app.application.services.knowbot_service import KnowbotCreationService
+from app.application.services.knowbot_service import (
+    KnowbotCreationService,
+    cases_for_test,
+)
+from app.domain.knowbots.drafts import case_question_digest
 from app.domain.knowbots.test_run import CONTRACT, Answer, RunResultV1
 from tests.knowbot_fakes import (
     OWNER,
@@ -120,7 +124,10 @@ async def test_user_answers_to_ask_before_are_remembered_for_retests(testing) ->
         await asks.answer_as_user(OWNER, scope, AnswerIn(option_id="9y"))
     await asks.answer_as_user(OWNER, scope, AnswerIn(option_id="3y"))
     request = repo.requests[draft.request_id]
-    assert request.case_answers == {"c1": {"period": "3y"}}
+    asked = case_question_digest({"input": {"question": "分析 2025 年报"}})
+    assert request.case_answers == {
+        "c1": {"question": asked, "answers": {"period": "3y"}}
+    }
     # 创意版本只插不改：答案另记，重测时并进用例，不再问
     assert not repo.versions[(request.id, 1)].cases[0]["input"].get("answers")
     runtime.results[run.run_id] = result(run.run_id, "error")
@@ -213,3 +220,22 @@ def test_the_contract_ties_waiting_to_questions() -> None:
     with pytest.raises(ValidationError):
         Answer(question_id="q", decision="approve", text="x", answered_by="operator")
     Answer(question_id="q", option_id="other", text="自己写的", answered_by="user")
+
+
+def test_remembered_answers_go_back_only_to_the_same_question() -> None:
+    """改创意后编号换了位置、问题改了字：旧答案不当成用户确认过（Fable 评审 P1-6）。"""
+    before = {"case_id": "c1", "input": {"question": "分析 2025 年报"}}
+    answers = {
+        "c1": {"question": case_question_digest(before), "answers": {"period": "3y"}}
+    }
+    [same] = cases_for_test([before], answers)
+    assert same["input"]["answers"] == {"period": "3y"}
+    moved = {"case_id": "c1", "input": {"question": "毛利率按哪个口径"}}
+    [other] = cases_for_test([moved], answers)
+    assert "answers" not in other["input"]  # 这一问照样问用户
+    written = {
+        "case_id": "c1",
+        "input": {"question": "分析 2025 年报", "answers": {"period": "5y"}},
+    }
+    [kept] = cases_for_test([written], answers)
+    assert kept["input"]["answers"] == {"period": "5y"}  # 用例自己写了的不覆盖

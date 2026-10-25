@@ -413,7 +413,7 @@ async def test_questions_are_stored_once_and_routes_respect_their_kind(db) -> No
     async with db() as session:
         repo = SqlKnowlabRepository(session)
         stored = await repo.get_request(request.id)
-        assert stored and stored.case_answers == {"c1": {"period": "3y"}}
+        assert stored and stored.case_answers["c1"]["answers"] == {"period": "3y"}
         judge = next(
             q
             for q in await repo.list_questions(draft_id=draft.id, open_only=True)

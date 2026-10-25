@@ -58,6 +58,7 @@ from app.domain.knowbots.drafts import (
     amendment_refs,
     amendment_status,
     can_move,
+    case_question_digest,
     draft_manifest_problems,
 )
 from app.domain.knowbots.lifecycle import (
@@ -107,14 +108,21 @@ def parse_id(value: str | uuid.UUID, kind: str = "draft") -> uuid.UUID:
 def cases_for_test(
     cases: list[dict[str, Any]], answers: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """这一版的用例并上用户答过的开步前提问（用例自己写了的不覆盖）。"""
+    """这一版的用例并上用户答过的开步前提问（用例自己写了的不覆盖）。
+
+    答案记着当时那条用例问的是哪一句（摘要）：编号对上、问的也还是同一句才并，不然这一问
+    照样问用户（Fable 评审 P1-6）。
+    """
     merged = copy.deepcopy(cases)
     for case in merged:
         given = answers.get(str(case.get("case_id")))
-        if isinstance(given, dict) and given:
-            preset = case.setdefault("input", {}).setdefault("answers", {})
-            for key, value in given.items():
-                preset.setdefault(key, value)
+        if not isinstance(given, dict) or given.get("question") != case_question_digest(
+            case
+        ):
+            continue
+        preset = case.setdefault("input", {}).setdefault("answers", {})
+        for key, value in (given.get("answers") or {}).items():
+            preset.setdefault(key, value)
     return merged
 
 

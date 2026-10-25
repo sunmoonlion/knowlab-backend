@@ -15,6 +15,7 @@ SDD 0027、0037。
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Iterable
@@ -42,6 +43,16 @@ AMENDMENT_PREFIX = "amendment:"
 _AMENDMENT_REF = re.compile(
     r"^amendment:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])"
 )
+
+
+def case_question_digest(case: dict[str, Any]) -> str:
+    """一条用例问的是什么（问题原文的摘要）。
+
+    答过的开步前提问只套回问的还是同一句的那条用例：改创意后编号换了位置、或问题改了字，
+    旧答案不能当成用户确认过（Fable 评审 P1-6，C-L1）。
+    """
+    text = str((case.get("input") or {}).get("question") or "")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def can_move(current: str, target: str) -> bool:
