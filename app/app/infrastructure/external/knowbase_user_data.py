@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -30,6 +31,8 @@ from app.application.errors.exceptions import (
 from app.infrastructure.external.service_client import ServiceClient, service_relation
 
 BASE = "/api/internal/v1/user-data"
+
+GRANT_SLACK_SECONDS = 60  # 签发与回包之间的误差
 
 
 class KnowbaseRefused(Exception):
@@ -381,7 +384,19 @@ class KnowbaseKnowledgeBase:
             raise BadGatewayError(
                 "knowbase refused the test grant", code=f"grant_{exc.code}"
             ) from None
-        return str(body["grant_id"])
+        grant_id = str(body["grant_id"])
+        # 签出来的比要的短（knowbase 截了时限）：测试等人时会中途读不到，当没签成
+        # （Fable 评审 P1-1）。按回包自己的签发时刻比，不看本机钟
+        lasts = datetime.fromisoformat(
+            str(body["expires_at"])
+        ) - datetime.fromisoformat(str(body["issued_at"]))
+        if lasts < timedelta(seconds=ttl_seconds - GRANT_SLACK_SECONDS):
+            await self.revoke_test_grant(grant_id)
+            raise BadGatewayError(
+                "knowbase issued a shorter test grant than asked",
+                code="grant_too_short",
+            )
+        return grant_id
 
     async def revoke_test_grant(self, grant_id: str) -> None:
         try:

@@ -439,3 +439,38 @@ async def test_knowbase_refusals_become_knowlab_codes() -> None:
     await KnowbaseKnowledgeBase(Client(KnowbaseRefused(404, "item_not_found"))).delete(
         "t", "i"
     )  # type: ignore[arg-type]
+
+
+async def test_a_test_grant_shorter_than_asked_is_not_used() -> None:
+    """knowbase 截了时限：测试等人时会中途读不到，当没签成并撤掉（Fable 评审 P1-1）。"""
+
+    class Granting:
+        def __init__(self, hours: int) -> None:
+            self.hours = hours
+            self.revoked: list[str] = []
+
+        async def test_grant(self, **body: Any) -> dict[str, Any]:
+            return {
+                "grant_id": "g1",
+                "issued_at": "2026-10-25T00:00:00+00:00",
+                "expires_at": f"2026-10-{25 + self.hours // 24:02d}T"
+                f"{self.hours % 24:02d}:00:00+00:00",
+            }
+
+        async def revoke_test_grant(self, grant_id: str) -> None:
+            self.revoked.append(grant_id)
+
+    short = Granting(26)
+    with pytest.raises(BadGatewayError) as refused:
+        await KnowbaseKnowledgeBase(short).test_grant(  # type: ignore[arg-type]
+            owner="o", consent_id="c", ref="r", items=[], ttl_seconds=4 * 24 * 3600
+        )
+    assert refused.value.code == "grant_too_short" and short.revoked == ["g1"]
+    enough = Granting(96)
+    assert (
+        await KnowbaseKnowledgeBase(enough).test_grant(  # type: ignore[arg-type]
+            owner="o", consent_id="c", ref="r", items=[], ttl_seconds=4 * 24 * 3600
+        )
+        == "g1"
+    )
+    assert enough.revoked == []
