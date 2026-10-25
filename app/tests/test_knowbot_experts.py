@@ -201,6 +201,41 @@ async def test_a_trial_expert_gets_a_review_record_without_delivery(parts):
 
 
 @pytest.mark.asyncio
+async def test_a_trial_expert_that_fails_its_review_is_stopped(parts):
+    """补审不通过 = 准入门没过：先停 knowmart 那一版，停成了才记；停不成审核结论照样
+    留着，停用可以重试（Fable 评审 D02）。"""
+    creation, experts, repo, runtime, knowmart = parts
+    _, expert = await passed_expert(creation, runtime)
+    await repo.update_expert(
+        expert.id, listed_at=NOW, knowmart_knowbot_id="kb-1", returned_at=NOW
+    )
+    repo.experts[expert.id] = replace(repo.experts[expert.id], trial=True)
+    knowmart.fail = True
+    no = ExpertReviewIn(approved=False, reason="成稿里有目标价")
+    kept = await experts.review(str(expert.id), no, "ops-1")
+    assert stage_of(kept) == "listed" and kept.review_approved is False
+    assert knowmart.stopped == []
+    knowmart.fail = False
+    stopped = await experts.stop(str(expert.id), "补审没通过", "ops-1")
+    assert stage_of(stopped) == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_review_stops_at_once_when_knowmart_answers(parts):
+    creation, experts, repo, runtime, knowmart = parts
+    _, expert = await passed_expert(creation, runtime)
+    await repo.update_expert(
+        expert.id, listed_at=NOW, knowmart_knowbot_id="kb-1", returned_at=NOW
+    )
+    repo.experts[expert.id] = replace(repo.experts[expert.id], trial=True)
+    no = ExpertReviewIn(approved=False, reason="成稿里有目标价")
+    done = await experts.review(str(expert.id), no, "ops-1")
+    assert stage_of(done) == "stopped"
+    assert done.stop_reason == "补审没通过：成稿里有目标价"
+    assert knowmart.stopped[-1]["version"] == str(expert.version)
+
+
+@pytest.mark.asyncio
 async def test_knowmart_learns_what_became_of_versions_never_listed(parts):
     """SDD 0037 第三节：knowmart 详情页写明空号那一版——不要、审核不过时逐条交结局；
     交不到的记着，定时补发，送到为止（Astra 评审 F08）。"""

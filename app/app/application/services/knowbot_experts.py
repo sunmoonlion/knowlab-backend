@@ -137,7 +137,9 @@ class KnowbotExpertService:
     ) -> ExpertRecord:
         """运营审核：用户要了的才审；通过即交 knowmart（交付失败记下，可重试）。
 
-        试行期上架、没审过的，补一次审核记录（不再交付）。
+        试行期上架、没审过的，补一次审核：通过只补记录（不再交付）；不通过就是准入门没过，
+        走停用流程（先停 knowmart，停成了才记）。停不成审核结论照样留着，页面写明请重试
+        停用（Fable 评审 D02）。
         """
         found, _ = await self.expert(expert_id)
         async with self.repo.transaction():
@@ -163,6 +165,19 @@ class KnowbotExpertService:
                 return await self.deliver(str(found.id))
             except AppException:
                 pass  # 错误已记在专家上；审核结论照样留着，等重试
+        elif not body.approved and backfill:
+            try:
+                return await self.stop(
+                    str(found.id),
+                    f"补审没通过：{body.reason.strip()}".rstrip("：")[:500],
+                    reviewer,
+                )
+            except AppException as exc:
+                log.warning(
+                    "backfill rejected but not stopped expert=%s code=%s",
+                    found.id,
+                    exc.code,
+                )
         elif not body.approved:
             await self._tell_unlisted(found.request_id)
         return await self._reload(found.id)
