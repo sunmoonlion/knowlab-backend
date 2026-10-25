@@ -288,9 +288,10 @@ class KnowbotDataReader:
     ) -> tuple[str, dict[str, tuple[str, str]], bool]:
         """这次能读谁的、哪几份：（所有者，数据 id → （版本，sha256），是不是测试）。
 
-        测试经这里读只给还没搬进 knowbase 的（SDD 0042 第七节「没搬完的」）：
-        这次测试签了测试运行授权、或这一份已经在 knowbase 里，就得凭授权向
-        knowbase 读，这里一律「没有」，授权被拒、撤了就绕不过去（Astra 评审 F02）。
+        测试经这里读只给有旧对象的（没搬进 knowbase 的，或搬了、本人还没补上测试
+        同意的，SDD 0042 第七节「没搬完的」、Fable 评审 P2-4）：这次测试签了测试运行
+        授权、或这一份只在 knowbase 里，就得凭授权向 knowbase 读，这里一律「没有」，
+        授权被拒、撤了就绕不过去（Astra 评审 F02）。
         """
         if isinstance(purpose, KnowbotPurpose):
             # 上架了、没停用的那版专家（SDD 0037）；摘要要对得上 knowmart 的回执
@@ -348,7 +349,7 @@ class KnowbotDataReader:
             or record.owner_subject != owner
             or record.deleted_at is not None
             or (record.version, record.sha256) != bound[dataset_id]
-            or (tested and record.item_id is not None)
+            or (tested and record.item_id is not None and record.object_key is None)
         ):
             return None
         return record

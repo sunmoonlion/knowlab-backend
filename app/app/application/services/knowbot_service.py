@@ -49,6 +49,7 @@ from app.application.ports.knowbots import (
     TestOutputRecord,
     TestRecord,
 )
+from app.application.services.knowbot_data import consent_items, items_digest
 from app.domain.knowbots.data_needs import bound_problems, format_of, parse_needs
 from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
@@ -522,7 +523,8 @@ class KnowbotCreationService:
 
         三种：没绑数据，不签（None）；绑的都还没搬进 knowbase（没有资料编号），照旧经
         knowlab 读，不签（None，第 1 版停用后这条路撤掉）；有搬进去的，就必须签，回
-        （要读的那几份，测试同意）。缺一样（搬了一半、数据变了、没有测试同意、knowbase
+        （要读的那几份，测试同意）。例外：搬过来的旧数据（还有旧对象）在本人补上测试
+        同意之前，照旧经 knowlab 读。缺一样（搬了一半、数据变了、没有测试同意、knowbase
         没配）就报明原因、不开跑，不退回旧读路。
         """
         raw = manifest.get("data_bindings")
@@ -561,7 +563,15 @@ class KnowbotCreationService:
                 "knowbase is not configured", code="knowbase_unconfigured"
             )
         consent = await self.repo.get_test_consent(owner_subject)
-        if consent is None:
+        current = items_digest(
+            consent_items(await self.repo.list_datasets(owner_subject))
+        )
+        if consent is None or consent["items_digest"] != current:
+            if all(d.object_key for d in records):
+                # 搬过来了、测试同意还没跟上（本人还没打开过知识库页），这几份
+                # 都还有旧对象：照旧经 knowlab 读，搬家后运营发起的测试不被卡住
+                # （Fable 评审 P2-4）
+                return None
             raise _conflict(
                 "The owner has not consented to testing with this data",
                 "test_consent_missing",

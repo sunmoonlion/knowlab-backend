@@ -852,3 +852,51 @@ async def test_0012_stops_and_names_the_rows_its_backfill_cannot_take() -> None:
             assert found.scalar() is True
     finally:
         await _drop(engine, schema)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_consent_refreshes_leave_one_consent(db) -> None:
+    """上传与打开页面同时刷新测试同意：只立一条，没有 knowlab 不知道的旧同意
+    （Fable 评审 P2-5）。"""
+    from app.application.ports.knowbots import DatasetRecord
+    from tests.test_knowbot_knowledge_base import FakeKnowledge, token
+
+    class Slow(FakeKnowledge):
+        async def consent(self, user_token, ref, items):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(0.05)  # 让另一次刷新赶上
+            return await super().consent(user_token, ref, items)
+
+    kb = Slow()
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        async with repo.transaction():
+            for n in range(2):
+                await repo.create_dataset(
+                    DatasetRecord(
+                        id=uuid.uuid4(),
+                        owner_subject=OWNER,
+                        name=f"{n}.pdf",
+                        version="1",
+                        content_type="application/pdf",
+                        size_bytes=1,
+                        sha256=str(n) * 64,
+                        object_key=None,
+                        version_id=None,
+                        item_id=f"item-{n}",
+                    )
+                )
+
+    async def refresh() -> None:
+        async with db() as session:
+            data = KnowbotDataService(
+                SqlKnowlabRepository(session), MemoryDataStore(), knowledge=kb
+            )
+            await data.ensure_consent(OWNER, token)
+
+    await asyncio.gather(refresh(), refresh())
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        current = await repo.get_test_consent(OWNER)
+        assert current is not None
+        assert list(kb.consents) == [current["consent_id"]]
+        assert await repo.consent_withdrawals(OWNER) == []

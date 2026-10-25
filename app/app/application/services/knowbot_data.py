@@ -22,6 +22,7 @@ knowlab 分区（配了 knowbase 时）：网页 → 这里凭本人令牌传、
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -54,6 +55,7 @@ MAX_CONSENT_ITEMS = 1000  # knowbase 一条同意依据最多这么多份
 # 补登记的数据编号 = uuid5(这个, knowbase 的资料编号)：同一份怎么重来都是同一个编号
 ADOPTED = uuid.UUID("6a689190-6bfb-42f3-bd35-8f8f932a6d60")
 ADOPTABLE = frozenset(kind for kind, _ in datasets.KINDS.values())
+IMPORT_REF = "knowlab-dataset:"  # 搬旧数据时给 knowbase 的编号前缀（按它幂等）
 
 
 def _parse(value: str) -> uuid.UUID:
@@ -203,6 +205,10 @@ class KnowbotDataService:
             media_type = str(item.get("media_type") or "")
             if not item_id or item_id in known or media_type not in ADOPTABLE:
                 continue
+            if str(item.get("origin_ref") or "").startswith(IMPORT_REF):
+                # 搬旧数据建的：由 import_old 记回原数据编号，这里不另登记一份
+                # （不然撞唯一索引、原编号永远搬不完，Fable 评审 P2-6）
+                continue
             async with self.repo.transaction():
                 await self.repo.lock_owner_data(owner_subject)
                 if await self.repo.get_dataset_by_item(item_id) is not None:
@@ -251,13 +257,14 @@ class KnowbotDataService:
                 owner=record.owner_subject,
                 name=record.name,
                 data=data,
-                ref=f"knowlab-dataset:{record.id}",
+                ref=f"{IMPORT_REF}{record.id}",
             )
             if item.get("sha256") != record.sha256:
                 raise ServiceUnavailableError(
                     "knowbase answered another digest", code="import_mismatch"
                 )
             async with self.repo.transaction():
+                await self.repo.lock_owner_data(record.owner_subject)
                 await self.repo.set_dataset_item(record.id, str(item["item_id"]))
             moved += 1
         return moved
@@ -345,27 +352,39 @@ class KnowbotDataService:
         leaving：要删的那一份，新同意里先不含它。回：待撤的都撤成了没有。
         """
         assert self.knowledge is not None
-        records = [
-            d for d in await self.repo.list_datasets(owner_subject) if d.id != leaving
-        ]
-        items = consent_items(records)
-        current = await self.repo.get_test_consent(owner_subject)
-        digest = items_digest(items)
-        if current is None or current["items_digest"] != digest:
-            consent_id = (
-                await self.knowledge.consent(token, CONSENT_REF, items)
-                if items
-                else None
-            )
+        consent_id: str | None = None
+        try:
+            # 整段在这个人的锁里：读当前、立新、换下旧的。两处同时刷新（上传 + 打开
+            # 页面、两个标签页）时后到的看到新的那条，换下的一律进待撤（Fable P2-5）
             async with self.repo.transaction():
-                if consent_id is None:
-                    await self.repo.delete_test_consent(owner_subject)
-                else:
-                    await self.repo.put_test_consent(owner_subject, consent_id, digest)
-                if current is not None:
-                    await self.repo.add_consent_withdrawal(
-                        owner_subject, current["consent_id"]
-                    )
+                await self.repo.lock_owner_data(owner_subject)
+                records = [
+                    d
+                    for d in await self.repo.list_datasets(owner_subject)
+                    if d.id != leaving
+                ]
+                items = consent_items(records)
+                current = await self.repo.get_test_consent(owner_subject)
+                digest = items_digest(items)
+                if current is None or current["items_digest"] != digest:
+                    if items:
+                        consent_id = await self.knowledge.consent(
+                            token, CONSENT_REF, items
+                        )
+                        await self.repo.put_test_consent(
+                            owner_subject, consent_id, digest
+                        )
+                    else:
+                        await self.repo.delete_test_consent(owner_subject)
+                    if current is not None:
+                        await self.repo.add_consent_withdrawal(
+                            owner_subject, current["consent_id"]
+                        )
+        except Exception:
+            if consent_id is not None:  # knowbase 里立了、这里没记上：撤掉，不留孤儿
+                with contextlib.suppress(AppException):
+                    await self.knowledge.withdraw(token, consent_id)
+            raise
         return await self._withdraw_old(owner_subject, token)
 
     async def _withdraw_old(self, owner_subject: str, token: str) -> bool:

@@ -3,7 +3,9 @@
 `python -m app.bootstrap.import_datasets`。按数据编号幂等，中途断了重跑接着搬；
 旧对象不删，留到「财务分析与预测」第 1 版停用。要配 `KNOWBASE_INTERNAL_URL` 与服务关系
 `KNOWBASE_USER_DATA_IMPORT_SERVICE_*`（knowbase 那边把这个服务身份登记成 knowlab）。
-搬完以后各人的测试同意在他下次打开知识库页时补上；补上之前测试照旧经 knowlab 读。
+搬完以后各人的测试同意在他下次打开知识库页时补上；补上之前，绑的都是搬过来的旧数据的
+测试照旧经 knowlab 读旧对象（Fable 评审 P2-4）。要在没有在跑的测试时跑：跑着的测试中途
+换了读法会读不到。
 """
 
 from __future__ import annotations

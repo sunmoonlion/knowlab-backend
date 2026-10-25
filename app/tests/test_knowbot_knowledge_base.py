@@ -130,7 +130,9 @@ class FakeKnowledge:
     ) -> dict[str, Any]:
         self.imported.append(ref)
         item_id = f"imported-{ref.rsplit(':', 1)[-1]}"
-        return self._keep(item_id, name, data)
+        kept = self._keep(item_id, name, data)
+        self.stored[item_id]["origin_ref"] = ref  # 同 knowbase：导入的记原编号
+        return kept
 
 
 async def token() -> str:
@@ -474,3 +476,37 @@ async def test_a_test_grant_shorter_than_asked_is_not_used() -> None:
         == "g1"
     )
     assert enough.revoked == []
+
+
+async def test_moved_old_data_is_tested_the_old_way_until_the_owner_consents(parts):
+    """搬过来的旧数据，本人补上测试同意之前照旧经 knowlab 读；补上之后凭授权读
+    （Fable 评审 P2-4）。"""
+    data, repo, store, kb = parts
+    old = await KnowbotDataService(repo, store).upload(OWNER, "老年报.pdf", PDF)
+    assert await data.import_old() == 1
+    moved = await repo.get_dataset(old.id)
+    assert moved is not None and moved.item_id and moved.object_key
+    svc, runtime, draft = await _tested(repo, data, kb, bound=[moved])
+    assert runtime.started[-1][1].data_grant is None and kb.grants == []
+    await data.ensure_consent(OWNER, token)  # 本人打开知识库页
+    test = await repo.find_test_by_run(runtime.started[-1][1].run_id)
+    assert test is not None
+    runtime.results[test.run_id] = result(test.run_id, "error")
+    await svc.refresh(str(test.id))
+    await _start(svc, draft)
+    assert runtime.started[-1][1].data_grant is not None
+
+
+async def test_data_half_moved_is_not_adopted_twice(parts):
+    """搬旧数据在 knowbase 建好了、本地还没记上时用户打开页面：不另登记一份，再搬照常
+    记回原数据编号（Fable 评审 P2-6）。"""
+    data, repo, store, kb = parts
+    old = await KnowbotDataService(repo, store).upload(OWNER, "老年报.pdf", PDF)
+    await kb.import_item(
+        owner=OWNER, name=old.name, data=PDF, ref=f"knowlab-dataset:{old.id}"
+    )
+    await data.ensure_consent(OWNER, token)
+    assert [d.id for d in (await data.mine(OWNER))[0]] == [old.id]
+    assert await data.import_old() == 1
+    moved = await repo.get_dataset(old.id)
+    assert moved is not None and moved.item_id == f"imported-{old.id}"
