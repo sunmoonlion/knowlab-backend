@@ -339,7 +339,41 @@ def _backfill() -> None:
     op.execute("UPDATE knowbot_draft SET status = 'passed' WHERE status = 'delivered'")
 
 
+# 新代码才会写、回填不会写的：有一样就说明迁移后有了新写入，退回会丢掉它们
+NEW_WRITES = (
+    (
+        "tests started by the new code",
+        "SELECT count(*) FROM knowbot_test WHERE run_id LIKE 'knowlab-test-%'",
+    ),
+    (
+        "revised idea versions",
+        "SELECT count(*) FROM knowbot_request_version WHERE version > 1",
+    ),
+    (
+        "acceptances decided by people",
+        "SELECT count(*) FROM knowbot_acceptance WHERE decided_by <> 'system:trial'",
+    ),
+    (
+        "experts outside the trial",
+        "SELECT count(*) FROM knowbot_expert WHERE NOT trial",
+    ),
+)
+
+
 def downgrade() -> None:
+    # 迁移后有新写入就不准退（Fable 评审 F05）：那时的回退是用发版前的备份恢复库 + 旧镜像
+    bind = op.get_bind()
+    found = [
+        f"{what}: {count}"
+        for what, query in NEW_WRITES
+        if (count := bind.execute(sa.text(query)).scalar())
+    ]
+    if found:
+        raise RuntimeError(
+            "0012 cannot be downgraded after new writes ("
+            + "; ".join(found)
+            + "); restore the pre-release backup instead"
+        )
     # 上架了的专家，准专家改回「已交付」，回执并回 delivery（旧读路径按它找）
     op.execute(
         """UPDATE knowbot_draft d

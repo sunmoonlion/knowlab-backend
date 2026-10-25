@@ -900,3 +900,33 @@ async def test_concurrent_consent_refreshes_leave_one_consent(db) -> None:
         assert current is not None
         assert list(kb.consents) == [current["consent_id"]]
         assert await repo.consent_withdrawals(OWNER) == []
+
+
+@pytest.mark.asyncio
+async def test_0012_refuses_to_go_back_once_the_new_code_wrote() -> None:
+    """升级后新代码写过（新发起的测试）：退回必须被拒，改用备份（Fable F05）。"""
+    engine, schema = await _schema("20261023_0011_knowbase_items")
+    try:
+        factory = make_session_factory(engine)
+        async with factory() as session, session.begin():
+            ids = await _old_rows(session)
+        path = ROOT / "alembic/versions/20261024_0012_knowbot_lifecycle.py"
+        async with engine.begin() as c:
+            await c.run_sync(lambda conn: _run(conn, [path]))
+        async with factory() as session, session.begin():
+            await session.execute(
+                text(
+                    "INSERT INTO knowbot_test (id, request_id, number, draft_id,"
+                    " status, run_id, started_at) VALUES (gen_random_uuid(), :r, 9,"
+                    " :d, 'failed', 'knowlab-test-new', now())"
+                ),
+                {"r": ids["r1"], "d": ids["d1"]},
+            )
+        with pytest.raises(RuntimeError, match="tests started by the new code: 1"):
+            async with engine.begin() as c:
+                await c.run_sync(lambda conn: _run(conn, [path], "downgrade"))
+        async with factory() as session:  # 什么都没退
+            still = await session.execute(text("SELECT count(*) FROM knowbot_expert"))
+            assert still.scalar() >= 1
+    finally:
+        await _drop(engine, schema)
