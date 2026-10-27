@@ -54,6 +54,7 @@ from app.domain.knowbots.data_needs import bound_problems, format_of, parse_need
 from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
+    MANIFEST_SCHEMA,
     OUTPUTS_KEEP_DAYS,
     KnowbotRequestIn,
     amendment_refs,
@@ -330,9 +331,9 @@ class KnowbotCreationService:
                     problems = [
                         "rule sources cite the idea version; amendments are retired"
                     ]
-            if not problems:
+            if not problems and manifest.get("schema") == MANIFEST_SCHEMA:
                 # 测试只读这一版绑定的、这个用户自己的数据（C-L2）；写了数据需求声明的，
-                # 绑定按声明核（SDD 0042 第五节）
+                # 绑定按声明核（SDD 0042 第五节）。清单 v2 不带绑定（测试集另记）
                 assert isinstance(manifest, dict)
                 datasets = await self.repo.list_datasets(request.owner_subject)
                 owned = {str(d.id): (d.version, d.sha256) for d in datasets}

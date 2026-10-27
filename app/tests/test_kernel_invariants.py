@@ -55,10 +55,12 @@ def test_one_linear_canonical_migration_chain() -> None:
         "20261019_0010_knowbot_consent_version.py",
         "20261023_0011_knowbase_items.py",
         "20261024_0012_knowbot_lifecycle.py",
+        "20261025_0013_auth_user_by_subject.py",
     ]
     contents = [path.read_text() for path in revisions]
     assert sum("down_revision = None" in content for content in contents) == 1
     assert 'down_revision = "20260726_0001"' in contents[1]
+    assert 'down_revision = "20261024_0012"' in contents[12]
 
 
 def test_runtime_image_context_excludes_credentials_and_tests() -> None:

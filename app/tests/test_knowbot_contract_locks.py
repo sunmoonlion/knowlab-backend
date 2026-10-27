@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from app.domain.knowbots.data_needs_v2 import DataNeed
 from app.domain.knowbots.drafts import draft_manifest_problems
-from tests.knowbot_fakes import manifest
+from tests.knowbot_fakes import manifest, manifest_v2
 
 PARENT = Path(__file__).resolve().parents[3]
 LOCK = PARENT / "contracts/knowmart-knowbot-manifest-lock.json"
@@ -46,5 +47,64 @@ def test_a_manifest_knowlab_accepts_satisfies_the_provider_schema() -> None:
     schema = _provider_schema(_lock())
     jsonschema = pytest.importorskip("jsonschema")
     doc = manifest()
+    assert draft_manifest_problems(doc, runtime="knowbench", version="1") == []
+    jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))
+
+
+# —— 清单 v2 与声明 v2（SDD 0043 块 4）——
+
+LOCK_V2 = PARENT / "contracts/knowmart-knowbot-manifest-v2-lock.json"
+LOCK_NEEDS = PARENT / "contracts/knowbase-data-needs-lock.json"
+
+
+def _read_lock(path: Path) -> dict:
+    if not path.exists():
+        pytest.skip("parent contracts/ is not checked out")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _sibling(app: str, lock: dict) -> Path:
+    path = PARENT.parent / app / lock["schema"]
+    if not path.exists():
+        pytest.skip(f"{app} is not checked out next to knowlab-app")
+    return path
+
+
+def _structure(node):
+    if isinstance(node, dict):
+        return {k: _structure(v) for k, v in node.items() if k != "description"}
+    if isinstance(node, list):
+        return [_structure(v) for v in node]
+    return node
+
+
+def test_v2_locks_match_their_providers() -> None:
+    v2 = _read_lock(LOCK_V2)
+    assert (v2["provider"], v2["major_version"]) == ("knowmart-app", 2)
+    schema = _sibling("knowmart-app", v2)
+    assert hashlib.sha256(schema.read_bytes()).hexdigest() == v2["sha256"]
+    needs = _read_lock(LOCK_NEEDS)
+    assert (needs["provider"], needs["contract"]) == (
+        "knowbase-app",
+        "knowbot-data-needs",
+    )
+    provider = _sibling("knowbase-app", needs)
+    assert hashlib.sha256(provider.read_bytes()).hexdigest() == needs["sha256"]
+
+
+def test_our_data_need_is_the_knowbase_data_need() -> None:
+    provider = json.loads(
+        _sibling("knowbase-app", _read_lock(LOCK_NEEDS)).read_text(encoding="utf-8")
+    )
+    ours = DataNeed.model_json_schema(ref_template="#/$defs/{model}")
+    defs = ours.pop("$defs", {})
+    defs["DataNeed"] = ours
+    assert _structure(defs) == _structure(provider["$defs"])
+
+
+def test_a_v2_draft_knowlab_accepts_satisfies_the_knowmart_v2_schema() -> None:
+    schema = _sibling("knowmart-app", _read_lock(LOCK_V2))
+    jsonschema = pytest.importorskip("jsonschema")
+    doc = manifest_v2()
     assert draft_manifest_problems(doc, runtime="knowbench", version="1") == []
     jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))

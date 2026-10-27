@@ -102,6 +102,37 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
     return doc
 
 
+def manifest_v2(version: str = "1", **overrides: Any) -> dict[str, Any]:
+    """清单 v2 的草稿：声明 v2，不带绑定（作者绑的数据交付时才冻结）。"""
+    doc: dict[str, Any] = {
+        "schema": "knowbot-manifest/v2",
+        "name": "财务分析与预测",
+        "tagline": "按我的方法分析一家公司的财报",
+        "version": version,
+        "runtime": "knowbench",
+        "pack": {
+            "pack_id": "fin-forecast",
+            "version": version,
+            "workflow": [{"step_id": "s1", "title": "读财报"}],
+        },
+        "data_needs": [
+            {
+                "key": "annual",
+                "name": "年报",
+                "doc_type": "annual_report",
+                "period": {"kind": "latest", "count": 3},
+                "formats": ["pdf"],
+                "reading": "table",
+            }
+        ],
+        "rule_sources": [
+            {"rule": "毛利率口径", "source": "user_text", "ref": "想法原文第 4 问"}
+        ],
+    }
+    doc.update(overrides)
+    return doc
+
+
 def result(run_id: str, status: str = "passed", **extra: Any) -> RunResultV1:
     cases = extra.pop("cases", None)
     if cases is None:
