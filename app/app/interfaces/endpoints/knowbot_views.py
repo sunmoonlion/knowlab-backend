@@ -134,7 +134,15 @@ def test_view(test: TestRecord, life: Life, *, admin: bool) -> dict[str, Any]:
         "report": _report(test),
         # 0012 之前测的（从准专家上搬来的那一次）：再之前的没留记录
         "backfilled": test.started_by is None and test.budget_limit is None,
+        # 自助（用户本人在他自己的电脑上跑）还是平台；带的测试集第几版
+        # （SDD 0046 第三节）
+        "mode": test.mode,
+        "test_set_version": test.test_set_version,
     }
+    if admin and test.mode == "self":
+        # 自助测的：平台的人看不到测试集、用例、报告（SDD 0046 第三节）
+        view["report"] = None
+        return view
     if admin:
         active = test.status in ACTIVE_TESTS
         report = test.report or {}
