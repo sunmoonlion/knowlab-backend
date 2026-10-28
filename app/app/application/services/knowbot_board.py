@@ -6,13 +6,18 @@
 - web端：申请 · 审核（用户的待办箱）· 专家（只看交回了的）；审核数「要你做的」，专家数
   「新交回」。
 - 详情页：顶上一行每个过程最新的一项，下面按时间排的记录。
+
+运营只看得到平台模式的那几步（SDD 0046 第四节）：管理端的一生只有平台孵化的准专家与
+平台测试（`operator_view`）；自助的准专家、工作稿、自助测试与它的报告运营一律看不到，
+按编号直接取也是 404（服务里的 `operator_draft`、`operator_test`）。用户另外授权的
+（轻受理、交审）随块 1、块 6 再放开。
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 
@@ -85,27 +90,48 @@ class Life:
         return next((t for t in self.tests if t.status in ACTIVE_TESTS), None)
 
 
+def operator_view(life: Life) -> Life:
+    """运营看到的一生（SDD 0046 第四节）：只有平台模式的准专家，与测的是它们的平台测试；
+    自助的准专家、自助测试运营看不到。"""
+    drafts = tuple(d for d in life.drafts if d.mode == "platform")
+    shown = {d.id for d in drafts}
+    tests = tuple(t for t in life.tests if t.mode == "platform" and t.draft_id in shown)
+    return replace(life, drafts=drafts, tests=tests)
+
+
 class KnowbotBoard:
     def __init__(self, repo: KnowlabRepository) -> None:
         self.repo = repo
 
-    async def lives(self, owner_subject: str | None = None) -> list[Life]:
-        """全部名称（给了所有者就只有他的），新的在前。"""
+    async def lives(
+        self, owner_subject: str | None = None, *, operator: bool = False
+    ) -> list[Life]:
+        """全部名称（给了所有者就只有他的），新的在前。operator：管理端看的（只有平台
+        模式的那几步）。"""
         requests = (
             await self.repo.list_requests()
             if owner_subject is None
             else await self.repo.list_requests_for_owner(owner_subject)
         )
-        return await self._assemble(requests)
+        lives = await self._assemble(requests)
+        return [operator_view(life) for life in lives] if operator else lives
 
-    async def life(self, request_id: str, owner_subject: str | None = None) -> Life:
-        """一个名称的一生；给了所有者，不是他的与没有的一样，都是 404。"""
+    async def life(
+        self,
+        request_id: str,
+        owner_subject: str | None = None,
+        *,
+        operator: bool = False,
+    ) -> Life:
+        """一个名称的一生；给了所有者，不是他的与没有的一样，都是 404。
+        operator 同上。"""
         request = await self.repo.get_request(parse_id(request_id, "request"))
         if request is None or (
             owner_subject is not None and request.owner_subject != owner_subject
         ):
             raise NotFoundError("No such request", code="request_not_found")
-        return (await self._assemble([request]))[0]
+        life = (await self._assemble([request]))[0]
+        return operator_view(life) if operator else life
 
     async def _assemble(self, requests: Sequence[RequestRecord]) -> list[Life]:
         ids = [r.id for r in requests]

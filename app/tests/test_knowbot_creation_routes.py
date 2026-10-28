@@ -15,12 +15,15 @@ from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
 from app.interfaces.endpoints import knowbot_routes
 from app.main import app
 from tests.knowbot_fakes import (
+    COMPUTER,
+    COMPUTER_ROOT,
     OWNER,
     FakeKnowmart,
     FakeRuntime,
     MemoryKnowlab,
     accepted_request,
     manifest,
+    own_computer,
     request_body,
     result,
     waiting,
@@ -42,6 +45,7 @@ START = {"budget_limit": "20", "timeout_seconds": 600}
 @pytest.fixture
 def wired(monkeypatch: pytest.MonkeyPatch):
     repo, runtime, knowmart = MemoryKnowlab(), FakeRuntime(), FakeKnowmart()
+    own_computer(repo)  # 平台测试在作者的电脑上跑（decisions ⑯）
     asks = KnowbotQuestionService(repo, runtime)
     svc = KnowbotCreationService(repo, runtime, on_refresh=asks.resend)
     experts = KnowbotExpertService(repo, knowmart)
@@ -74,6 +78,8 @@ def client() -> httpx.AsyncClient:
 
 
 async def _testing(svc: KnowbotCreationService, owner: str = OWNER):
+    if owner != OWNER:
+        own_computer(svc.repo, owner)  # type: ignore[arg-type]
     request = await accepted_request(svc, owner)
     draft = await svc.add_draft(str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
@@ -554,3 +560,78 @@ async def test_old_amendments_are_read_only_in_the_detail(wired) -> None:
             headers=WEB,
         )
         assert gone.status_code in {404, 405}
+
+
+@pytest.mark.asyncio
+async def test_operators_see_only_the_platform_steps(wired) -> None:
+    """运营只看得到平台模式的那几步（SDD 0046 第四节）：自助的准专家、自助测试、它的
+    报告与问题，管理端的栏、数、详情页都不列，按编号来是 404；作者自己照常看得到、
+    答得了。"""
+    svc, repo, runtime, _ = wired
+    request = await accepted_request(svc)
+    mine = await repo.create_draft(
+        request_id=request.id,
+        request_version=1,
+        revision=1,
+        version="1",
+        manifest=manifest(),
+        mode="self",
+    )
+    await repo.update_draft(mine.id, rules_reviewed_by="program")
+    ours = await svc.add_draft(str(request.id), manifest())  # 平台孵化的，第 2 稿
+    test = await svc.start_self_test(
+        OWNER,
+        str(mine.id),
+        environment_id=COMPUTER,
+        workspace_root=COMPUTER_ROOT,
+        budget_limit="5",
+        timeout_seconds=600,
+    )
+    runtime.results[test.run_id] = waiting(test.run_id)
+    await svc.refresh(str(test.id))
+    # 自助测的问题都归作者本人，连工具审批
+    assert {q.route for q in repo.questions.values()} == {"user"}
+    approval = next(q for q in repo.questions.values() if q.kind == "tool_approval")
+    async with client() as c:
+        c.cookies.set(ADMIN_SID, "admin")
+        detail = (await c.get(f"/api/admin/v1/knowbot-requests/{request.id}")).json()
+        assert [d["draft_id"] for d in detail["drafts"]] == [str(ours.id)]
+        assert detail["tests"] == [] and detail["answered"] == []
+        assert detail["summary"]["test"] is None
+        assert str(mine.id) not in str(detail["timeline"])
+        assert str(test.id) not in str(detail["timeline"])
+        for column in ("incubation", "tests"):
+            items = (await c.get(f"/api/admin/v1/knowbot-board/{column}")).json()[
+                "items"
+            ]
+            assert str(mine.id) not in str(items) and str(test.id) not in str(items)
+        assert (await c.get("/api/admin/v1/knowbot-questions")).json()[
+            "questions"
+        ] == []
+        drafts, tests = "/api/admin/v1/knowbot-drafts", "/api/admin/v1/knowbot-tests"
+        questions = "/api/admin/v1/knowbot-questions"
+        for method, path, body in (
+            ("GET", f"{drafts}/{mine.id}/manifest", None),
+            ("POST", f"{drafts}/{mine.id}/rules-review", None),
+            ("POST", f"{drafts}/{mine.id}/review-request", None),
+            (
+                "POST",
+                f"{drafts}/{mine.id}/test",
+                {"budget_limit": "20", "timeout_seconds": 600},
+            ),
+            ("POST", f"{tests}/{test.id}/refresh", None),
+            ("POST", f"{tests}/{test.id}/reset", None),
+            ("GET", f"{tests}/{test.id}/outputs", None),
+            ("POST", f"{questions}/{approval.id}/answer", {"decision": "approve"}),
+            ("POST", f"{questions}/{approval.id}/to-user", None),
+        ):
+            got = await c.request(method, path, json=body, headers=ADMIN)
+            assert got.status_code == 404, (path, got.text)
+        # 平台孵化的那一稿照常看得到
+        assert (await c.get(f"{drafts}/{ours.id}/manifest")).status_code == 200
+        # 作者自己：他的自助测试与问题都在
+        c.cookies.set(WEB_SID, "member")
+        own = (await c.get(f"/api/web/v1/knowbot-requests/{request.id}")).json()
+        assert [t["test_id"] for t in own["tests"]] == [str(test.id)]
+        asked = (await c.get("/api/web/v1/knowbot-questions")).json()["questions"]
+        assert len(asked) == 3

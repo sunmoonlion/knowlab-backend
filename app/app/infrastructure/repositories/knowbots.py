@@ -567,6 +567,24 @@ class SqlKnowlabRepository:
         ).scalars()
         return [_test(r) for r in rows]
 
+    async def last_self_test(self, owner_subject: str) -> TestRecord | None:
+        row = (
+            await self.session.execute(
+                select(KnowbotTest)
+                .join(KnowbotRequest, KnowbotRequest.id == KnowbotTest.request_id)
+                .where(
+                    KnowbotRequest.owner_subject == owner_subject,
+                    KnowbotTest.mode == "self",
+                    KnowbotTest.environment_id.is_not(None),
+                    KnowbotTest.workspace_root.is_not(None),
+                )
+                .order_by(KnowbotTest.started_at.desc())
+                .limit(1)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
+        return None if row is None else _test(row)
+
     async def update_test(self, test_id: uuid.UUID, **changes: Any) -> None:
         unknown = set(changes) - TEST_FIELDS
         if unknown:

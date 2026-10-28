@@ -30,6 +30,7 @@ from tests.knowbot_fakes import (
     MemoryKnowlab,
     all_clear,
     manifest,
+    own_computer,
     request_body,
     result,
 )
@@ -40,6 +41,7 @@ NOW = datetime(2026, 10, 24, 9, tzinfo=UTC)
 @pytest.fixture
 def parts():
     repo, runtime = MemoryKnowlab(), FakeRuntime()
+    own_computer(repo)  # 平台测试在作者的电脑上跑（decisions ⑯）
     creation = KnowbotCreationService(repo, runtime, now=lambda: NOW)
     experts = KnowbotExpertService(repo, FakeKnowmart(), now=lambda: NOW)
     return creation, experts, KnowbotBoard(repo), runtime

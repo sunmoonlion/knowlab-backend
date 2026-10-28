@@ -168,6 +168,9 @@ class MemoryKnowlab:
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
         self.workdrafts: dict[uuid.UUID, WorkdraftRecord] = {}  # 按名称
         self.entries: dict[uuid.UUID, WorkdraftEntryRecord] = {}
+        # 作者在别的名称上自助测过的（不在这份假仓里）：用户 → 那一次。平台测试照它定在
+        # 哪跑（decisions ⑯），测试里用 own_computer 预置
+        self.earlier_self_tests: dict[str, TestRecord] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -354,6 +357,20 @@ class MemoryKnowlab:
         self, test_id: uuid.UUID, *, for_update: bool = False
     ) -> TestRecord | None:
         return self.tests.get(test_id)
+
+    async def last_self_test(self, owner_subject: str) -> TestRecord | None:
+        found = [
+            t
+            for t in self.tests.values()
+            if t.mode == "self"
+            and t.environment_id
+            and t.workspace_root
+            and (r := self.requests.get(t.request_id)) is not None
+            and r.owner_subject == owner_subject
+        ]
+        if owner_subject in self.earlier_self_tests:
+            found.append(self.earlier_self_tests[owner_subject])
+        return max(found, key=lambda t: t.started_at, default=None)
 
     async def list_tests(
         self, *, request_ids: Any = None, draft_id: uuid.UUID | None = None
@@ -598,6 +615,27 @@ class MemoryKnowlab:
         )
 
 
+COMPUTER = "11111111-1111-4111-8111-111111111111"  # FakeRuntime 列出的那台电脑
+COMPUTER_ROOT = "/home/me/work"
+
+
+def own_computer(repo: MemoryKnowlab, owner: str = OWNER) -> None:
+    """作者以前在自己的电脑上自助测过（别的名称上）：平台测试在那台电脑、那个目录跑
+    （decisions ⑯）。"""
+    repo.earlier_self_tests[owner] = TestRecord(
+        id=uuid.uuid4(),
+        request_id=uuid.uuid4(),
+        number=1,
+        draft_id=uuid.uuid4(),
+        status="failed",
+        run_id="knowlab-test-earlier",
+        started_at=datetime(2026, 10, 1, tzinfo=UTC),
+        mode="self",
+        environment_id=COMPUTER,
+        workspace_root=COMPUTER_ROOT,
+    )
+
+
 class FakeRuntime:
     """按 run_id 记下请求；start 回 accepted，结果由测试塞进 results。"""
 
@@ -640,10 +678,10 @@ class FakeRuntime:
     async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
         return [
             {
-                "environment_id": "11111111-1111-4111-8111-111111111111",
+                "environment_id": COMPUTER,
                 "name": "我的电脑",
                 "online": True,
-                "roots": ["/home/me/work"],
+                "roots": [COMPUTER_ROOT],
             }
         ]
 

@@ -66,6 +66,11 @@ def run_request() -> RunRequestV1:
             "cases": request_body()["cases"],
             "budget": {"limit": "20"},
             "timeout_seconds": 600,
+            "runner": {
+                "kind": "user",
+                "environment_id": "11111111-1111-4111-8111-111111111111",
+                "workspace_root": "/home/me/work",
+            },
         }
     )
 

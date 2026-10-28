@@ -359,6 +359,11 @@ class KnowlabRepository(Protocol):
 
     async def update_test(self, test_id: uuid.UUID, **changes: Any) -> None: ...
 
+    async def last_self_test(self, owner_subject: str) -> TestRecord | None:
+        """这个用户最近一次自助测试（记着那台电脑与根目录，SDD 0046 第三节）；没有回
+        None。平台测试照它定在哪跑（decisions ⑯），选电脑时默认也是它。"""
+        ...
+
     async def find_test_by_run(self, run_id: str) -> TestRecord | None: ...
 
     # ---------- 专家（SDD 0037） ----------

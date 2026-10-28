@@ -25,6 +25,7 @@ from tests.knowbot_fakes import (
     MemoryKnowlab,
     accepted_request,
     manifest,
+    own_computer,
     result,
 )
 
@@ -182,6 +183,7 @@ async def token() -> str:
 @pytest.fixture
 async def world():
     repo, runtime = MemoryKnowlab(), FakeRuntime()
+    own_computer(repo)  # 平台测试在作者的电脑上跑（decisions ⑯）
     kb, supply = FakeKnowbase(), FakeSupply()
     asks = KnowbotQuestionService(repo, runtime)
     data = KnowbotTestData(

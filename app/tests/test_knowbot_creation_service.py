@@ -19,11 +19,14 @@ from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import RevisionIn, UserReviewIn
 from tests.knowbot_fakes import (
+    COMPUTER,
+    COMPUTER_ROOT,
     OWNER,
     FakeRuntime,
     MemoryKnowlab,
     all_clear,
     manifest,
+    own_computer,
     request_body,
     result,
 )
@@ -40,6 +43,7 @@ class Clock:
 @pytest.fixture
 def parts():
     repo, runtime, clock = MemoryKnowlab(), FakeRuntime(), Clock()
+    own_computer(repo)  # 平台测试在作者的电脑上跑（decisions ⑯）
     return KnowbotCreationService(repo, runtime, now=clock), repo, runtime, clock
 
 
@@ -200,6 +204,46 @@ async def test_the_user_reviews_a_draft_before_it_is_tested(parts):
     await svc.review_rules(str(again.id), "admin-1")
     test = await svc.start_test(str(again.id), budget_limit="20", timeout_seconds=600)
     assert test.number == 1
+
+
+@pytest.mark.asyncio
+async def test_a_platform_test_runs_on_the_authors_computer(parts):
+    """平台测试在作者的账号下跑（decisions ⑯）：作者上次自助测试的电脑与目录，先问运行方
+    那台还在、目录还在；作者没有可用的电脑就不能发起。测试仍记平台模式。"""
+    svc, repo, runtime, _ = parts
+    _, draft = await _reviewed_draft(svc)
+    test = await svc.start_test(
+        str(draft.id), budget_limit="20", timeout_seconds=600, starter="admin-1"
+    )
+    _, sent = runtime.started[-1]
+    assert sent.runner.model_dump() == {
+        "kind": "user",
+        "environment_id": COMPUTER,
+        "workspace_root": COMPUTER_ROOT,
+    }
+    assert (test.mode, test.environment_id, test.workspace_root) == (
+        "platform",
+        COMPUTER,
+        COMPUTER_ROOT,
+    )
+    # 平台测试不算作者的自助测试：选电脑时默认的还是他自己上次那台
+    assert (await repo.last_self_test(OWNER)) is repo.earlier_self_tests[OWNER]
+    runtime.results[test.run_id] = result(test.run_id, "error")  # 平台出错，回到待测
+    await svc.refresh(str(test.id))
+    assert repo.drafts[draft.id].status == "pending_test"
+
+    async def moved(runtime_name: str, subject: str) -> list[dict]:
+        return [{"environment_id": COMPUTER, "roots": ["/elsewhere"], "online": True}]
+
+    runtime.computers = moved  # type: ignore[method-assign]
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    assert raised.value.code == "author_has_no_computer"
+    del repo.earlier_self_tests[OWNER]  # 从没在自己的电脑上测过
+    with pytest.raises(ConcurrencyConflictError) as raised:
+        await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    assert raised.value.code == "author_has_no_computer"
+    assert len(runtime.started) == 1
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,7 @@ from tests.knowbot_fakes import (
     accepted_request,
     list_expert,
     manifest,
+    own_computer,
     result,
 )
 
@@ -54,6 +55,7 @@ def outputs(run_id: str, case_id: str = "c1") -> CaseOutputsV1:
 @pytest.fixture
 def parts():
     repo, runtime = MemoryKnowlab(), FakeRuntime()
+    own_computer(repo)  # 平台测试在作者的电脑上跑（decisions ⑯）
     return KnowbotCreationService(repo, runtime), repo, runtime
 
 

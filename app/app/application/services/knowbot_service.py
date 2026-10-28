@@ -9,7 +9,8 @@
 - 孵化（管理端，过渡做法：贴清单）：只能选受理了的版本；规则出处只认创意版本里的句子
   （补充方法 0035 取消，旧的留作历史、只读）。可以请用户审核：等用户答的不能测，用户说
   不行的不再测。
-- 测试（管理端发起，平台跑）：每次一个新编号；同一个名称同时只有一个在跑。平台出错
+- 测试（管理端发起的平台测试，或作者自助）：都在作者的账号下、他的电脑上、用他的模型 key
+  跑（decisions ⑯）；每次一个新编号；同一个名称同时只有一个在跑。平台出错
   （运行方报错、超时、开跑失败、运营判定卡住）结束这一次，准专家回到待测，再测是新
   编号。通过即出专家，版本号就是准专家的 x；x 已经出过专家的准专家不许再测（再孵化）。
 
@@ -246,6 +247,23 @@ class KnowbotCreationService:
         assert request is not None
         return test, request
 
+    async def operator_draft(self, draft_id: str) -> DraftRecord:
+        """管理端按编号取准专家：自助的运营看不到，与没有的一样，都是 404（SDD 0046
+        第四节「运营只看得到平台模式的那几步与用户另外授权的」）。"""
+        found = await self.draft(draft_id)
+        if found.mode != "platform":
+            raise NotFoundError("No such draft", code="draft_not_found")
+        return found
+
+    async def operator_test(self, test_id: str) -> tuple[TestRecord, RequestRecord]:
+        """管理端按编号取测试：自助测的（或测的是自助的准专家）运营看不到，与没有的
+        一样，都是 404（SDD 0046 第四节）。"""
+        test, request = await self.test_with_request(test_id)
+        draft = await self.repo.get_draft(test.draft_id)
+        if test.mode != "platform" or draft is None or draft.mode != "platform":
+            raise NotFoundError("No such test", code="test_not_found")
+        return test, request
+
     async def amendments(
         self, request_id: uuid.UUID, drafts: Sequence[DraftRecord]
     ) -> list[tuple[AmendmentRecord, str, int | None]]:
@@ -409,8 +427,16 @@ class KnowbotCreationService:
         starter: str | None = None,
         runner: dict[str, str] | None = None,
     ) -> TestRecord:
-        """拿一位准专家按用例跑一次：新编号。runner 给了就是用户本人在他自己的电脑上跑
-        （自助，SDD 0046 第三节）：{environment_id, workspace_root}。"""
+        """拿一位准专家按用例跑一次：新编号。都在作者的账号下跑（decisions ⑯）：runner
+        给了就是作者自助，在他选的电脑上（{environment_id, workspace_root}，SDD 0046
+        第三节）；没给是运营发起的平台测试，用作者上次自助测试用过的电脑与目录，测试仍记
+        平台模式（谁发起、谁看结果不变）。
+
+        费用上限现在照发起的人传的；按 ⑯ 平台测试的上限应由作者设，等轻受理（0046 块 1）
+        做时补。"""
+        mode = "self" if runner else "platform"
+        if runner is None:
+            runner = await self._authors_computer(draft_id)
         async with self.repo.transaction():
             found = await self.repo.get_draft(parse_id(draft_id))
             if found is None:
@@ -459,7 +485,7 @@ class KnowbotCreationService:
                     "budget": {"limit": budget_limit},
                     "timeout_seconds": timeout_seconds,
                     "max_wait_seconds": MAX_WAIT_SECONDS,
-                    **({"runner": {"kind": "user", **runner}} if runner else {}),
+                    "runner": {"kind": "user", **runner},
                 }
             )
             test = await self.repo.create_test(
@@ -474,9 +500,9 @@ class KnowbotCreationService:
                     budget_limit=budget_limit,
                     timeout_seconds=timeout_seconds,
                     started_by=starter,
-                    mode="self" if runner else "platform",
-                    environment_id=(runner or {}).get("environment_id"),
-                    workspace_root=(runner or {}).get("workspace_root"),
+                    mode=mode,
+                    environment_id=runner["environment_id"],
+                    workspace_root=runner["workspace_root"],
                 )
             )
             await self._move(draft, "testing")
@@ -540,18 +566,50 @@ class KnowbotCreationService:
             runner={"environment_id": environment_id, "workspace_root": workspace_root},
         )
 
+    async def _authors_computer(self, draft_id: str) -> dict[str, str]:
+        """平台测试在哪跑（decisions ⑯）：作者上次自助测试用过的电脑与目录，先向运行方
+        列他的电脑，确认那台还在、目录还在白名单里（不要求此刻在线：不在线的测试停在
+        「等电脑」）。作者从没接入过电脑、或那台不在了，不能发起。"""
+        found = await self.repo.get_draft(parse_id(draft_id))
+        request = (
+            None if found is None else await self.repo.get_request(found.request_id)
+        )
+        if found is None or request is None:
+            raise NotFoundError("No such draft", code="draft_not_found")
+        last = await self.repo.last_self_test(request.owner_subject)
+        if last is not None:
+            computers = await self.runtimes.computers(
+                request.runtime, request.owner_subject
+            )
+            there = next(
+                (
+                    c
+                    for c in computers
+                    if c.get("environment_id") == last.environment_id
+                ),
+                None,
+            )
+            if there is not None and last.workspace_root in list(
+                there.get("roots") or []
+            ):
+                assert last.environment_id is not None
+                assert last.workspace_root is not None
+                return {
+                    "environment_id": last.environment_id,
+                    "workspace_root": last.workspace_root,
+                }
+        raise _conflict(
+            "The author has no usable computer yet: platform tests run on the "
+            "computer and folder of the author's last own test",
+            "author_has_no_computer",
+        )
+
     async def my_computers(self, owner_subject: str, draft_id: str) -> dict[str, Any]:
         """选电脑（SDD 0046 第三节）：他接入过的电脑，与上次自助测试用的那台
         与根目录。"""
         _, request = await self.my_draft(owner_subject, draft_id)
         found = await self.runtimes.computers(request.runtime, owner_subject)
-        mine = [
-            t
-            for r in await self.repo.list_requests_for_owner(owner_subject)
-            for t in await self.repo.list_tests(request_ids=[r.id])
-            if t.mode == "self" and t.environment_id
-        ]
-        last = max(mine, key=lambda t: t.started_at, default=None)
+        last = await self.repo.last_self_test(owner_subject)
         return {
             "computers": found,
             "last": {
@@ -662,7 +720,13 @@ class KnowbotCreationService:
                     test.draft_id,
                     result.run_id,
                     [
-                        q.model_dump(mode="json") | {"route": first_route(q.kind)}
+                        q.model_dump(mode="json")
+                        | {
+                            # 自助测的问题都归作者本人，运营看不到（SDD 0046 第四节）
+                            "route": "user"
+                            if test.mode == "self"
+                            else first_route(q.kind)
+                        }
                         for q in result.questions
                     ],
                 )

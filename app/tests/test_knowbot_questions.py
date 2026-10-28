@@ -29,6 +29,7 @@ from tests.knowbot_fakes import (
     MemoryKnowlab,
     accepted_request,
     manifest,
+    own_computer,
     result,
     waiting,
 )
@@ -45,6 +46,7 @@ class Clock:
 @pytest.fixture
 async def testing():
     repo, runtime, clock = MemoryKnowlab(), FakeRuntime(), Clock()
+    own_computer(repo)  # 平台测试在作者的电脑上跑（decisions ⑯）
     asks = KnowbotQuestionService(repo, runtime, now=clock)
     svc = KnowbotCreationService(repo, runtime, now=clock, on_refresh=asks.resend)
     request = await accepted_request(svc)

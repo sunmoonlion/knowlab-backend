@@ -1,7 +1,8 @@
 """测试契约 `knowbot-test-run/v1`（SDD 0027 决定 12）：knowlab 定，运行方实现。
 
-knowlab 管理端后端把一份草稿清单、验收用例（带测试集）、预算与超时交给运行方；运行方
-在我们的测试账号上无人值守跑。测试一次要几分钟到几十分钟，所以是异步的：
+knowlab 后端把一份草稿清单、验收用例（带测试集）、预算与超时交给运行方；运行方在
+作者（数据的所有者）的账号下、他接入的电脑上、用他的模型 key 跑（`runner`，decisions ⑯：
+平台测试也一样，平台的测试账号与测试电脑不再用于测试）。测试一次要几分钟到几十分钟，所以是异步的：
 
 - `POST /api/internal/v1/knowbot-runtime/test-runs`：提交，回 202 与当前状态。
   同一个 run_id 重复提交是幂等的：内容相同回原状态，不同则 409。
@@ -64,30 +65,13 @@ class CaseInput(Strict):
 
 
 class Runner(Strict):
-    """谁跑这次测试（SDD 0046 第三节）：平台的测试账号（缺省），或用户本人——跑在他接入
-    的电脑、他选的工作区根目录、他的模型 key，他出钱。v1 冻结后加的可选字段。"""
+    """谁跑这次测试（SDD 0046 第三节，decisions ⑯）：只有用户本人——跑在他接入的电脑、
+    他选的工作区根目录、他的模型 key，他出钱。平台测试也在作者的账号下跑，平台的测试
+    账号与测试电脑不再用于测试（10-28 起必填，原为可选、缺省是平台的测试账号）。"""
 
-    kind: Literal["platform", "user"]
-    environment_id: str | None = Field(
-        default=None,
-        pattern=r"^[0-9a-f-]{36}$",
-        exclude_if=lambda value: value is None,
-    )
-    workspace_root: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=1024,
-        exclude_if=lambda value: value is None,
-    )
-
-    @model_validator(mode="after")
-    def _where_for_the_user(self) -> Runner:
-        mine = self.environment_id is not None and self.workspace_root is not None
-        if (self.kind == "user") != mine:
-            raise ValueError("a user runner names the computer and workspace root")
-        if self.kind == "platform" and (self.environment_id or self.workspace_root):
-            raise ValueError("the platform runner uses its own test computer")
-        return self
+    kind: Literal["user"]
+    environment_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    workspace_root: str = Field(min_length=1, max_length=1024)
 
 
 class PinnedInput(Strict):
@@ -159,8 +143,8 @@ class RunRequestV1(Strict):
     timeout_seconds: int = Field(ge=60, le=86400)  # 不含等人回答的时间
     # 一个问题最多等多久；过了没人答，那条用例记 needs_human（所有者定 3 天）
     max_wait_seconds: int = Field(default=259200, ge=60, le=604800)
-    # 谁跑：没有就是平台的测试账号（SDD 0046 第三节）
-    runner: Runner | None = Field(default=None, exclude_if=lambda value: value is None)
+    # 谁跑：用户本人，在他的电脑上（SDD 0046 第三节，decisions ⑯）
+    runner: Runner
 
     @model_validator(mode="after")
     def _unique_cases(self) -> RunRequestV1:
@@ -243,7 +227,7 @@ class Progress(Strict):
     spent: str = Field(
         pattern=r"^[0-9]{1,9}(\.[0-9]{1,6})?$"
     )  # 到现在花了多少，含跑着的这条
-    # 这条用例的委托还没开工、排在测试账号哪件委托后面（只有编号；0034 §三.3）
+    # 这条用例的委托还没开工、排在作者账号下哪件委托后面（只有编号；0034 §三.3）
     queued_behind: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
 
 
@@ -271,7 +255,7 @@ class RunResultV1(Strict):
     questions: tuple[PendingQuestion, ...] = Field(default=(), max_length=50)
     waited_seconds: int = Field(default=0, ge=0)  # 到现在一共等了人多久
     progress: Progress | None = None  # 没结论时：跑着的那条走到哪了
-    # 还没开跑时在等什么（账 141）：测试电脑不在线，或测试电脑还没给出干净的目录。
+    # 还没开跑时在等什么（账 141）：作者的电脑不在线，或还没给出干净的目录。
     # 只在已受理时出现
     blocked: Literal["computer_offline", "folder_not_ready"] | None = None
 

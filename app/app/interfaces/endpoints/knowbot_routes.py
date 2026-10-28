@@ -9,6 +9,9 @@ web端（用户会话），左边栏「申请 · 审核 · 专家」：申请（
 「受理 · 孵化 · 测试 · 交付」：每栏的大类列表与「等我们」的数；受理（写受理单）、孵化
 （选受理了的版本贴清单、请用户审核、核出处）、测试（发起 = 新编号、刷新、判定卡住 = 平台
 出错）、交付（交回、运营审核、交 knowmart 与重试、全部专家、停用）。补充方法只读。
+管理端只看得到平台模式的准专家、测试与它们的问题（SDD 0046 第四节）：自助的准专家、
+工作稿、自助测试与报告不列，按编号来也是 404。平台测试也在作者的账号下、他的电脑上跑
+（decisions ⑯）。
 
 点任何一条进同一个名称的详情页：顶上一行摘要，下面按时间排的记录。身份依赖写在服务前面：
 先认人，再开数据库会话。
@@ -606,13 +609,13 @@ Column = Literal["acceptance", "incubation", "tests", "delivery"]
 @admin_router.get("/knowbot-counts")
 async def counts(_: Admin, board: Board) -> JSONResponse:
     """左边栏旁的数：每栏「等我们」的条数。"""
-    return _ok({"counts": admin_counts(await board.lives())})
+    return _ok({"counts": admin_counts(await board.lives(operator=True))})
 
 
 @admin_router.get("/knowbot-board/{column}")
 async def board_column(_: Admin, board: Board, column: Column) -> JSONResponse:
     """一栏的全部条目，每条带大类（category）；两端按大类分组。"""
-    lives = await board.lives()
+    lives = await board.lives(operator=True)
     items: list[dict[str, Any]] = []
     if column == "acceptance":
         for category, life, version in acceptance_items(lives):
@@ -661,8 +664,9 @@ async def request_detail(
     questions: Questions,
     request_id: ItemId,
 ) -> JSONResponse:
-    """一个名称的详情页（管理端看全的）；孵化要看的：测试中答过的问题。"""
-    life = await board.life(request_id)
+    """一个名称的详情页（管理端看的：平台模式的那几步）；孵化要看的：平台测试中答过的
+    问题。"""
+    life = await board.life(request_id, operator=True)
     return _ok(
         await _detail(life, svc, admin=True)
         | {
@@ -711,6 +715,7 @@ async def add_draft(
 @admin_router.post("/knowbot-drafts/{draft_id}/review-request", status_code=204)
 async def request_review(admin: Releaser, svc: Service, draft_id: ItemId) -> Response:
     """请用户审核这位准专家（web端「审核」里一条待办）。"""
+    await svc.operator_draft(draft_id)
     await svc.request_user_review(draft_id, admin.subject)
     return Response(status_code=204, headers=NO_STORE)
 
@@ -718,7 +723,7 @@ async def request_review(admin: Releaser, svc: Service, draft_id: ItemId) -> Res
 @admin_router.get("/knowbot-drafts/{draft_id}/manifest")
 async def draft_manifest(admin: Admin, svc: Service, draft_id: ItemId) -> JSONResponse:
     """这位准专家的清单原文：过程页里只读、可复制（SDD 0037）。"""
-    found = await svc.draft(draft_id)
+    found = await svc.operator_draft(draft_id)
     log.info("knowbot manifest read by=%s draft=%s", admin.subject, found.id)
     return _ok({"draft_id": str(found.id), "manifest": found.manifest})
 
@@ -726,6 +731,7 @@ async def draft_manifest(admin: Admin, svc: Service, draft_id: ItemId) -> JSONRe
 @admin_router.post("/knowbot-drafts/{draft_id}/rules-review", status_code=204)
 async def review_rules(admin: Releaser, svc: Service, draft_id: ItemId) -> Response:
     """逐条核过规则出处（C-L1）；记下是谁核的。"""
+    await svc.operator_draft(draft_id)
     await svc.review_rules(draft_id, admin.subject)
     return Response(status_code=204, headers=NO_STORE)
 
@@ -734,14 +740,16 @@ async def review_rules(admin: Releaser, svc: Service, draft_id: ItemId) -> Respo
 async def start_test(
     admin: Admin, body: StartTestIn, svc: Service, board: Board, draft_id: ItemId
 ) -> JSONResponse:
-    """拿这位准专家按用例跑一次：新编号。"""
+    """拿这位准专家按用例跑一次：新编号。在作者上次自助测试的电脑与目录、用作者的 key
+    跑（decisions ⑯）；作者没有可用的电脑回 409 author_has_no_computer。"""
+    await svc.operator_draft(draft_id)
     test = await svc.start_test(
         draft_id,
         budget_limit=body.budget_limit,
         timeout_seconds=body.timeout_seconds,
         starter=admin.subject,
     )
-    life = await board.life(str(test.request_id))
+    life = await board.life(str(test.request_id), operator=True)
     return _ok({"test": test_view(test, life, admin=True)}, status_code=201)
 
 
@@ -749,14 +757,16 @@ async def start_test(
 async def refresh(
     _: Admin, svc: Service, board: Board, test_id: ItemId
 ) -> JSONResponse:
+    await svc.operator_test(test_id)
     test = await svc.refresh(test_id)
-    life = await board.life(str(test.request_id))
+    life = await board.life(str(test.request_id), operator=True)
     return _ok({"test": test_view(test, life, admin=True)})
 
 
 @admin_router.post("/knowbot-tests/{test_id}/reset", status_code=204)
 async def reset(_: Releaser, svc: Service, test_id: ItemId) -> Response:
     """超时还没结论：记平台出错（超时）结束这一次，准专家回到待测。"""
+    await svc.operator_test(test_id)
     await svc.reset_stuck(test_id)
     return Response(status_code=204, headers=NO_STORE)
 
@@ -764,7 +774,7 @@ async def reset(_: Releaser, svc: Service, test_id: ItemId) -> Response:
 @admin_router.get("/knowbot-tests/{test_id}/outputs")
 async def test_outputs(admin: Admin, svc: Service, test_id: ItemId) -> JSONResponse:
     """这次测试每条用例的成稿与各步交回物：测试人员验证这一稿用（SDD 0037）。"""
-    test, request = await svc.test_with_request(test_id)
+    test, request = await svc.operator_test(test_id)
     # 产出是用户的分析内容：谁、哪一次、何时读的留一行，不记正文（审读 10-19）
     log.info("knowbot outputs read by=%s test=%s", admin.subject, test.id)
     return _ok(outputs_view(test, await svc.test_outputs(test, request), admin=True))

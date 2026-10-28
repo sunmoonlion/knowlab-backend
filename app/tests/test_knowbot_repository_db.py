@@ -23,6 +23,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.ports.knowbots import TestRecord
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
@@ -30,6 +31,8 @@ from app.domain.knowbots.lifecycle import ExpertDecisionIn, RevisionIn
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
 from tests.knowbot_fakes import (
+    COMPUTER,
+    COMPUTER_ROOT,
     OWNER,
     FakeKnowmart,
     FakeRuntime,
@@ -111,7 +114,35 @@ def experts(session) -> KnowbotExpertService:
     return KnowbotExpertService(SqlKnowlabRepository(session), KNOWMART)
 
 
+async def _own_computer(db, owner: str = OWNER) -> None:
+    """作者以前在自己的电脑上自助测过（另一个名称上）：平台测试在那台电脑、那个目录跑
+    （decisions ⑯）。"""
+    async with db() as session:
+        other = await accepted_request(service(session), owner)
+    async with db() as session:
+        draft = await service(session).add_draft(str(other.id), manifest())
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        async with repo.transaction():
+            await repo.create_test(
+                TestRecord(
+                    id=uuid.uuid4(),
+                    request_id=other.id,
+                    number=1,
+                    draft_id=draft.id,
+                    status="failed",
+                    run_id=f"knowlab-test-{uuid.uuid4()}",
+                    started_at=datetime(2026, 10, 1, tzinfo=UTC),
+                    finished_at=datetime(2026, 10, 1, 1, tzinfo=UTC),
+                    mode="self",
+                    environment_id=COMPUTER,
+                    workspace_root=COMPUTER_ROOT,
+                )
+            )
+
+
 async def _reviewed(db, owner: str = OWNER):
+    await _own_computer(db, owner)
     async with db() as session:
         request = await accepted_request(service(session), owner)
     async with db() as session:
@@ -137,6 +168,17 @@ async def test_the_whole_life_round_trips(db) -> None:
         found = await repo.find_test_by_run(test.run_id)
         assert found is not None and (found.number, found.status) == (1, "queued")
         assert await repo.find_test_by_run("knowlab-run-none") is None
+        # 平台测试在作者上次自助测试的电脑与目录跑，仍记平台模式（decisions ⑯）
+        assert (found.mode, found.environment_id, found.workspace_root) == (
+            "platform",
+            COMPUTER,
+            COMPUTER_ROOT,
+        )
+        last = await repo.last_self_test(OWNER)
+        assert last is not None and last.mode == "self"
+        assert await repo.last_self_test("someone-else") is None
+    [sent] = [r for _, r in RUNTIME.started if r.run_id == test.run_id]
+    assert (sent.runner.kind, sent.runner.environment_id) == ("user", COMPUTER)
     RUNTIME.results[test.run_id] = result(test.run_id, "passed")
     async with db() as session:
         passed = await service(session).refresh(str(test.id))
@@ -279,6 +321,7 @@ async def test_the_database_refuses_bad_states_and_duplicates(db) -> None:
 
 @pytest.mark.asyncio
 async def test_concurrent_starts_leave_one_test_running(db) -> None:
+    await _own_computer(db)
     async with db() as session:
         request = await accepted_request(service(session))
     drafts = []
@@ -301,7 +344,10 @@ async def test_concurrent_starts_leave_one_test_running(db) -> None:
     assert len(conflicts) == 1, results
     async with db() as session:
         count = (
-            await session.execute(text("SELECT count(*) FROM knowbot_test"))
+            await session.execute(
+                text("SELECT count(*) FROM knowbot_test WHERE request_id = :r"),
+                {"r": request.id},
+            )
         ).scalar()
     assert count == 1
 
