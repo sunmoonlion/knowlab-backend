@@ -13,6 +13,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    IncubationRecord,
     QuestionRecord,
     RequestRecord,
     RequestVersionRecord,
@@ -263,8 +264,14 @@ def outputs_view(
 
 
 def question_view(
-    q: QuestionRecord, draft: DraftRecord, request: RequestRecord, *, admin: bool
+    q: QuestionRecord,
+    draft: DraftRecord | None,
+    request: RequestRecord,
+    *,
+    admin: bool,
 ) -> dict[str, Any]:
+    """一个待答的问题。孵化的缺口（kind gap）不挂准专家：label、draft_id 是空的，带 AI
+    附的提议与是哪一轮（运营看不到缺口，只有作者本人这里有）。"""
     view: dict[str, Any] = {
         "question_id": str(q.id),
         "kind": q.kind,
@@ -276,9 +283,13 @@ def question_view(
         "asked_at": q.asked_at,
         "title": request.title,
         "request_id": str(request.id),
-        "label": draft_label(draft.version, draft.revision),
+        "label": None if draft is None else draft_label(draft.version, draft.revision),
         # 是哪位准专家的（web端按它对上，不按同名标题猜；SDD 0037）
-        "draft_id": str(draft.id),
+        "draft_id": None if draft is None else str(draft.id),
+        # 从哪来：测试中的，还是孵化的缺口（专家孵化方案第 8.4 节）
+        "source": "incubation" if q.kind == "gap" else "test",
+        "proposal": q.proposal,
+        "incubation_id": None if q.incubation_id is None else str(q.incubation_id),
     }
     if admin:
         view |= {
@@ -300,7 +311,9 @@ def answered_view(q: QuestionRecord, *, admin: bool) -> dict[str, Any]:
         "answer": q.answer,
         "answered_by": q.answered_by,
         "answered_at": iso(q.answered_at),
-        "draft_id": str(q.draft_id),
+        "draft_id": None if q.draft_id is None else str(q.draft_id),
+        "source": "incubation" if q.kind == "gap" else "test",
+        "proposal": q.proposal,
     }
     if admin:
         view["route_reason"] = q.route_reason
@@ -333,3 +346,92 @@ def workdraft_view(
         "origins": origins or {},
         "updated_at": iso(workdraft.updated_at),
     }
+
+
+def _suggestions(record: IncubationRecord) -> list[dict[str, Any]]:
+    """这一轮的每条建议：改哪一格、怎么改、理由、出处（引到的那几行）与核得上没有、作者
+    怎么处理的。"""
+    handback = record.handback or {}
+    sources = [s for s in handback.get("sources") or [] if isinstance(s, dict)]
+    checked = record.review or {}
+    out: list[dict[str, Any]] = []
+    for s in handback.get("suggestions") or []:
+        if not isinstance(s, dict):
+            continue
+        path, sid = str(s.get("path") or ""), str(s.get("id") or "")
+        found = checked.get(sid) or {}
+        decision = record.decisions.get(sid) or {}
+        out.append(
+            {
+                "id": sid,
+                "path": path,
+                "op": s.get("op"),
+                "value": s.get("value"),
+                "reason": s.get("reason"),
+                "sources": [
+                    e
+                    for e in sources
+                    if e.get("path") == path
+                    or str(e.get("path") or "").startswith(path + "/")
+                    or path.startswith(str(e.get("path") or "") + "/")
+                ],
+                "kinds": found.get("kinds") or ["proposal"],
+                "verified": bool(found.get("verified")),
+                "problems": found.get("problems") or [],
+                "state": decision.get("state") or "pending",
+            }
+        )
+    return out
+
+
+def _gap(gap: dict[str, Any], asked: QuestionRecord | None) -> dict[str, Any]:
+    """一个缺口：问题、提议、选项，与进了问题表的那一条（审核栏里答）答了没有。"""
+    return {
+        "gap_id": gap.get("id"),
+        "question": gap.get("question"),
+        "proposal": gap.get("proposal"),
+        "options": gap.get("options") or [],
+        "question_id": None if asked is None else str(asked.id),
+        "answered": asked is not None and asked.answer is not None,
+        "answer": None if asked is None else asked.answer,
+    }
+
+
+def incubation_view(
+    record: IncubationRecord, gaps: Sequence[QuestionRecord] | None = None
+) -> dict[str, Any]:
+    """AI 孵化的一轮（作者本人看，专家孵化方案第 8.2–8.4 节）：第几轮、动作与那句指令、
+    状态、花费与上限、在等什么、没成的原因；给了缺口（gaps）的再带交回的建议、缺口（问题
+    编号、答了没有）、自查。"""
+    view: dict[str, Any] = {
+        "incubation_id": str(record.id),
+        "round": record.round,
+        "mode": record.mode,
+        "action": record.action,
+        "instruction": record.instruction,
+        "step_id": record.step_id,
+        "status": record.status,
+        "budget_limit": record.budget_limit,
+        "spent": record.spent,
+        "currency": "CNY",
+        "waiting_for": record.waiting_for,
+        "error": record.error,
+        "environment_id": record.environment_id,
+        "workspace_root": record.workspace_root,
+        "request_version": record.request_version,
+        "workdraft_revision": record.workdraft_revision,
+        "started_at": iso(record.started_at),
+        "finished_at": iso(record.finished_at),
+    }
+    if gaps is None:
+        return view
+    handback = record.handback or {}
+    asked = {q.question_id: q for q in gaps}
+    view["suggestions"] = _suggestions(record)
+    view["gaps"] = [
+        _gap(g, asked.get(str(g.get("id"))))
+        for g in handback.get("gaps") or []
+        if isinstance(g, dict)
+    ]
+    view["self_check"] = list(handback.get("self_check") or [])
+    return view

@@ -9,12 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_experts import KnowbotExpertService
+from app.application.services.knowbot_incubation import KnowbotIncubationService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.external.knowbase_data_v2 import KnowbaseDataV2
 from app.infrastructure.external.knowbot_clients import (
+    KnowbenchIncubationClient,
     KnowmartDeliveryClient,
     RuntimeTestClients,
 )
@@ -30,6 +32,12 @@ def runtime_clients() -> RuntimeTestClients:
 @lru_cache(maxsize=1)
 def knowmart_client() -> KnowmartDeliveryClient:
     return KnowmartDeliveryClient()
+
+
+@lru_cache(maxsize=1)
+def incubation_client() -> KnowbenchIncubationClient:
+    """交 knowbench 跑孵化的一轮（服务关系 knowbench:incubate）。"""
+    return KnowbenchIncubationClient()
 
 
 def knowbot_question_service(session: AsyncSession) -> KnowbotQuestionService:
@@ -74,6 +82,13 @@ def knowbot_expert_service(session: AsyncSession) -> KnowbotExpertService:
 def knowbot_workdraft_service(session: AsyncSession) -> KnowbotWorkdraftService:
     """工作稿：作者直接改、导入、复制、预览、出一版（专家孵化方案）。"""
     return KnowbotWorkdraftService(SqlKnowlabRepository(session))
+
+
+def knowbot_incubation_service(session: AsyncSession) -> KnowbotIncubationService:
+    """AI 孵化的一轮：发起、取回、取消、接受建议（专家孵化方案第八、九节）。"""
+    return KnowbotIncubationService(
+        SqlKnowlabRepository(session), incubation_client(), runtime_clients()
+    )
 
 
 def knowbot_board(session: AsyncSession) -> KnowbotBoard:

@@ -25,6 +25,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy import text as sql_text  # 问题表有一栏叫 text，类里用这个名字
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +35,12 @@ from app.infrastructure.models.base import Base, TimestampMixin
 DRAFT_STATUSES = "('pending_test', 'testing', 'passed', 'failed', 'delivered')"
 TEST_STATUSES = "('queued', 'running', 'waiting', 'passed', 'failed', 'platform_error')"
 ACTIVE_TESTS = "('queued', 'running', 'waiting')"
+# 孵化一轮的状态照契约 knowbot-incubation/v1 的结果状态
+INCUBATION_STATUSES = (
+    "('queued', 'running', 'waiting', 'succeeded', 'failed', 'over_budget',"
+    " 'cancelled')"
+)
+ACTIVE_INCUBATIONS = "('queued', 'running', 'waiting')"
 
 
 class KnowbotRequest(TimestampMixin, Base):
@@ -291,16 +298,23 @@ class KnowbotExpert(Base):
 
 
 class KnowbotQuestion(TimestampMixin, Base):
-    """测试中待人决定的问题（有人值守，SDD 0027 §3.4）。"""
+    """待人决定的问题：测试中的（有人值守，SDD 0027 §3.4），挂在准专家上；孵化的缺口
+    （kind gap，专家孵化方案第 8.4 节），挂在孵化的那一轮与名称上。两样只挂一样。"""
 
     __tablename__ = "knowbot_question"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    draft_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("knowbot_draft.id", ondelete="RESTRICT"),
-        nullable=False,
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowbot_draft.id", ondelete="RESTRICT")
     )
+    incubation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowbot_incubation.id", ondelete="RESTRICT")
+    )
+    request_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowbot_request.id", ondelete="RESTRICT")
+    )
+    # 缺口附的提议（作者可以答「按提议」）
+    proposal: Mapped[str | None] = mapped_column(Text)
     run_id: Mapped[str] = mapped_column(String(128), nullable=False)
     question_id: Mapped[str] = mapped_column(String(128), nullable=False)
     case_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -329,9 +343,25 @@ class KnowbotQuestion(TimestampMixin, Base):
             "draft_id", "run_id", "question_id", name="uq_knowbot_question_once"
         ),
         CheckConstraint(
-            "kind IN ('tool_approval', 'question', 'ask_before', 'data')",
+            "kind IN ('tool_approval', 'question', 'ask_before', 'data', 'gap')",
             name="ck_knowbot_question_kind",
         ),
+        # 测试中的挂在准专家上；缺口挂在孵化的那一轮与名称上
+        CheckConstraint(
+            "(kind = 'gap' AND draft_id IS NULL AND incubation_id IS NOT NULL"
+            " AND request_id IS NOT NULL)"
+            " OR (kind <> 'gap' AND draft_id IS NOT NULL AND incubation_id IS NULL"
+            " AND request_id IS NULL)",
+            name="ck_knowbot_question_owner",
+        ),
+        Index(
+            "uq_knowbot_question_gap_once",
+            "incubation_id",
+            "question_id",
+            unique=True,
+            postgresql_where=sql_text("incubation_id IS NOT NULL"),
+        ),
+        Index("ix_knowbot_question_request", "request_id"),
         CheckConstraint(
             "(kind = 'tool_approval' AND route IS NULL)"
             " OR (kind <> 'tool_approval' AND route IS NOT NULL"
@@ -506,4 +536,92 @@ class KnowbotWorkdraftRecord(Base):
             name="ck_knowbot_workdraft_record_suggestion",
         ),
         Index("ix_knowbot_workdraft_record_workdraft", "workdraft_id"),
+    )
+
+
+class KnowbotIncubation(TimestampMixin, Base):
+    """AI 孵化的一轮（专家孵化方案第 8.2 节，0029 第 6.6 节）：作者点「AI 起草」或
+    「让 AI 改…」一次是一轮，经 knowbench:incubate 交给运行方，在作者的电脑上、用他的
+    key 跑。
+
+    同一份工作稿同时只有一轮没结束。交出去的种子（创意第几版与拼成的原文）、带去的答复、
+    工作稿的 revision 都记着，取回后照它们核出处（第九节）；handback 是交回的四样，
+    review 是 knowlab 核过的每条建议，decisions 是作者对每条建议的处理。
+    """
+
+    __tablename__ = "knowbot_incubation"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    workdraft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_workdraft.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    round: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 方式：self 自助 AI（作者自己点的）；platform 留给以后的平台孵化
+    mode: Mapped[str] = mapped_column(String(8), nullable=False, server_default="self")
+    action: Mapped[str] = mapped_column(String(8), nullable=False)
+    instruction: Mapped[str | None] = mapped_column(Text)
+    step_id: Mapped[str | None] = mapped_column(String(48))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    budget_limit: Mapped[str] = mapped_column(String(16), nullable=False)
+    spent: Mapped[str | None] = mapped_column(String(24))
+    timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 交给运行方的编号（契约的 incubation_id），与运行方那边的委托号
+    run_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(36))
+    environment_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    workspace_root: Mapped[str] = mapped_column(Text, nullable=False)
+    waiting_for: Mapped[str | None] = mapped_column(String(32))
+    request_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    seed: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    workdraft_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    answer_ids: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+    handback: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    review: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    decisions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("request_id", "round", name="uq_knowbot_incubation_round"),
+        UniqueConstraint("run_id", name="uq_knowbot_incubation_run"),
+        CheckConstraint("round >= 1", name="ck_knowbot_incubation_round"),
+        CheckConstraint(
+            "mode IN ('self', 'platform')", name="ck_knowbot_incubation_mode"
+        ),
+        CheckConstraint(
+            "action IN ('draft', 'revise')", name="ck_knowbot_incubation_action"
+        ),
+        # 按指令改才有那句指令；起草没有
+        CheckConstraint(
+            "(action = 'revise') = (instruction IS NOT NULL)",
+            name="ck_knowbot_incubation_instruction",
+        ),
+        CheckConstraint(
+            f"status IN {INCUBATION_STATUSES}", name="ck_knowbot_incubation_status"
+        ),
+        CheckConstraint(
+            "(status = 'succeeded') = (handback IS NOT NULL)",
+            name="ck_knowbot_incubation_handback",
+        ),
+        # 同一份工作稿同时只有一轮没结束
+        Index(
+            "uq_knowbot_incubation_one_active",
+            "workdraft_id",
+            unique=True,
+            postgresql_where=text(f"status IN {ACTIVE_INCUBATIONS}"),
+        ),
+        Index("ix_knowbot_incubation_owner", "owner_subject"),
     )

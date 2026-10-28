@@ -10,7 +10,9 @@
 - 导入专家包、复制自己的准专家：整份换掉，记一条导入 / 复制记录，拆出的每一格引它。
 - 出一版：方法层每格都要有出处、核得上；编出的清单过 knowlab 的草稿检查与 pack 结构
   自检；都过了照版本号规矩建准专家（自助，出处由程序核过）。工作稿本身不变，可以接着改
-  再出一版。
+  再出一版。出处认的答过的问题含孵化的缺口，认的创意原句按各版创意重拼的种子原文核。
+- 导入 skill 当种子（第十节）：存成创意的新一版（种类 skill），用例与同意照最新那一版；
+  之后点「AI 起草」去拆，或照着自己写。
 """
 
 from __future__ import annotations
@@ -33,9 +35,10 @@ from app.application.ports.knowbots import (
     RequestRecord,
     WorkdraftRecord,
 )
-from app.application.services.knowbot_service import parse_id
+from app.application.services.knowbot_service import MAX_VERSIONS, parse_id
 from app.domain.knowbots.compile import compile_manifest, decompile, pack_problems
 from app.domain.knowbots.drafts import draft_manifest_problems
+from app.domain.knowbots.incubation_rounds import seed_of
 from app.domain.knowbots.workdraft import (
     MAX_BODY_BYTES,
     MAX_EDITS,
@@ -65,7 +68,7 @@ def _summary(problems: Sequence[Problem]) -> str:
     return text + (f"; and {more} more" if more > 0 else "")
 
 
-def _body(raw: Any) -> WorkdraftBody:
+def parse_body(raw: Any) -> WorkdraftBody:
     try:
         return WorkdraftBody.model_validate(raw)
     except ValidationError as exc:
@@ -106,7 +109,7 @@ class KnowbotWorkdraftService:
         entries = await self.repo.list_workdraft_entries(record_ids(workdraft.sources))
         return origins(workdraft.sources, {e.id: e for e in entries})
 
-    async def _locked(self, request: RequestRecord, revision: int) -> WorkdraftRecord:
+    async def locked(self, request: RequestRecord, revision: int) -> WorkdraftRecord:
         """锁住这个名称，核 revision；还没有的建一份空的（在同一个事务里）。"""
         await self.repo.lock_request(request.id)
         current = await self.repo.get_workdraft(request.id, for_update=True)
@@ -124,7 +127,7 @@ class KnowbotWorkdraftService:
             )
         return current
 
-    async def _store(
+    async def store(
         self, current: WorkdraftRecord, body: WorkdraftBody, sources: dict[str, Any]
     ) -> WorkdraftRecord:
         doc = body.model_dump(mode="json")
@@ -156,7 +159,7 @@ class KnowbotWorkdraftService:
             )
         request = await self._request(owner_subject, request_id)
         async with self.repo.transaction():
-            current = await self._locked(request, revision)
+            current = await self.locked(request, revision)
             doc: dict[str, Any] = current.body
             for path, value in edits:
                 try:
@@ -165,8 +168,8 @@ class KnowbotWorkdraftService:
                     raise BadRequestError(
                         f"Cannot save {path[:80]}: {exc}", code="workdraft_path_invalid"
                     ) from None
-            body = _body(doc)
-            before, after = cells(_body(current.body)), cells(body)
+            body = parse_body(doc)
+            before, after = cells(parse_body(current.body)), cells(body)
             sources = {p: s for p, s in current.sources.items() if p in after}
             for path, text in after.items():
                 if before.get(path) == text and path in sources:
@@ -180,7 +183,7 @@ class KnowbotWorkdraftService:
                     text=text,
                 )
                 sources[path] = {"kind": "user_text", "ref": f"record:{entry.id}"}
-            return await self._store(current, body, sources)
+            return await self.store(current, body, sources)
 
     # ---------- 导入、复制 ----------
     async def _replace(
@@ -198,7 +201,7 @@ class KnowbotWorkdraftService:
         except ValueError as exc:
             raise BadRequestError(str(exc)[:500], code="manifest_invalid") from None
         async with self.repo.transaction():
-            current = await self._locked(request, revision)
+            current = await self.locked(request, revision)
             found = cells(body)
             extra = {}
             if kind == "import":
@@ -212,7 +215,7 @@ class KnowbotWorkdraftService:
                 text=bundle_text(origin, found, **extra),
             )
             ref = {"kind": "user_text", "ref": f"record:{entry.id}"}
-            stored = await self._store(current, body, {path: ref for path in found})
+            stored = await self.store(current, body, {path: ref for path in found})
         return stored, notes
 
     async def import_manifest(
@@ -258,7 +261,7 @@ class KnowbotWorkdraftService:
         return version, max((d.revision for d in drafts), default=0) + 1
 
     async def _answered(self, request: RequestRecord) -> set[str]:
-        """这个名称里作者本人答过的问题（缺口、测试中的判断）。"""
+        """这个名称里作者本人答过的问题（孵化的缺口、测试中的判断）。"""
         found: set[str] = set()
         for draft in await self.repo.list_drafts(request_id=request.id):
             for q in await self.repo.list_questions(draft_id=draft.id):
@@ -268,12 +271,22 @@ class KnowbotWorkdraftService:
                     and q.kind != "tool_approval"
                 ):
                     found.add(str(q.id))
+        for q in await self.repo.list_gaps(request_ids=[request.id]):
+            if q.answered_by == "user" and q.answer is not None:
+                found.add(str(q.id))
         return found
+
+    async def _ideas(self, request: RequestRecord) -> dict[int, str]:
+        """各版创意拼成的种子原文（版本号 → 原文）：核引的创意原句。"""
+        return {
+            v.version: seed_of(v.idea)[1]
+            for v in await self.repo.list_versions([request.id])
+        }
 
     async def _compile(
         self, request: RequestRecord, current: WorkdraftRecord | None, version: str
     ) -> tuple[dict[str, Any], list[Problem]]:
-        body = _body(empty_body() if current is None else current.body)
+        body = parse_body(empty_body() if current is None else current.body)
         sources = {} if current is None else current.sources
         entries = await self.repo.list_workdraft_entries(record_ids(sources))
         problems = source_problems(
@@ -283,6 +296,7 @@ class KnowbotWorkdraftService:
             owner_subject=request.owner_subject,
             entries={e.id: e for e in entries},
             answered=await self._answered(request),
+            ideas=await self._ideas(request),
         )
         manifest, compiled = compile_manifest(
             body,
@@ -343,3 +357,30 @@ class KnowbotWorkdraftService:
         found = await self.repo.get_draft(draft.id)
         assert found is not None
         return found
+
+    # ---------- 导入 skill 当种子 ----------
+    async def seed_skill(self, owner_subject: str, request_id: str, skill: str) -> int:
+        """导入 skill 当种子（第十节）：存成创意的新一版（种类 skill），回版本号。用例与
+        同意的测试数据说明照最新那一版（这里只换方法的种子）。"""
+        if not skill.strip():
+            raise BadRequestError("The skill is empty", code="skill_empty")
+        request = await self._request(owner_subject, request_id)
+        async with self.repo.transaction():
+            await self.repo.lock_request(request.id)
+            current = await self.repo.get_request(request.id)
+            assert current is not None
+            if current.latest_version >= MAX_VERSIONS:
+                raise ConcurrencyConflictError(
+                    f"At most {MAX_VERSIONS} versions", code="too_many_versions"
+                )
+            latest = await self.repo.get_version(current.id, current.latest_version)
+            assert latest is not None
+            found = await self.repo.add_version(
+                request_id=current.id,
+                version=current.latest_version + 1,
+                idea={"kind": "skill", "skill": skill},
+                cases=latest.cases,
+                consent_version=latest.consent_version,
+                created_by=owner_subject,
+            )
+        return found.version

@@ -76,18 +76,23 @@ class SixAnswers(Strict):
 
 
 class Idea(Strict):
-    """用户的方法：六问，或一份 skill 原文。逻辑只来自这里（C-L1）。"""
+    """用户的方法：六问、一份 skill 原文，或一句话问题（专家孵化方案第四节：方法由 AI
+    按问题起草，作者改定）。逻辑只来自这里与作者在工作稿里写的（C-L1）。"""
 
-    kind: Literal["six_questions", "skill"]
+    kind: Literal["six_questions", "skill", "question"]
     answers: SixAnswers | None = None
     skill: str | None = Field(default=None, max_length=20000)
+    question: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
     def _one_form(self) -> Idea:
-        if self.kind == "six_questions" and (self.answers is None or self.skill):
-            raise ValueError("six_questions needs answers and no skill")
-        if self.kind == "skill" and (not self.skill or self.answers is not None):
-            raise ValueError("skill needs the skill text and no answers")
+        given = {
+            "six_questions": self.answers is not None,
+            "skill": bool(self.skill),
+            "question": bool(self.question and self.question.strip()),
+        }
+        if not given[self.kind] or any(v for k, v in given.items() if k != self.kind):
+            raise ValueError(f"{self.kind} needs its own text and nothing else")
         return self
 
 

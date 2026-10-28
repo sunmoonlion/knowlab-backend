@@ -14,6 +14,7 @@ from app.application.errors.exceptions import (
 )
 from app.domain.knowbots.test_run import CONTRACT, RunRequestV1
 from app.infrastructure.external.knowbot_clients import (
+    KnowbenchIncubationClient,
     KnowmartDeliveryClient,
     RuntimeTestClients,
     registered_runtimes,
@@ -316,3 +317,75 @@ async def test_knowmart_public_request_and_stop() -> None:
     assert seen[2].url.path.endswith(
         "/api/internal/v1/knowmart/owners/user-123/knowbots/kb-1/versions/2/stop"
     )
+
+
+INCUBATE = relation_env(
+    "knowbench",
+    "incubate",
+    "https://knowbench-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime",
+)
+
+
+def _round(incubation_id: str, status: str = "queued") -> dict:
+    return {
+        "contract": "knowbot-incubation/v1",
+        "incubation_id": incubation_id,
+        "status": status,
+    }
+
+
+@pytest.mark.asyncio
+async def test_incubation_goes_to_knowbench_incubate_and_checks_the_round() -> None:
+    from app.domain.knowbots.incubation import IncubationRequestV1
+    from tests.test_knowbot_incubation_contract import request as incubation_request
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/incubations"):
+            body = json.loads(request.content)
+            return httpx.Response(202, json=_round(body["incubation_id"]))
+        if request.url.path.endswith("/cancel"):
+            return httpx.Response(200, json=_round("knowlab-inc-0001", "cancelled"))
+        return httpx.Response(200, json=_round("another-round-0001", "running"))
+
+    oidc = FakeOidc()
+    client = KnowbenchIncubationClient(
+        INCUBATE, oidc_client=oidc, transport=httpx.MockTransport(handler)
+    )
+    assert client.configured()
+    sent = IncubationRequestV1.model_validate(incubation_request())
+    assert (await client.start(sent)).status == "queued"
+    assert (await client.cancel("knowlab-inc-0001")).status == "cancelled"
+    with pytest.raises(BadGatewayError) as caught:  # 回了别的一轮
+        await client.status("knowlab-inc-0001")
+    assert caught.value.code == "incubation_mismatch"
+    base = "https://knowbench-tls.ns.svc.cluster.local/api/internal/v1/knowbot-runtime"
+    assert [(r.method, str(r.url)) for r in seen] == [
+        ("POST", f"{base}/incubations"),
+        ("POST", f"{base}/incubations/knowlab-inc-0001/cancel"),
+        ("GET", f"{base}/incubations/knowlab-inc-0001"),
+    ]
+    assert json.loads(seen[0].content)["instruction"] == "第 2 步拆成两步"
+    assert oidc.calls[0]["scope"] == "knowbench:incubate"
+    assert oidc.calls[0]["client_id"] == "knowbench-incubate-client"
+
+
+@pytest.mark.asyncio
+async def test_incubation_without_the_incubate_relation_is_unavailable() -> None:
+    client = KnowbenchIncubationClient(KNOWBENCH)  # 只有 testrun 那一组
+    assert not client.configured()
+    with pytest.raises(ServiceUnavailableError) as caught:
+        await client.status("knowlab-inc-0001")
+    assert caught.value.code == "incubation_unconfigured"
+
+    def bad(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"status": "nope"})
+
+    broken = KnowbenchIncubationClient(
+        INCUBATE, oidc_client=FakeOidc(), transport=httpx.MockTransport(bad)
+    )
+    with pytest.raises(BadGatewayError) as caught:
+        await broken.status("knowlab-inc-0001")
+    assert caught.value.code == "incubation_contract_invalid"

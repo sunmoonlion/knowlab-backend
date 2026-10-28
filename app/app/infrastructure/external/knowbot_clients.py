@@ -1,8 +1,11 @@
-"""knowlab 的两个外部调用（SDD 0027）：调运行方跑测试、交付与停用 knowmart 里的专家。
+"""knowlab 的外部调用（SDD 0027）：调运行方跑测试、交运行方跑孵化的一轮、交付与停用
+knowmart 里的专家。
 
 运行方是「登记」出来的：本应用 service_clients 里每个 relation=testrun 的目标就是一个运
 行方，部署生成对应的环境变量（见 service_client.py）。现在只有 knowbench；加运行方只加
-配置。
+配置。孵化（专家孵化方案第 8.2 节）只交 knowbench，关系 incubate（scope
+`knowbench:incubate`，环境变量 `KNOWBENCH_INCUBATE_SERVICE_*`，入口同测试的
+`KNOWBENCH_INTERNAL_URL`）。
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from app.application.errors.exceptions import (
     BadRequestError,
     ServiceUnavailableError,
 )
+from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
     CaseOutputsV1,
@@ -29,6 +33,8 @@ from app.infrastructure.external.service_client import ServiceClient, service_re
 RUNTIME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 TEST_RUNS = "/test-runs"  # 接在运行方入口 /api/internal/v1/knowbot-runtime 后面
 USERS = "/users"  # 同上：用户接入过的电脑
+INCUBATIONS = "/incubations"  # 同上：孵化的一轮
+INCUBATOR = "knowbench"
 
 
 def registered_runtimes(environ: Mapping[str, str] | None = None) -> frozenset[str]:
@@ -146,6 +152,63 @@ def _outputs(body: Any, run_id: str, case_id: str) -> CaseOutputsV1:
     if (found.run_id, found.case_id) != (run_id, case_id):
         raise BadGatewayError("The runtime answered another case", code="run_mismatch")
     return found
+
+
+def _incubation(body: Any, incubation_id: str) -> IncubationResultV1:
+    try:
+        found = IncubationResultV1.model_validate(body)
+    except ValueError as exc:
+        raise BadGatewayError(
+            "The runtime answered outside knowbot-incubation/v1",
+            code="incubation_contract_invalid",
+        ) from exc
+    if found.incubation_id != incubation_id:
+        raise BadGatewayError(
+            "The runtime answered another round", code="incubation_mismatch"
+        )
+    return found
+
+
+class KnowbenchIncubationClient:
+    """交 knowbench 跑孵化的一轮（服务关系 knowbench:incubate，契约
+    knowbot-incubation/v1）：提交（幂等）、查、取消。"""
+
+    def __init__(self, environ: Mapping[str, str] | None = None, **client_options: Any):
+        self._environ = environ
+        self._options = client_options
+        self._client: ServiceClient | None = None
+
+    def configured(self) -> bool:
+        return service_relation(INCUBATOR, "incubate", self._environ) is not None
+
+    def _service(self) -> ServiceClient:
+        if self._client is None:
+            relation = service_relation(INCUBATOR, "incubate", self._environ)
+            if relation is None:
+                raise ServiceUnavailableError(
+                    "Incubation on knowbench is not configured",
+                    code="incubation_unconfigured",
+                )
+            self._client = ServiceClient(relation, **self._options)
+        return self._client
+
+    async def start(self, request: IncubationRequestV1) -> IncubationResultV1:
+        _, body = await self._service().request(
+            "POST", INCUBATIONS, json=request.model_dump(mode="json")
+        )
+        return _incubation(body, request.incubation_id)
+
+    async def status(self, incubation_id: str) -> IncubationResultV1:
+        _, body = await self._service().request(
+            "GET", f"{INCUBATIONS}/{quote(incubation_id, safe='')}"
+        )
+        return _incubation(body, incubation_id)
+
+    async def cancel(self, incubation_id: str) -> IncubationResultV1:
+        _, body = await self._service().request(
+            "POST", f"{INCUBATIONS}/{quote(incubation_id, safe='')}/cancel"
+        )
+        return _incubation(body, incubation_id)
 
 
 class KnowmartDeliveryClient:

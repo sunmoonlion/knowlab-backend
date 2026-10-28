@@ -15,15 +15,21 @@
 
 - 作者在编辑器里存的：`user_text`，`record:<编辑记录>`；
 - 导入专家包、复制自己的专家：`user_text`，`record:<那条导入 / 复制记录>`；
-- 接受了的建议（以后）：`user_confirmed`，`record:<接受记录>`；
-- 答过的缺口：`user_confirmed`，`question:<问题>`（作者本人答过的那一条）。
+- 接受了的 AI 提议：`user_confirmed`，`record:<接受记录>`；
+- 接受了的、出自创意原句的建议：`user_text`，`idea:<创意第几版>:<起>+<长>:<摘要>`——
+  那一版创意拼成的种子原文（incubation_rounds.seed_of）里从第「起」个字起、「长」个字的
+  那一句，摘要是这句的 sha256 前 12 位；
+- 答过的缺口（含接受了出自答复的建议）：`user_confirmed`，`question:<问题>`（作者
+  本人答过的那一条）。
 
 原话核对：引的记录要在、属于这份工作稿、是作者本人写的，记录里的文字与格子逐字一致
-（导入、复制记录里记着它拆出的每一格的文字）。
+（导入、复制记录里记着它拆出的每一格的文字）；引的创意原句要在那一版里、逐字是摘要对得上
+的那一句（按同一个拼法重拼再核）。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import uuid
@@ -50,6 +56,7 @@ RECORD_REF = re.compile(
 QUESTION_REF = re.compile(
     r"^question:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
 )
+IDEA_REF = re.compile(r"^idea:([0-9]{1,6}):([0-9]{1,6})\+([0-9]{1,5}):([0-9a-f]{12})$")
 
 
 class Strict(BaseModel):
@@ -379,6 +386,32 @@ def _bundled(entry: Entry, path: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _digest(quote: str) -> str:
+    return hashlib.sha256(quote.encode("utf-8")).hexdigest()[:12]
+
+
+def idea_ref(version: int, seed_text: str, quote: str) -> str | None:
+    """创意原句的引用（出处 `user_text`）：这句在那一版拼成的种子原文里第一次出现的
+    位置；不在里面回 None。"""
+    start = seed_text.find(quote) if quote else -1
+    if start < 0:
+        return None
+    return f"idea:{version}:{start}+{len(quote)}:{_digest(quote)}"
+
+
+def idea_quote(ref: str, ideas: Mapping[int, str]) -> str | None:
+    """引的创意原句：那一版在、位置上的那句摘要对得上才回这句，否则 None。"""
+    match = IDEA_REF.match(ref)
+    if match is None:
+        return None
+    text = ideas.get(int(match.group(1)))
+    start, length = int(match.group(2)), int(match.group(3))
+    if text is None or length < 1 or start + length > len(text):
+        return None
+    quote = text[start : start + length]
+    return quote if _digest(quote) == match.group(4) else None
+
+
 def record_ids(sources: Mapping[str, Any]) -> set[uuid.UUID]:
     """出处里引的记录编号。"""
     found: set[uuid.UUID] = set()
@@ -394,7 +427,8 @@ def origins(
     sources: Mapping[str, Any], entries: Mapping[uuid.UUID, Entry]
 ) -> dict[str, str]:
     """每格的出处是怎么来的（页面在格子旁小字标出）：引的记录是哪种（edit、import、copy、
-    accept），或 `question`（答过的缺口）；引不上的不列（页面当没有出处）。"""
+    accept），`question`（答过的缺口），或 `idea`（创意原句）；引不上的不列（页面当没有
+    出处）。"""
     found: dict[str, str] = {}
     for path, source in sources.items():
         ref = source.get("ref") if isinstance(source, dict) else None
@@ -402,6 +436,9 @@ def origins(
             continue
         if QUESTION_REF.match(ref):
             found[path] = "question"
+            continue
+        if IDEA_REF.match(ref):
+            found[path] = "idea"
             continue
         record = RECORD_REF.match(ref)
         entry = entries.get(uuid.UUID(record.group(1))) if record else None
@@ -418,11 +455,13 @@ def source_problems(
     owner_subject: str,
     entries: Mapping[uuid.UUID, Entry],
     answered: Collection[str] = (),
+    ideas: Mapping[int, str] | None = None,
 ) -> list[Problem]:
     """方法层每一格都要有出处，而且核得上（第 9.2 节）。
 
     entries：出处引到的记录（按编号；别的工作稿的也在里面，好认出来）；answered：作者本人
-    答过的问题编号。
+    答过的问题编号（测试中的判断与孵化缺口）；ideas：这个名称各版创意拼成的种子原文
+    （版本号 → 原文）。
     """
     problems: list[Problem] = []
     for path, text in cells(body).items():
@@ -431,6 +470,14 @@ def source_problems(
         ref = source.get("ref") if isinstance(source, dict) else None
         if kind not in ("user_text", "user_confirmed") or not isinstance(ref, str):
             problems.append(Problem(path, "this cell has no source"))
+            continue
+        if IDEA_REF.match(ref):
+            if kind != "user_text":
+                problems.append(Problem(path, "an idea sentence is user_text"))
+            elif idea_quote(ref, ideas or {}) is None:
+                problems.append(
+                    Problem(path, "the quote is not in that version of the idea")
+                )
             continue
         question = QUESTION_REF.match(ref)
         if question:

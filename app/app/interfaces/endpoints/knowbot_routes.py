@@ -1,17 +1,18 @@
 """创意到专家的接口（SDD 0027、0037）。代码里仍叫 request、draft、knowbot。
 
 web端（用户会话），左边栏「申请 · 审核 · 专家」：申请（出创意 v1）、改创意（出新版本）、
-审核待办箱（转给自己的问题、请自己审核的准专家、交回等自己定的专家）、专家（交回了的各
-版：要不要、停用）；名称的「孵化」栏里是工作稿（专家孵化方案：存格子、导入、复制自己的、
-预览、出一版）。不是自己的与没有的一样，都是 404。
+审核待办箱（转给自己的问题与孵化缺口、请自己审核的准专家、交回等自己定的专家）、专家（交回
+了的各版：要不要、停用）；名称的「孵化」栏里是工作稿（专家孵化方案：存格子、导入专家包
+与 skill、复制自己的、预览、出一版、AI 起草与按指令改的每一轮与接受建议）。不是自己的与
+没有的一样，都是 404。
 
 管理端（管理员会话，我们的运营；admin、operator 现在能做的一样），左边栏
 「受理 · 孵化 · 测试 · 交付」：每栏的大类列表与「等我们」的数；受理（写受理单）、孵化
 （选受理了的版本贴清单、请用户审核、核出处）、测试（发起 = 新编号、刷新、判定卡住 = 平台
 出错）、交付（交回、运营审核、交 knowmart 与重试、全部专家、停用）。补充方法只读。
 管理端只看得到平台模式的准专家、测试与它们的问题（SDD 0046 第四节）：自助的准专家、
-工作稿、自助测试与报告不列，按编号来也是 404。平台测试也在作者的账号下、他的电脑上跑
-（decisions ⑯）。
+工作稿、AI 孵化的各轮与缺口、自助测试与报告不列，按编号来也是 404。平台测试也在作者的
+账号下、他的电脑上跑（decisions ⑯）。
 
 点任何一条进同一个名称的详情页：顶上一行摘要，下面按时间排的记录。身份依赖写在服务前面：
 先认人，再开数据库会话。
@@ -44,6 +45,10 @@ from app.application.services.knowbot_board import (
     user_expert_items,
 )
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
+from app.application.services.knowbot_incubation import (
+    DEFAULT_BUDGET,
+    KnowbotIncubationService,
+)
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
@@ -51,6 +56,7 @@ from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.bootstrap.knowbots import (
     knowbot_board,
     knowbot_expert_service,
+    knowbot_incubation_service,
     knowbot_question_service,
     knowbot_service,
     knowbot_test_data,
@@ -66,6 +72,7 @@ from app.domain.knowbots.lifecycle import (
     StopIn,
     UserReviewIn,
 )
+from app.domain.knowbots.workdraft import STEP_ID
 from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.endpoints.knowbot_views import (
@@ -73,6 +80,7 @@ from app.interfaces.endpoints.knowbot_views import (
     answered_view,
     draft_view,
     expert_view,
+    incubation_view,
     life_view,
     outputs_view,
     question_view,
@@ -125,7 +133,14 @@ def workdraft_service(
     return knowbot_workdraft_service(session)
 
 
+def incubation_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotIncubationService:
+    return knowbot_incubation_service(session)
+
+
 Service = Annotated[KnowbotCreationService, Depends(service)]
+Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
 Board = Annotated[KnowbotBoard, Depends(board_service)]
@@ -268,8 +283,8 @@ async def my_inbox(principal: User, board: Board, questions: Questions) -> JSONR
     items = []
     for state, kind, life, item in inbox_items(lives, asked):
         if kind == "question":
-            draft = life.draft(item.draft_id)
-            assert draft is not None
+            # 孵化的缺口不挂准专家（draft 是空的）
+            draft = None if item.draft_id is None else life.draft(item.draft_id)
             view = question_view(item, draft, life.request, admin=False)
         elif kind == "draft":
             view = draft_view(item, life, admin=False)
@@ -522,6 +537,152 @@ async def publish_workdraft(
             "mode": draft.mode,
         },
         status_code=201,
+    )
+
+
+class SeedSkillIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    skill: str = Field(min_length=1, max_length=20000)
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/seed-skill")
+async def seed_skill(
+    principal: User, body: SeedSkillIn, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """导入 skill 当种子：存成创意的新一版（种类 skill），再点「AI 起草」去拆。"""
+    version = await workdrafts.seed_skill(principal.subject, request_id, body.skill)
+    return _ok({"request_id": request_id, "version": version}, status_code=201)
+
+
+# ---------- web端：AI 孵化的一轮（专家孵化方案第八、九节） ----------
+class IncubationIn(BaseModel):
+    """发起一轮：起草（draft）或按我的一句话改（revise，可以指定一步）；费用上限我设，
+    电脑与目录不给就用上次的。"""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["draft", "revise"]
+    instruction: str | None = Field(default=None, min_length=1, max_length=4000)
+    step_id: str | None = Field(default=None, pattern=STEP_ID)
+    budget_limit: str = Field(
+        default=DEFAULT_BUDGET, pattern=r"^[0-9]{1,6}(\.[0-9]{1,2})?$"
+    )
+    environment_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+    workspace_root: str | None = Field(default=None, min_length=1, max_length=1024)
+
+
+class DecisionIn(BaseModel):
+    """对一条建议：接受、改了再接受（value 是改后的）、不要。改工作稿的带读到的
+    revision，对不上回 409。"""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["accept", "accept_edited", "reject"]
+    revision: int | None = Field(default=None, ge=0)
+    value: Any = None
+
+
+@web_router.get("/knowbot-requests/{request_id}/workdraft/computers")
+async def incubation_computers(
+    principal: User, incubations: Incubations, request_id: ItemId
+) -> JSONResponse:
+    """AI 孵化选电脑：我接入过的电脑与上次用的那台与目录。"""
+    return _ok(await incubations.computers(principal.subject, request_id))
+
+
+@web_router.get("/knowbot-requests/{request_id}/workdraft/incubations")
+async def my_incubations(
+    principal: User, incubations: Incubations, request_id: ItemId
+) -> JSONResponse:
+    """这个名称的各轮（第几轮、状态、花费），第一轮在前。"""
+    found = await incubations.rounds(principal.subject, request_id)
+    return _ok({"incubations": [incubation_view(r) for r in found]})
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/incubations")
+async def start_incubation(
+    principal: User, body: IncubationIn, incubations: Incubations, request_id: ItemId
+) -> JSONResponse:
+    """发起一轮（「AI 起草」「让 AI 改…」）：在我的电脑上、用我的 key 跑，费用上限我设。
+    这份工作稿已有一轮在跑回 409 incubation_running；没有可用的电脑回 409
+    author_has_no_computer。"""
+    record = await incubations.start(
+        principal.subject,
+        request_id,
+        action=body.action,
+        instruction=body.instruction,
+        step_id=body.step_id,
+        budget_limit=body.budget_limit,
+        environment_id=body.environment_id,
+        workspace_root=body.workspace_root,
+    )
+    return _ok(
+        {"incubation": incubation_view(record, await incubations.gaps(record))},
+        status_code=201,
+    )
+
+
+@web_router.get("/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}")
+async def my_incubation(
+    principal: User, incubations: Incubations, request_id: ItemId, incubation_id: ItemId
+) -> JSONResponse:
+    """一轮：状态与交回的建议（每条的出处、核得上没有、我怎么处理的）、缺口、自查。"""
+    _, record = await incubations.mine(principal.subject, request_id, incubation_id)
+    return _ok({"incubation": incubation_view(record, await incubations.gaps(record))})
+
+
+@web_router.post(
+    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}/refresh"
+)
+async def refresh_incubation(
+    principal: User, incubations: Incubations, request_id: ItemId, incubation_id: ItemId
+) -> JSONResponse:
+    """刷新一次（页面轮询）：没结束的问一次运行方，成了的存交回、核出处、缺口进待办。"""
+    record = await incubations.refresh(principal.subject, request_id, incubation_id)
+    return _ok({"incubation": incubation_view(record, await incubations.gaps(record))})
+
+
+@web_router.post(
+    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}/cancel"
+)
+async def cancel_incubation(
+    principal: User, incubations: Incubations, request_id: ItemId, incubation_id: ItemId
+) -> JSONResponse:
+    """取消没结束的一轮。"""
+    record = await incubations.cancel(principal.subject, request_id, incubation_id)
+    return _ok({"incubation": incubation_view(record, await incubations.gaps(record))})
+
+
+@web_router.post(
+    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}"
+    "/suggestions/{suggestion_id}"
+)
+async def decide_suggestion(
+    principal: User,
+    body: DecisionIn,
+    incubations: Incubations,
+    workdrafts: Workdrafts,
+    request_id: ItemId,
+    incubation_id: ItemId,
+    suggestion_id: Annotated[str, Path(max_length=32)],
+) -> JSONResponse:
+    """接受、改了再接受、不要一条建议。出处核不上的只能改了再接受（409
+    suggestion_unverified）；工作稿别处改过回 409 workdraft_revision。"""
+    _, record = await incubations.decide(
+        principal.subject,
+        request_id,
+        incubation_id,
+        suggestion_id,
+        action=body.action,
+        revision=body.revision,
+        value=body.value,
+    )
+    request, found = await workdrafts.get(principal.subject, request_id)
+    return _ok(
+        {
+            "workdraft": workdraft_view(
+                request, found, await workdrafts.origins(found)
+            ),
+            "incubation": incubation_view(record, await incubations.gaps(record)),
+        }
     )
 
 

@@ -20,6 +20,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    IncubationRecord,
     QuestionRecord,
     RequestRecord,
     RequestVersionRecord,
@@ -30,6 +31,11 @@ from app.application.ports.knowbots import (
     WorkdraftRecord,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
+from app.domain.knowbots.incubation import (
+    IncubationRequestV1,
+    IncubationResultV1,
+)
+from app.domain.knowbots.incubation_rounds import ACTIVE_ROUNDS
 from app.domain.knowbots.lifecycle import (
     ACTIVE_TESTS,
     AcceptanceIn,
@@ -168,6 +174,7 @@ class MemoryKnowlab:
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
         self.workdrafts: dict[uuid.UUID, WorkdraftRecord] = {}  # 按名称
         self.entries: dict[uuid.UUID, WorkdraftEntryRecord] = {}
+        self.incubations: dict[uuid.UUID, IncubationRecord] = {}
         # 作者在别的名称上自助测过的（不在这份假仓里）：用户 → 那一次。平台测试照它定在
         # 哪跑（decisions ⑯），测试里用 own_computer 预置
         self.earlier_self_tests: dict[str, TestRecord] = {}
@@ -193,6 +200,7 @@ class MemoryKnowlab:
             dict(self.experts),
             dict(self.workdrafts),
             dict(self.entries),
+            dict(self.incubations),
         )
         try:
             yield
@@ -210,6 +218,7 @@ class MemoryKnowlab:
                 self.experts,
                 self.workdrafts,
                 self.entries,
+                self.incubations,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -500,7 +509,96 @@ class MemoryKnowlab:
         return [
             q
             for q in self.questions.values()
-            if (draft_id is None or q.draft_id == draft_id)
+            if q.kind != "gap"
+            and (draft_id is None or q.draft_id == draft_id)
+            and (not open_only or q.answer is None)
+        ]
+
+    # ---------- AI 孵化的一轮 ----------
+    async def create_incubation(self, record: IncubationRecord) -> IncubationRecord:
+        if record.status in ACTIVE_ROUNDS and any(
+            r.workdraft_id == record.workdraft_id and r.status in ACTIVE_ROUNDS
+            for r in self.incubations.values()
+        ):
+            raise ConcurrencyConflictError("running", code="incubation_running")
+        if any(
+            r.request_id == record.request_id and r.round == record.round
+            for r in self.incubations.values()
+        ):
+            raise ConcurrencyConflictError("round", code="incubation_running")
+        record = replace(record, created_at=self._now())
+        self.incubations[record.id] = record
+        return copy.deepcopy(record)
+
+    async def get_incubation(
+        self, incubation_id: uuid.UUID, *, for_update: bool = False
+    ) -> IncubationRecord | None:
+        found = self.incubations.get(incubation_id)
+        return None if found is None else copy.deepcopy(found)
+
+    async def list_incubations(
+        self,
+        *,
+        request_id: uuid.UUID | None = None,
+        owner_subject: str | None = None,
+    ) -> Sequence[IncubationRecord]:
+        return sorted(
+            (
+                copy.deepcopy(r)
+                for r in self.incubations.values()
+                if (request_id is None or r.request_id == request_id)
+                and (owner_subject is None or r.owner_subject == owner_subject)
+            ),
+            key=lambda r: (str(r.request_id), r.round),
+        )
+
+    async def update_incubation(self, incubation_id: uuid.UUID, **changes: Any) -> None:
+        self.incubations[incubation_id] = replace(
+            self.incubations[incubation_id], **copy.deepcopy(changes)
+        )
+
+    async def add_gaps(
+        self, record: IncubationRecord, gaps: list[dict[str, Any]]
+    ) -> None:
+        seen = {
+            (q.incubation_id, q.question_id)
+            for q in self.questions.values()
+            if q.kind == "gap"
+        }
+        for gap in gaps:
+            if (record.id, gap["question_id"]) in seen:
+                continue
+            found = QuestionRecord(
+                id=uuid.uuid4(),
+                draft_id=None,
+                run_id=record.run_id,
+                question_id=gap["question_id"],
+                case_id="",
+                kind="gap",
+                text=gap["text"],
+                options=list(gap.get("options") or []),
+                allow_free_text=True,
+                asked_at=gap["asked_at"],
+                route="user",
+                incubation_id=record.id,
+                request_id=record.request_id,
+                proposal=gap.get("proposal"),
+            )
+            self.questions[found.id] = found
+
+    async def list_gaps(
+        self,
+        *,
+        request_ids: Any = None,
+        incubation_id: uuid.UUID | None = None,
+        open_only: bool = False,
+    ) -> Sequence[QuestionRecord]:
+        return [
+            q
+            for q in self.questions.values()
+            if q.kind == "gap"
+            and (request_ids is None or q.request_id in request_ids)
+            and (incubation_id is None or q.incubation_id == incubation_id)
             and (not open_only or q.answer is None)
         ]
 
@@ -692,6 +790,47 @@ class FakeRuntime:
             raise ServiceUnavailableError("down", code="knowbench_unavailable")
         self.answers.append((run_id, answers))
         return self.results.get(run_id, result(run_id, "running"))
+
+
+class FakeIncubator:
+    """假的 knowbench 孵化：按 incubation_id 记下交来的；start 回 queued，之后的结果由
+    测试塞进 results。"""
+
+    def __init__(self, configured: bool = True) -> None:
+        self.on = configured
+        self.started: list[IncubationRequestV1] = []
+        self.results: dict[str, IncubationResultV1] = {}
+        self.cancelled: list[str] = []
+        self.fail_start = False
+
+    def configured(self) -> bool:
+        return self.on
+
+    def _result(self, incubation_id: str, status: str) -> IncubationResultV1:
+        return IncubationResultV1.model_validate(
+            {
+                "contract": "knowbot-incubation/v1",
+                "incubation_id": incubation_id,
+                "status": status,
+            }
+        )
+
+    async def start(self, request: IncubationRequestV1) -> IncubationResultV1:
+        if self.fail_start:
+            raise ServiceUnavailableError("down", code="knowbench_unavailable")
+        self.started.append(request)
+        return self.results.get(
+            request.incubation_id, self._result(request.incubation_id, "queued")
+        )
+
+    async def status(self, incubation_id: str) -> IncubationResultV1:
+        return self.results.get(incubation_id, self._result(incubation_id, "running"))
+
+    async def cancel(self, incubation_id: str) -> IncubationResultV1:
+        self.cancelled.append(incubation_id)
+        found = self._result(incubation_id, "cancelled")
+        self.results[incubation_id] = found
+        return found
 
 
 class FakeKnowmart:

@@ -12,6 +12,11 @@
 自助测试的问题都归作者本人（连工具审批），运营看不到、答不了、改派不了，按编号来也是 404
 （SDD 0046 第四节）。工具审批的 route 在库里照旧为空（不许转给谁），自助测的由作者本人在
 web端批准或拒绝，记成「用户答的」与答的时间（只有这个名称的主人答得了）。
+
+孵化的缺口（kind gap，专家孵化方案第 8.4 节）也在这里答：建出来就归作者本人，和测试中的
+问题一起进审核栏；可以答「按提议」（选项 proposal）、选一项或自己写。缺口不挂测试，答了
+只记下（下一轮由作者点「让 AI 改…」带去），不送运行方。运营看不到、答不了，按编号来也是
+404。
 """
 
 from __future__ import annotations
@@ -49,6 +54,9 @@ class AnswerIn:
     text: str | None = None
 
 
+PROPOSAL = "proposal"
+
+
 def _parse(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)
@@ -83,8 +91,11 @@ def _check(question: QuestionRecord, given: AnswerIn) -> dict[str, Any]:
     if given.decision is not None:
         raise BadRequestError("Only approvals take a decision", code="answer_invalid")
     answer: dict[str, Any] = {}
+    allowed = {o.get("id") for o in question.options}
+    if question.kind == "gap" and question.proposal:
+        allowed.add(PROPOSAL)  # 缺口可以答「按提议」
     if given.option_id is not None:
-        if given.option_id not in {o.get("id") for o in question.options}:
+        if given.option_id not in allowed:
             raise BadRequestError("No such option", code="answer_invalid")
         answer["option_id"] = given.option_id
     text = (given.text or "").strip()
@@ -114,6 +125,7 @@ class KnowbotQuestionService:
     async def _with_context(
         self, question: QuestionRecord
     ) -> tuple[QuestionRecord, DraftRecord, RequestRecord]:
+        assert question.draft_id is not None  # 测试中的问题都挂在准专家上
         draft = await self.repo.get_draft(question.draft_id)
         assert draft is not None
         request = await self.repo.get_request(draft.request_id)
@@ -148,7 +160,11 @@ class KnowbotQuestionService:
     async def _platform_question(self, question: QuestionRecord) -> None:
         """运营只碰平台测试的问题；自助测的与没有的一样（SDD 0046 第四节）。"""
         test = await self.repo.find_test_by_run(question.run_id)
-        draft = await self.repo.get_draft(question.draft_id)
+        draft = (
+            None
+            if question.draft_id is None
+            else await self.repo.get_draft(question.draft_id)
+        )
         if test is None or draft is None or not _platform(test, draft):
             raise NotFoundError("No such question", code="question_not_found")
 
@@ -199,13 +215,23 @@ class KnowbotQuestionService:
     # ---------- 用户（网页端） ----------
     async def user_queue(
         self, owner_subject: str
-    ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
-        """转给我的问题，和我自助测试里的工具审批。"""
-        return [
+    ) -> list[tuple[QuestionRecord, DraftRecord | None, RequestRecord]]:
+        """转给我的问题、我自助测试里的工具审批，和我的孵化缺口（不挂准专家）。"""
+        found: list[tuple[QuestionRecord, DraftRecord | None, RequestRecord]] = [
             (q, draft, request)
             for q, draft, request, test in await self._open_questions()
             if request.owner_subject == owner_subject and _mine(q, test, draft)
         ]
+        requests = {
+            r.id: r for r in await self.repo.list_requests_for_owner(owner_subject)
+        }
+        if requests:
+            for q in await self.repo.list_gaps(
+                request_ids=list(requests), open_only=True
+            ):
+                if q.request_id is not None and q.request_id in requests:
+                    found.append((q, None, requests[q.request_id]))
+        return found
 
     async def answer_as_user(
         self, owner_subject: str, question_id: str, given: AnswerIn
@@ -228,15 +254,22 @@ class KnowbotQuestionService:
         return out
 
     async def answered_by_user(self, owner_subject: str) -> list[QuestionRecord]:
-        """这个用户答过的问题（审核栏里的记录），新答的在前。"""
+        """这个用户答过的问题与孵化缺口（审核栏里的记录），新答的在前。"""
         out: list[QuestionRecord] = []
-        for request in await self.repo.list_requests_for_owner(owner_subject):
+        requests = await self.repo.list_requests_for_owner(owner_subject)
+        for request in requests:
             for draft in await self.repo.list_drafts(request_id=request.id):
                 out += [
                     q
                     for q in await self.repo.list_questions(draft_id=draft.id)
                     if q.answered_by == "user"
                 ]
+        if requests:
+            out += [
+                q
+                for q in await self.repo.list_gaps(request_ids=[r.id for r in requests])
+                if q.answered_by == "user"
+            ]
         return sorted(
             out,
             key=lambda q: q.answered_at or datetime.min.replace(tzinfo=UTC),
@@ -252,9 +285,36 @@ class KnowbotQuestionService:
             raise _conflict("Already answered", "question_answered")
         return question
 
+    async def _answer_gap(
+        self, question_id: uuid.UUID, given: AnswerIn, *, owner: str
+    ) -> QuestionRecord:
+        """作者答自己的孵化缺口：只记下，不送运行方。"""
+        async with self.repo.transaction():
+            question = await self._open(str(question_id))
+            request = (
+                None
+                if question.request_id is None
+                else await self.repo.get_request(question.request_id)
+            )
+            if request is None or request.owner_subject != owner:
+                raise NotFoundError("No such question", code="question_not_found")
+            answer = _check(question, given)
+            await self.repo.update_question(
+                question.id, answer=answer, answered_by="user", answered_at=self.now()
+            )
+        found = await self.repo.get_question(question_id)
+        assert found is not None
+        return found
+
     async def _answer(
         self, question_id: str, given: AnswerIn, *, by: str, owner: str | None
     ) -> QuestionRecord:
+        peek = await self.repo.get_question(_parse(question_id))
+        if peek is not None and peek.kind == "gap":
+            # 缺口只归作者本人：运营答不了，与没有的一样
+            if by != "user" or owner is None:
+                raise NotFoundError("No such question", code="question_not_found")
+            return await self._answer_gap(peek.id, given, owner=owner)
         async with self.repo.transaction():
             question = await self._open(question_id)
             _, draft, request = await self._with_context(question)

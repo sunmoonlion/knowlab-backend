@@ -22,6 +22,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    IncubationRecord,
     QuestionRecord,
     RequestRecord,
     RequestVersionRecord,
@@ -37,6 +38,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotAmendment,
     KnowbotDraft,
     KnowbotExpert,
+    KnowbotIncubation,
     KnowbotQuestion,
     KnowbotRequest,
     KnowbotRequestVersion,
@@ -233,6 +235,56 @@ QUESTION_FIELDS = frozenset(
 )
 
 
+INCUBATION_FIELDS = frozenset(
+    {
+        "status",
+        "spent",
+        "task_id",
+        "waiting_for",
+        "error",
+        "handback",
+        "review",
+        "decisions",
+        "started_at",
+        "finished_at",
+    }
+)
+
+
+def _incubation(row: KnowbotIncubation) -> IncubationRecord:
+    return IncubationRecord(
+        id=row.id,
+        request_id=row.request_id,
+        workdraft_id=row.workdraft_id,
+        owner_subject=row.owner_subject,
+        round=row.round,
+        mode=row.mode,
+        action=row.action,
+        instruction=row.instruction,
+        step_id=row.step_id,
+        status=row.status,
+        budget_limit=row.budget_limit,
+        spent=row.spent,
+        timeout_seconds=row.timeout_seconds,
+        run_id=row.run_id,
+        task_id=row.task_id,
+        environment_id=row.environment_id,
+        workspace_root=row.workspace_root,
+        waiting_for=row.waiting_for,
+        request_version=row.request_version,
+        seed=dict(row.seed),
+        workdraft_revision=row.workdraft_revision,
+        answer_ids=list(row.answer_ids or []),
+        error=row.error,
+        handback=row.handback,
+        review=row.review,
+        decisions=dict(row.decisions or {}),
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        created_at=row.created_at,
+    )
+
+
 def _question(row: KnowbotQuestion) -> QuestionRecord:
     return QuestionRecord(
         id=row.id,
@@ -256,6 +308,9 @@ def _question(row: KnowbotQuestion) -> QuestionRecord:
         last_error=row.last_error,
         requests=list(row.requests or []),
         data_state=row.data_state,
+        incubation_id=row.incubation_id,
+        request_id=row.request_id,
+        proposal=row.proposal,
     )
 
 
@@ -846,8 +901,11 @@ class SqlKnowlabRepository:
     async def list_questions(
         self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
     ) -> Sequence[QuestionRecord]:
-        query = select(KnowbotQuestion).order_by(
-            KnowbotQuestion.created_at, KnowbotQuestion.question_id
+        # 测试中的问题；孵化的缺口另列（list_gaps）
+        query = (
+            select(KnowbotQuestion)
+            .where(KnowbotQuestion.kind != "gap")
+            .order_by(KnowbotQuestion.created_at, KnowbotQuestion.question_id)
         )
         if draft_id is not None:
             query = query.where(KnowbotQuestion.draft_id == draft_id)
@@ -877,6 +935,135 @@ class SqlKnowlabRepository:
             created_at=row.created_at,
             from_test_id=row.from_test_id,
         )
+
+    # ---------- AI 孵化的一轮 ----------
+    async def create_incubation(self, record: IncubationRecord) -> IncubationRecord:
+        row = KnowbotIncubation(
+            id=record.id,
+            request_id=record.request_id,
+            workdraft_id=record.workdraft_id,
+            owner_subject=record.owner_subject,
+            round=record.round,
+            mode=record.mode,
+            action=record.action,
+            instruction=record.instruction,
+            step_id=record.step_id,
+            status=record.status,
+            budget_limit=record.budget_limit,
+            timeout_seconds=record.timeout_seconds,
+            run_id=record.run_id,
+            environment_id=record.environment_id,
+            workspace_root=record.workspace_root,
+            request_version=record.request_version,
+            seed=record.seed,
+            workdraft_revision=record.workdraft_revision,
+            answer_ids=list(record.answer_ids),
+            decisions={},
+            started_at=record.started_at,
+        )
+        self.session.add(row)
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "Another round of this workdraft is running",
+                code="incubation_running",
+            ) from exc
+        await self.session.refresh(row)
+        return _incubation(row)
+
+    async def get_incubation(
+        self, incubation_id: uuid.UUID, *, for_update: bool = False
+    ) -> IncubationRecord | None:
+        query = select(KnowbotIncubation).where(KnowbotIncubation.id == incubation_id)
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _incubation(row)
+
+    async def list_incubations(
+        self,
+        *,
+        request_id: uuid.UUID | None = None,
+        owner_subject: str | None = None,
+    ) -> Sequence[IncubationRecord]:
+        query = select(KnowbotIncubation).order_by(
+            KnowbotIncubation.request_id, KnowbotIncubation.round
+        )
+        if request_id is not None:
+            query = query.where(KnowbotIncubation.request_id == request_id)
+        if owner_subject is not None:
+            query = query.where(KnowbotIncubation.owner_subject == owner_subject)
+        rows = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_incubation(r) for r in rows]
+
+    async def update_incubation(self, incubation_id: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - INCUBATION_FIELDS
+        if unknown:
+            raise ValueError(f"unknown incubation fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotIncubation)
+            .where(KnowbotIncubation.id == incubation_id)
+            .values(**changes)
+        )
+
+    async def add_gaps(
+        self, record: IncubationRecord, gaps: list[dict[str, Any]]
+    ) -> None:
+        from sqlalchemy.dialects.postgresql import insert
+
+        for gap in gaps:
+            await self.session.execute(
+                insert(KnowbotQuestion)
+                .values(
+                    id=uuid.uuid4(),
+                    incubation_id=record.id,
+                    request_id=record.request_id,
+                    run_id=record.run_id,
+                    question_id=gap["question_id"],
+                    case_id="",
+                    kind="gap",
+                    text=gap["text"],
+                    options=list(gap.get("options") or []),
+                    allow_free_text=True,
+                    asked_at=gap["asked_at"],
+                    route="user",
+                    proposal=gap.get("proposal"),
+                    requests=[],
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["incubation_id", "question_id"],
+                    index_where=text("incubation_id IS NOT NULL"),
+                )
+            )
+
+    async def list_gaps(
+        self,
+        *,
+        request_ids: Collection[uuid.UUID] | None = None,
+        incubation_id: uuid.UUID | None = None,
+        open_only: bool = False,
+    ) -> Sequence[QuestionRecord]:
+        query = (
+            select(KnowbotQuestion)
+            .where(KnowbotQuestion.kind == "gap")
+            .order_by(KnowbotQuestion.created_at, KnowbotQuestion.question_id)
+        )
+        if request_ids is not None:
+            query = query.where(KnowbotQuestion.request_id.in_(list(request_ids)))
+        if incubation_id is not None:
+            query = query.where(KnowbotQuestion.incubation_id == incubation_id)
+        if open_only:
+            query = query.where(KnowbotQuestion.answer.is_(None))
+        rows = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_question(r) for r in rows]
 
     async def add_test_set(self, record: TestSetRecord) -> None:
         self.session.add(

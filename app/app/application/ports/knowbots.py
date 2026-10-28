@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
+from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
     CaseOutputsV1,
@@ -112,6 +113,46 @@ class WorkdraftEntryRecord:
 
 
 @dataclass(frozen=True)
+class IncubationRecord:
+    """AI 孵化的一轮（表 knowbot_incubation，专家孵化方案第 8.2 节）：作者点「AI 起草」
+    或「让 AI 改…」一次是一轮，这个名称里第 round 轮。交出去的种子（创意第几版、拼成的
+    原文）、答过的缺口、工作稿的 revision 都记着，取回后照它们核出处；handback 是运行方
+    交回的四样，review 是 knowlab 核过的每条建议（verified、kinds、problems），
+    decisions 是作者对每条建议的处理（{建议: {state, at, records}}，没有的是还没
+    处理）。"""
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    workdraft_id: uuid.UUID
+    owner_subject: str
+    round: int
+    action: str
+    status: str
+    run_id: str
+    budget_limit: str
+    timeout_seconds: int
+    environment_id: str
+    workspace_root: str
+    request_version: int
+    seed: dict[str, Any] = field(repr=False)
+    workdraft_revision: int = 0
+    answer_ids: list[str] = field(default_factory=list)
+    mode: str = "self"
+    instruction: str | None = None
+    step_id: str | None = None
+    spent: str | None = None
+    task_id: str | None = None
+    waiting_for: str | None = None
+    error: str | None = None
+    handback: dict[str, Any] | None = field(default=None, repr=False)
+    review: dict[str, Any] | None = None
+    decisions: dict[str, Any] = field(default_factory=dict)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class TestRecord:
     """一次测试（SDD 0037）：编号在同一个名称里只增。"""
 
@@ -201,13 +242,15 @@ class TestOutputRecord:
 
 @dataclass(frozen=True)
 class QuestionRecord:
-    """测试中待人决定的一个问题（有人值守）。
+    """待人决定的一个问题：测试中的（有人值守，挂在准专家上），或孵化的缺口（kind gap，
+    挂在孵化的那一轮上，request_id 是名称；专家孵化方案第 8.4 节）。
 
-    route：None 在运营那里；"user" 已转给用户。
+    route：None 在运营那里；"user" 已转给用户。缺口建出来就归作者本人，run_id 是那一轮
+    交给运行方的编号，question_id 是缺口在那一轮里的编号，proposal 是 AI 附的提议。
     """
 
     id: uuid.UUID
-    draft_id: uuid.UUID
+    draft_id: uuid.UUID | None
     run_id: str
     question_id: str
     case_id: str
@@ -228,6 +271,9 @@ class QuestionRecord:
     data_state: dict[str, Any] | None = None
     sent_at: datetime | None = None
     last_error: str | None = None
+    incubation_id: uuid.UUID | None = None
+    request_id: uuid.UUID | None = None
+    proposal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -418,7 +464,10 @@ class KnowlabRepository(Protocol):
     async def list_questions(
         self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
     ) -> Sequence[QuestionRecord]:
-        """open_only：还没回答的。"""
+        """测试中的问题（孵化的缺口不在里面，另见 list_gaps）。
+
+        open_only：还没回答的。
+        """
         ...
 
     async def latest_test_set(self, request_id: uuid.UUID) -> TestSetRecord | None: ...
@@ -461,6 +510,46 @@ class KnowlabRepository(Protocol):
         self, entry_ids: Collection[uuid.UUID]
     ) -> Sequence[WorkdraftEntryRecord]:
         """按编号取记录，不论属于哪份工作稿（核出处时好认出引错了的）。"""
+        ...
+
+    # ---------- AI 孵化的一轮（专家孵化方案第八节） ----------
+    async def create_incubation(self, record: IncubationRecord) -> IncubationRecord:
+        """记一轮；这份工作稿已有一轮没结束就抛 ConcurrencyConflictError
+        （incubation_running）。"""
+        ...
+
+    async def get_incubation(
+        self, incubation_id: uuid.UUID, *, for_update: bool = False
+    ) -> IncubationRecord | None: ...
+
+    async def list_incubations(
+        self,
+        *,
+        request_id: uuid.UUID | None = None,
+        owner_subject: str | None = None,
+    ) -> Sequence[IncubationRecord]:
+        """按第几轮排。"""
+        ...
+
+    async def update_incubation(
+        self, incubation_id: uuid.UUID, **changes: Any
+    ) -> None: ...
+
+    async def add_gaps(
+        self, record: IncubationRecord, gaps: list[dict[str, Any]]
+    ) -> None:
+        """这一轮交回的缺口记进问题表（kind gap，归作者本人）；同一轮的同一个缺口只记
+        一次。gaps：{question_id, text, options, proposal, asked_at}。"""
+        ...
+
+    async def list_gaps(
+        self,
+        *,
+        request_ids: Collection[uuid.UUID] | None = None,
+        incubation_id: uuid.UUID | None = None,
+        open_only: bool = False,
+    ) -> Sequence[QuestionRecord]:
+        """孵化的缺口（问题表里 kind gap 的），先问的在前。"""
         ...
 
     async def add_test_set(self, record: TestSetRecord) -> None: ...
@@ -518,6 +607,21 @@ class RuntimeTestClient(Protocol):
     async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
         """用户接入过的电脑（SDD 0046 第三节）：名字、系统、在线与否、白名单根目录。"""
         ...
+
+
+class IncubationClient(Protocol):
+    """交运行方跑孵化的一轮（契约 knowbot-incubation/v1，服务关系 knowbench:incubate）。
+
+    没配抛 ServiceUnavailableError（incubation_unconfigured），不可达同样抛它。
+    """
+
+    def configured(self) -> bool: ...
+
+    async def start(self, request: IncubationRequestV1) -> IncubationResultV1: ...
+
+    async def status(self, incubation_id: str) -> IncubationResultV1: ...
+
+    async def cancel(self, incubation_id: str) -> IncubationResultV1: ...
 
 
 class KnowmartClient(Protocol):

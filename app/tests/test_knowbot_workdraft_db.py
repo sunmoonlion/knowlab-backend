@@ -14,9 +14,11 @@ from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
-from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema
+from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema, _versions
 
 TARGET = ROOT / "alembic/versions/20261028_0017_workdrafts.py"
+# 之后的迁移：真仓储按最新的模型读写，走服务前先升上去，退回时先退它们
+LATER = [p for p in _versions() if p.stem > TARGET.stem]
 OWNER = "user-123"
 REQUEST, DRAFT = uuid.UUID(int=1), uuid.UUID(int=11)
 TABLES = ("knowbot_workdraft", "knowbot_workdraft_record")
@@ -78,6 +80,8 @@ async def test_workdrafts_migrate_round_trip_and_publish_for_real() -> None:
                 async with engine.begin() as c:
                     await c.execute(text(bad), {"r": REQUEST})
 
+        async with engine.begin() as c:
+            await c.run_sync(lambda conn: _run(conn, LATER))
         factory = make_session_factory(engine)
         async with factory() as session:
             works = KnowbotWorkdraftService(SqlKnowlabRepository(session))
@@ -126,7 +130,9 @@ async def test_workdrafts_migrate_round_trip_and_publish_for_real() -> None:
                     )
         # 退回：两张表与 mode 列都没了
         async with engine.begin() as c:
-            await c.run_sync(lambda conn: _run(conn, [TARGET], "downgrade"))
+            await c.run_sync(
+                lambda conn: _run(conn, [*reversed(LATER), TARGET], "downgrade")
+            )
         async with engine.begin() as c:
             for table in TABLES:
                 found = await c.execute(text(f"SELECT to_regclass('{table}')"))

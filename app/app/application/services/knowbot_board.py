@@ -254,13 +254,20 @@ def inbox_items(
 ) -> list[tuple[str, str, Life, Any]]:
     """审核栏：（todo / done，question / draft / expert，名称，那一项）。
 
-    todo 是要用户做的：转给他的问题、请他审核的准专家、交回等他定的专家；done 是答过、
-    定过的记录。
+    todo 是要用户做的：转给他的问题与孵化缺口、请他审核的准专家、交回等他定的专家；
+    done 是答过、定过的记录。
     """
     by_draft = {d.id: life for life in lives for d in life.drafts}
+    by_request = {life.request.id: life for life in lives}
     out: list[tuple[str, str, Life, Any]] = []
     for question in questions:
-        life = by_draft.get(question.draft_id)
+        life = (
+            by_request.get(question.request_id)
+            if question.draft_id is None and question.request_id is not None
+            else by_draft.get(question.draft_id)
+            if question.draft_id is not None
+            else None
+        )
         if life is not None:
             out.append(("todo", "question", life, question))
     for life in lives:
