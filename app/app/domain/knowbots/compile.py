@@ -8,8 +8,9 @@
 - `output_schema` 按交回项生成；交回项自动带「必须有」（`required_keys`）；每一步固定带
   `json_object` 与 `no_positioning_advice`；作者选的验收模板编成运行方的验收条目
   （knowbench `AcceptanceRule`）。
-- 工具默认给运行方的只读读数据（含查引文）与计算工具；额度、读入上限用运行方的默认值；
-  「高级」里可以改。
+- 工具默认给运行方能给专家的全部：只读读数据（含查引文）、计算、要数据、查主体（跑的途中
+  可以再要数据、查主体，请专家方案第 4.3 节第 7 条）；额度、读入上限用运行方的默认值；
+  「高级」里可以改（删掉不要的工具）。
 - `rule_sources` 由规则与验收汇成，每条带出处；工程层不进（同 0029 第二节）。
 
 对得上的运行方（knowbench）：`app/domain/workbench/packs.py` 的 `StepContract`、
@@ -70,8 +71,9 @@ DATA_MCP_TOOLS = frozenset(
     }
 )
 V2_TOOLS = DATA_MCP_TOOLS | {"compute", "request_data", "find_subject"}
-# 默认给的：只读读数据（含查引文 search_evidence）与计算；要数据、查主体是第 0 步的事
-DEFAULT_TOOLS: tuple[str, ...] = tuple(sorted(DATA_MCP_TOOLS | {"compute"}))
+# 默认给的：全部——只读读数据（含查引文 search_evidence）、计算、要数据、查主体。专家跑的
+# 途中也可以再要数据、查主体（请专家方案第 4.3 节第 7 条），不只第 0 步；「高级」里能删
+DEFAULT_TOOLS: tuple[str, ...] = tuple(sorted(V2_TOOLS))
 # 与 knowbench `StepContract` 的默认值一致
 DEFAULT_RESERVE = "0.05"
 DEFAULT_INPUT_MAX_CHARS = 8000

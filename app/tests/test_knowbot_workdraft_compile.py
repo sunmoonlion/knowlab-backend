@@ -143,8 +143,9 @@ def test_engineering_defaults_follow_knowbench() -> None:
     manifest, _ = build()
     first, second = manifest["pack"]["workflow"]
     assert first["tools"] == list(DEFAULT_TOOLS)
-    assert set(DEFAULT_TOOLS) <= V2_TOOLS
-    assert "request_data" not in DEFAULT_TOOLS and "compute" in DEFAULT_TOOLS
+    # 跑的途中也能再要数据、查主体（请专家方案第 4.3 节第 7 条）
+    assert set(DEFAULT_TOOLS) == V2_TOOLS
+    assert {"request_data", "find_subject", "compute"} <= set(DEFAULT_TOOLS)
     assert "search_evidence" in DEFAULT_TOOLS  # 查引文
     assert (first["reserve"], first["input_max_chars"]) == (
         DEFAULT_RESERVE,
