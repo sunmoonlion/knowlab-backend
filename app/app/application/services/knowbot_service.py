@@ -720,13 +720,10 @@ class KnowbotCreationService:
                     test.draft_id,
                     result.run_id,
                     [
-                        q.model_dump(mode="json")
-                        | {
-                            # 自助测的问题都归作者本人，运营看不到（SDD 0046 第四节）
-                            "route": "user"
-                            if test.mode == "self"
-                            else first_route(q.kind)
-                        }
+                        # 自助测的问题都归作者本人，运营看不到（SDD 0046 第四节）。工具
+                        # 审批的 route 照旧为空（库里的约束不许它转给谁）：自助测的由
+                        # 作者本人答，看的是测试的模式（knowbot_questions）
+                        q.model_dump(mode="json") | {"route": first_route(q.kind)}
                         for q in result.questions
                     ],
                 )

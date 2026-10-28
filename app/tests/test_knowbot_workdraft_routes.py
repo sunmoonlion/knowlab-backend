@@ -85,6 +85,7 @@ async def test_the_workdraft_needs_my_web_session_and_csrf(wired) -> None:
         assert empty.status_code == 200
         assert empty.headers["cache-control"] == "no-store"
         assert (empty.json()["revision"], empty.json()["sources"]) == (0, {})
+        assert empty.json()["origins"] == {}
         assert empty.json()["body"]["steps"] == []
         body = {"revision": 0, "cells": CELLS}
         assert (await c.post(f"{base}/cells", json=body)).status_code == 403
@@ -129,6 +130,9 @@ async def test_save_preview_publish_and_a_stale_revision(wired) -> None:
         assert saved.status_code == 200
         assert saved.json()["revision"] == 1
         assert saved.json()["sources"]["steps/overview/rules/r1"]["kind"] == "user_text"
+        # 每格旁边标它是怎么来的：在编辑器里写的
+        assert saved.json()["origins"]["steps/overview/rules/r1"] == "edit"
+        assert (await c.get(base)).json()["origins"]["scope/does"] == "edit"
         stale = await c.post(
             f"{base}/cells",
             json={"revision": 0, "cells": [{"path": "name", "value": "x"}]},
@@ -211,6 +215,7 @@ async def test_import_and_copy_my_own(wired) -> None:
         )
         assert imported.status_code == 200
         assert imported.json()["revision"] == 2 and imported.json()["notes"] == []
+        assert set(imported.json()["origins"].values()) == {"import"}
         bad = await c.post(
             f"{base}/import", json={"revision": 2, "manifest": {}}, headers=WEB
         )
@@ -222,6 +227,7 @@ async def test_import_and_copy_my_own(wired) -> None:
         )
         assert copied.status_code == 200
         assert copied.json()["body"]["steps"][0]["title"] == "数据摸底"
+        assert copied.json()["origins"]["steps/overview/title"] == "copy"
         theirs = await accepted_request(svc, "someone-else")
         foreign = await svc.add_draft(str(theirs.id), manifest())
         refused = await c.post(

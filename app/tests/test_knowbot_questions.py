@@ -24,6 +24,8 @@ from app.application.services.knowbot_service import (
 from app.domain.knowbots.drafts import case_question_digest
 from app.domain.knowbots.test_run import CONTRACT, Answer, RunResultV1
 from tests.knowbot_fakes import (
+    COMPUTER,
+    COMPUTER_ROOT,
     OWNER,
     FakeRuntime,
     MemoryKnowlab,
@@ -91,6 +93,63 @@ async def test_we_answer_approvals_and_the_answer_reaches_the_runtime(testing) -
         await asks.answer_as_operator(
             str(by_key["q-approve"].id), AnswerIn(decision="deny")
         )
+
+
+async def test_the_author_approves_tools_in_his_own_test(testing) -> None:
+    """自助测的工具审批（SDD 0046 第四节）：route 照旧为空（库里的约束），只有这个名称的
+    主人在 web端批准或拒绝，记成用户答的与答的时间；运营看不到、答不了；平台测的照旧
+    归运营，作者答不了。"""
+    svc, asks, repo, runtime, clock, _, _, by_key = testing
+    platform = str(by_key["q-approve"].id)
+    with pytest.raises(NotFoundError):
+        await asks.answer_as_user(OWNER, platform, AnswerIn(decision="approve"))
+    other = await accepted_request(svc)  # 另一个名称：平台测试还在跑那一个
+    mine = await repo.create_draft(
+        request_id=other.id,
+        request_version=1,
+        revision=1,
+        version="1",
+        manifest=manifest(),
+        mode="self",
+    )
+    await repo.update_draft(mine.id, rules_reviewed_by="system:workdraft")
+    test = await svc.start_self_test(
+        OWNER,
+        str(mine.id),
+        environment_id=COMPUTER,
+        workspace_root=COMPUTER_ROOT,
+        budget_limit="5",
+        timeout_seconds=600,
+    )
+    runtime.results[test.run_id] = waiting(test.run_id)
+    await svc.refresh(str(test.id))
+    approval = next(
+        q
+        for q in repo.questions.values()
+        if q.run_id == test.run_id and q.kind == "tool_approval"
+    )
+    assert approval.route is None
+    assert approval.id in {q.id for q, _, _ in await asks.user_queue(OWNER)}
+    assert platform not in {str(q.id) for q, _, _ in await asks.user_queue(OWNER)}
+    assert approval.id not in {q.id for q, _, _ in await asks.operator_queue()}
+    with pytest.raises(NotFoundError):
+        await asks.answer_as_operator(str(approval.id), AnswerIn(decision="approve"))
+    with pytest.raises(NotFoundError):
+        await asks.answer_as_user(
+            "someone-else", str(approval.id), AnswerIn(decision="approve")
+        )
+    with pytest.raises(BadRequestError):
+        await asks.answer_as_user(OWNER, str(approval.id), AnswerIn(text="好"))
+    done = await asks.answer_as_user(OWNER, str(approval.id), AnswerIn(decision="deny"))
+    assert (done.answer, done.answered_by, done.answered_at) == (
+        {"decision": "deny"},
+        "user",
+        clock.at,
+    )
+    assert done.sent_at is not None
+    run_id, body = runtime.answers[-1]
+    assert run_id == test.run_id
+    assert (body.answers[0].decision, body.answers[0].answered_by) == ("deny", "user")
 
 
 async def test_knowbench_judgements_go_to_the_user_only(testing) -> None:

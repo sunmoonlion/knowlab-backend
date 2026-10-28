@@ -390,6 +390,26 @@ def record_ids(sources: Mapping[str, Any]) -> set[uuid.UUID]:
     return found
 
 
+def origins(
+    sources: Mapping[str, Any], entries: Mapping[uuid.UUID, Entry]
+) -> dict[str, str]:
+    """每格的出处是怎么来的（页面在格子旁小字标出）：引的记录是哪种（edit、import、copy、
+    accept），或 `question`（答过的缺口）；引不上的不列（页面当没有出处）。"""
+    found: dict[str, str] = {}
+    for path, source in sources.items():
+        ref = source.get("ref") if isinstance(source, dict) else None
+        if not isinstance(ref, str):
+            continue
+        if QUESTION_REF.match(ref):
+            found[path] = "question"
+            continue
+        record = RECORD_REF.match(ref)
+        entry = entries.get(uuid.UUID(record.group(1))) if record else None
+        if entry is not None:
+            found[path] = entry.kind
+    return found
+
+
 def source_problems(
     body: WorkdraftBody,
     sources: Mapping[str, Any],

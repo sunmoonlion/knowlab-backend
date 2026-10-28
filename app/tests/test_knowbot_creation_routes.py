@@ -589,8 +589,12 @@ async def test_operators_see_only_the_platform_steps(wired) -> None:
     )
     runtime.results[test.run_id] = waiting(test.run_id)
     await svc.refresh(str(test.id))
-    # 自助测的问题都归作者本人，连工具审批
-    assert {q.route for q in repo.questions.values()} == {"user"}
+    # 自助测的问题都归作者本人，连工具审批（它的 route 照旧为空，看测试的模式）
+    assert {(q.kind, q.route) for q in repo.questions.values()} == {
+        ("tool_approval", None),
+        ("ask_before", "user"),
+        ("question", "user"),
+    }
     approval = next(q for q in repo.questions.values() if q.kind == "tool_approval")
     async with client() as c:
         c.cookies.set(ADMIN_SID, "admin")
@@ -635,3 +639,13 @@ async def test_operators_see_only_the_platform_steps(wired) -> None:
         assert [t["test_id"] for t in own["tests"]] == [str(test.id)]
         asked = (await c.get("/api/web/v1/knowbot-questions")).json()["questions"]
         assert len(asked) == 3
+        # 工具审批由作者本人在 web端批准，记成他答的
+        approved = await c.post(
+            f"/api/web/v1/knowbot-questions/{approval.id}/answer",
+            json={"decision": "approve"},
+            headers=WEB,
+        )
+        assert approved.status_code == 200 and approved.json()["sent"] is True
+        stored = repo.questions[approval.id]
+        assert (stored.answer, stored.answered_by) == ({"decision": "approve"}, "user")
+        assert stored.answered_at is not None

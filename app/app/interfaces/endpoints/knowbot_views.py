@@ -308,9 +308,12 @@ def answered_view(q: QuestionRecord, *, admin: bool) -> dict[str, Any]:
 
 
 def workdraft_view(
-    request: RequestRecord, workdraft: WorkdraftRecord | None
+    request: RequestRecord,
+    workdraft: WorkdraftRecord | None,
+    origins: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """工作稿（作者本人看）：方法层的格子、每格的出处、revision。还没存过的是空的一份。"""
+    """工作稿（作者本人看）：方法层的格子、每格的出处与它是怎么来的（作者写的、导入、
+    复制……，页面在格子旁小字标出）、revision。还没存过的是空的一份。"""
     if workdraft is None:
         return {
             "request_id": str(request.id),
@@ -318,6 +321,7 @@ def workdraft_view(
             "revision": 0,
             "body": empty_body(),
             "sources": {},
+            "origins": {},
             "updated_at": None,
         }
     return {
@@ -326,5 +330,6 @@ def workdraft_view(
         "revision": workdraft.revision,
         "body": workdraft.body,
         "sources": workdraft.sources,
+        "origins": origins or {},
         "updated_at": iso(workdraft.updated_at),
     }

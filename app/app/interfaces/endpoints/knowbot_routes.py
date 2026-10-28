@@ -446,7 +446,7 @@ async def my_workdraft(
 ) -> JSONResponse:
     """这个名称的工作稿：格子、每格的出处、revision（还没存过的是空的一份）。"""
     request, found = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found))
+    return _ok(workdraft_view(request, found, await workdrafts.origins(found)))
 
 
 @web_router.post("/knowbot-requests/{request_id}/workdraft/cells")
@@ -461,7 +461,7 @@ async def save_cells(
         edits=[(c.path, c.value) for c in body.cells],
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found))
+    return _ok(workdraft_view(request, found, await workdrafts.origins(found)))
 
 
 @web_router.post("/knowbot-requests/{request_id}/workdraft/import")
@@ -473,7 +473,8 @@ async def import_pack(
         principal.subject, request_id, revision=body.revision, manifest=body.manifest
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found) | {"notes": notes})
+    view = workdraft_view(request, found, await workdrafts.origins(found))
+    return _ok(view | {"notes": notes})
 
 
 @web_router.post("/knowbot-requests/{request_id}/workdraft/copy")
@@ -485,7 +486,8 @@ async def copy_mine(
         principal.subject, request_id, revision=body.revision, draft_id=body.draft_id
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found) | {"notes": notes})
+    view = workdraft_view(request, found, await workdrafts.origins(found))
+    return _ok(view | {"notes": notes})
 
 
 @web_router.get("/knowbot-requests/{request_id}/workdraft/preview")

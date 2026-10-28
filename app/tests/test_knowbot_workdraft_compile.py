@@ -29,6 +29,7 @@ from app.domain.knowbots.workdraft import (
     canonical,
     cells,
     empty_body,
+    origins,
     source_problems,
 )
 from tests.knowbot_fakes import manifest as foreign_manifest
@@ -652,6 +653,24 @@ def test_sources_that_do_not_hold_are_named_by_the_cell() -> None:
         why: "the source record is not the author's",
         "scope/does": "the source is neither a record nor a question",
         "scope/does_not": "a edit record cannot be cited as user_confirmed",
+    }
+
+
+def test_origins_name_how_each_cell_came() -> None:
+    """页面在格子旁标的来路：引的记录是哪种，答过的缺口是 question，引不上的不列。"""
+    edit = Entry(uuid.UUID(int=1), WD, "edit", OWNER, "author", "name", "x")
+    copy = Entry(uuid.UUID(int=2), WD, "copy", OWNER, "author", None, "{}")
+    sources = {
+        "name": {"kind": "user_text", "ref": f"record:{edit.id}"},
+        "tagline": {"kind": "user_text", "ref": f"record:{copy.id}"},
+        "scope/does": {"kind": "user_confirmed", "ref": f"question:{uuid.uuid4()}"},
+        "scope/does_not": {"kind": "user_text", "ref": f"record:{uuid.uuid4()}"},
+        "scope/elsewhere": {"kind": "user_text", "ref": "第 4 问"},
+    }
+    assert origins(sources, {edit.id: edit, copy.id: copy}) == {
+        "name": "edit",
+        "tagline": "copy",
+        "scope/does": "question",
     }
 
 

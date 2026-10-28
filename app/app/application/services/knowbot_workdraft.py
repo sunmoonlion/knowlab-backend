@@ -46,6 +46,7 @@ from app.domain.knowbots.workdraft import (
     canonical,
     cells,
     empty_body,
+    origins,
     record_ids,
     size_of,
     source_problems,
@@ -97,6 +98,13 @@ class KnowbotWorkdraftService:
         """自己的名称的工作稿；还没存过的回 None（页面当空的一份，revision 0）。"""
         request = await self._request(owner_subject, request_id)
         return request, await self.repo.get_workdraft(request.id)
+
+    async def origins(self, workdraft: WorkdraftRecord | None) -> dict[str, str]:
+        """每格的出处是怎么来的：格子路径 → edit、import、copy、accept、question。"""
+        if workdraft is None:
+            return {}
+        entries = await self.repo.list_workdraft_entries(record_ids(workdraft.sources))
+        return origins(workdraft.sources, {e.id: e for e in entries})
 
     async def _locked(self, request: RequestRecord, revision: int) -> WorkdraftRecord:
         """锁住这个名称，核 revision；还没有的建一份空的（在同一个事务里）。"""

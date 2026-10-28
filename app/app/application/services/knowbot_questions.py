@@ -10,7 +10,8 @@
 补送安全。只有那次测试还在跑的问题才列、才能答。
 
 自助测试的问题都归作者本人（连工具审批），运营看不到、答不了、改派不了，按编号来也是 404
-（SDD 0046 第四节）。
+（SDD 0046 第四节）。工具审批的 route 在库里照旧为空（不许转给谁），自助测的由作者本人在
+web端批准或拒绝，记成「用户答的」与答的时间（只有这个名称的主人答得了）。
 """
 
 from __future__ import annotations
@@ -62,6 +63,13 @@ def _conflict(message: str, code: str) -> ConcurrencyConflictError:
 def _platform(test: TestRecord, draft: DraftRecord) -> bool:
     """平台测试、测的是平台孵化的准专家：运营看得到的（SDD 0046 第四节）。"""
     return test.mode == "platform" and draft.mode == "platform"
+
+
+def _mine(question: QuestionRecord, test: TestRecord, draft: DraftRecord) -> bool:
+    """作者本人答的：转给他的；自助测的工具审批（运营看不到，只能他批）。"""
+    if question.kind == "tool_approval":
+        return not _platform(test, draft)
+    return question.route == "user"
 
 
 def _check(question: QuestionRecord, given: AnswerIn) -> dict[str, Any]:
@@ -125,16 +133,16 @@ class KnowbotQuestionService:
 
     async def _open_questions(
         self, *, operator: bool = False
-    ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
+    ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord, TestRecord]]:
         out = []
         for question in await self.repo.list_questions(open_only=True):
             test = await self._running(question)
             if test is None:
                 continue
-            item = await self._with_context(question)
-            if operator and not _platform(test, item[1]):
+            q, draft, request = await self._with_context(question)
+            if operator and not _platform(test, draft):
                 continue  # 自助测的：运营看不到
-            out.append(item)
+            out.append((q, draft, request, test))
         return out
 
     async def _platform_question(self, question: QuestionRecord) -> None:
@@ -150,7 +158,7 @@ class KnowbotQuestionService:
     ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
         """运营要处理的：还没回答、没转给用户的；以及转给用户、用户还没答的（只看）。
         只有平台测试的。"""
-        return await self._open_questions(operator=True)
+        return [(q, d, r) for q, d, r, _ in await self._open_questions(operator=True)]
 
     async def to_user(self, question_id: str) -> None:
         """改派给自己的，转回用户。"""
@@ -192,10 +200,11 @@ class KnowbotQuestionService:
     async def user_queue(
         self, owner_subject: str
     ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord]]:
+        """转给我的问题，和我自助测试里的工具审批。"""
         return [
-            item
-            for item in await self._open_questions()
-            if item[0].route == "user" and item[2].owner_subject == owner_subject
+            (q, draft, request)
+            for q, draft, request, test in await self._open_questions()
+            if request.owner_subject == owner_subject and _mine(q, test, draft)
         ]
 
     async def answer_as_user(
@@ -250,8 +259,13 @@ class KnowbotQuestionService:
             question = await self._open(question_id)
             _, draft, request = await self._with_context(question)
             if by == "user":
-                # 只答自己的、转给自己的；别人的和不存在一样
-                if request.owner_subject != owner or question.route != "user":
+                # 只答自己的、转给自己的（自助测的工具审批也算）；别人的和不存在一样
+                test = await self.repo.find_test_by_run(question.run_id)
+                if (
+                    request.owner_subject != owner
+                    or test is None
+                    or not _mine(question, test, draft)
+                ):
                     raise NotFoundError("No such question", code="question_not_found")
             else:
                 await self._platform_question(question)

@@ -426,6 +426,58 @@ async def test_questions_are_stored_once_and_routes_respect_their_kind(db) -> No
                     await session.execute(text(sql), {"q": str(q)})
 
 
+@pytest.mark.asyncio
+async def test_tool_approvals_of_an_own_test_are_stored_and_the_author_answers(
+    db,
+) -> None:
+    """自助测里冒出的工具审批：库里 route 为空（约束不许它转给谁），作者本人在 web端批，
+    记成用户答的与答的时间（SDD 0046 第四节）。"""
+    from app.application.services.knowbot_questions import (
+        AnswerIn,
+        KnowbotQuestionService,
+    )
+
+    await _own_computer(db)
+    async with db() as session:
+        request = await accepted_request(service(session))
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        async with repo.transaction():
+            mine = await repo.create_draft(
+                request_id=request.id,
+                request_version=1,
+                revision=1,
+                version="1",
+                manifest=manifest(),
+                mode="self",
+            )
+            await repo.update_draft(mine.id, rules_reviewed_by="system:workdraft")
+    async with db() as session:
+        test = await service(session).start_self_test(
+            OWNER,
+            str(mine.id),
+            environment_id=COMPUTER,
+            workspace_root=COMPUTER_ROOT,
+            budget_limit="5",
+            timeout_seconds=600,
+        )
+    RUNTIME.results[test.run_id] = waiting(test.run_id)
+    async with db() as session:
+        await service(session).refresh(str(test.id))
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        found = await repo.list_questions(draft_id=mine.id, open_only=True)
+        approve = next(q for q in found if q.kind == "tool_approval")
+        assert approve.route is None
+        asks = KnowbotQuestionService(repo, RUNTIME)
+        assert approve.id in {q.id for q, _, _ in await asks.user_queue(OWNER)}
+        await asks.answer_as_user(OWNER, str(approve.id), AnswerIn(decision="approve"))
+    async with db() as session:
+        stored = await SqlKnowlabRepository(session).get_question(approve.id)
+        assert stored and stored.answer == {"decision": "approve"}
+        assert stored.answered_by == "user" and stored.answered_at is not None
+
+
 async def test_data_questions_and_test_sets_on_the_real_database(db) -> None:
     """SDD 0046 第三节：data 问题记下提出的几样与确认到哪；测试集按版本记；测试记
     带的测试集版本与每条用例签的授权。"""
