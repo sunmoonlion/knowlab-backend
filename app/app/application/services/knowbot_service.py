@@ -26,7 +26,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.application.errors.exceptions import (
     AppException,
@@ -55,6 +55,7 @@ from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
     MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA_V2,
     OUTPUTS_KEEP_DAYS,
     KnowbotRequestIn,
     amendment_refs,
@@ -75,10 +76,14 @@ from app.domain.knowbots.test_run import (
     CONTRACT,
     DataGrant,
     GrantedData,
+    RunCase,
     RunRequestV1,
     RunResultV1,
     first_route,
 )
+
+if TYPE_CHECKING:
+    from app.application.services.knowbot_test_data import KnowbotTestData
 
 log = logging.getLogger(__name__)
 
@@ -138,6 +143,7 @@ class KnowbotCreationService:
         on_refresh: Callable[[TestRecord, RequestRecord], Awaitable[None]]
         | None = None,
         knowledge: KnowledgeBase | None = None,
+        test_data: KnowbotTestData | None = None,
     ) -> None:
         self.repo = repo
         self.runtimes = runtimes
@@ -145,6 +151,8 @@ class KnowbotCreationService:
         self.on_refresh = on_refresh
         # 配了 knowbase：测试读绑定的数据凭测试运行授权（SDD 0042 第七节）
         self.knowledge = knowledge
+        # 清单 v2 的草稿：测试集与测试里专家提出的数据（SDD 0046 第三节）
+        self.test_data = test_data
 
     # ---------- 用户：申请与修改 ----------
     async def submit(self, owner_subject: str, body: KnowbotRequestIn) -> RequestRecord:
@@ -503,11 +511,39 @@ class KnowbotCreationService:
             run = run.model_copy(update={"data_grant": grant})
             async with self.repo.transaction():
                 await self.repo.update_test(test.id, grant_id=grant.grant_id)
+        grants: list[str] = []
+        if self.test_data is not None and draft.manifest.get("schema") == (
+            MANIFEST_SCHEMA_V2
+        ):
+            # 带测试集发起：有的用例每条签一张授权、带上钉住的几份（不跑第 0 步）
+            try:
+                cases, set_version, grants = await self.test_data.with_test_set(
+                    request,
+                    [c.model_dump(mode="json") for c in run.cases],
+                    run_id=run.run_id,
+                    ttl_seconds=min(
+                        14 * 24 * 3600,
+                        timeout_seconds + MAX_WAIT_SECONDS + GRANT_MARGIN_SECONDS,
+                    ),
+                )
+            except AppException as exc:
+                await self._end_on_platform(test.id, f"test grant refused: {exc.code}")
+                raise
+            if set_version is not None:
+                run = run.model_copy(
+                    update={"cases": tuple(RunCase.model_validate(c) for c in cases)}
+                )
+                async with self.repo.transaction():
+                    await self.repo.update_test(
+                        test.id, test_set_version=set_version, case_grants=grants
+                    )
         try:
             result = await self.runtimes.start(request.runtime, run)
         except AppException as exc:
             await self._end_on_platform(test.id, f"start failed: {exc.code}")
             await self._revoke(grant.grant_id if grant else None)
+            if self.test_data is not None:
+                await self.test_data.revoke(grants)
             raise
         if result.final:
             await self._finish(test.id, result)
@@ -629,6 +665,8 @@ class KnowbotCreationService:
         if test.status in ACTIVE_TESTS:
             if self.on_refresh is not None:
                 await self.on_refresh(test, request)  # 先补送答过但没送到的答案
+            if self.test_data is not None:
+                await self.test_data.advance(test, request)  # 在取的数据办完了没有
             result = await self.runtimes.status(request.runtime, test.run_id)
             if result.run_id != test.run_id:
                 raise _conflict("The runtime answered another run", "run_mismatch")
@@ -759,6 +797,17 @@ class KnowbotCreationService:
             else:
                 await self._move(draft, "pending_test")
         await self._revoke(test.grant_id)
+        await self._wrap_up(test.id)
+
+    async def _wrap_up(self, test_id: uuid.UUID) -> None:
+        """测试结束（清单 v2）：每条用例签的授权撤掉，作者确认过的记成测试集新一版。"""
+        if self.test_data is None:
+            return
+        test = await self.repo.get_test(test_id)
+        if test is None:
+            return
+        await self.test_data.revoke(test.case_grants)
+        await self.test_data.finish(test)
 
     async def _end_on_platform(self, test_id: uuid.UUID, error: str) -> None:
         """平台出错结束这一次：测试记平台出错，准专家回到待测（再测是新编号）。"""
@@ -792,3 +841,4 @@ class KnowbotCreationService:
             raise _conflict("The test is still within its time", "not_stuck")
         await self._end_on_platform(test.id, "timed out")
         await self._revoke(test.grant_id)
+        await self._wrap_up(test.id)

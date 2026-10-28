@@ -438,6 +438,75 @@ async def test_questions_are_stored_once_and_routes_respect_their_kind(db) -> No
                     await session.execute(text(sql), {"q": str(q)})
 
 
+async def test_data_questions_and_test_sets_on_the_real_database(db) -> None:
+    """SDD 0046 第三节：data 问题记下提出的几样与确认到哪；测试集按版本记；测试记
+    带的测试集版本与每条用例签的授权。"""
+    import uuid as uuid_
+
+    from app.application.ports.knowbots import TestSetRecord
+
+    request, draft = await _reviewed(db)
+    test = await _start(db, draft)
+    asked = [{"key": "req1_1", "name": "年报", "doc_type": "annual_report"}]
+    async with db() as session, session.begin():
+        repo = SqlKnowlabRepository(session)
+        await repo.add_questions(
+            draft.id,
+            test.run_id,
+            [
+                {
+                    "question_id": "data:t:r1",
+                    "case_id": "c1",
+                    "kind": "data",
+                    "text": "专家要这些数据：年报",
+                    "asked_at": "2026-10-28T00:00:00Z",
+                    "route": "user",
+                    "requests": asked,
+                }
+            ],
+        )
+    async with db() as session, session.begin():
+        repo = SqlKnowlabRepository(session)
+        [q] = await repo.list_questions(draft_id=draft.id)
+        assert (q.kind, q.requests, q.data_state) == ("data", asked, None)
+        await repo.update_question(q.id, data_state={"status": "proposed"})
+        await repo.update_test(test.id, test_set_version=1, case_grants=["g-1"])
+        assert await repo.latest_test_set(request.id) is None
+        for version in (1, 2):
+            await repo.add_test_set(
+                TestSetRecord(
+                    id=uuid_.uuid4(),
+                    request_id=request.id,
+                    version=version,
+                    cases={"c1": {"items": [{"material_id": f"m-{version}"}]}},
+                    created_at=test.started_at,
+                    from_test_id=test.id,
+                )
+            )
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        [q] = await repo.list_questions(draft_id=draft.id)
+        assert q.data_state == {"status": "proposed"}
+        latest = await repo.latest_test_set(request.id)
+        assert latest and latest.version == 2
+        assert latest.cases["c1"]["items"] == [{"material_id": "m-2"}]
+        found = await repo.get_test(test.id)
+        assert found and (found.test_set_version, found.case_grants) == (1, ["g-1"])
+    # 同一名称的测试集版本不重
+    async with db() as session:
+        with pytest.raises(DBAPIError):
+            async with session.begin():
+                await SqlKnowlabRepository(session).add_test_set(
+                    TestSetRecord(
+                        id=uuid_.uuid4(),
+                        request_id=request.id,
+                        version=2,
+                        cases={},
+                        created_at=test.started_at,
+                    )
+                )
+
+
 def _step(name: str, direction: str):
     """只跑一条迁移的 upgrade 或 downgrade。"""
 
@@ -767,9 +836,14 @@ async def test_0012_backfills_versions_acceptances_tests_and_experts() -> None:
         factory = make_session_factory(engine)
         async with factory() as session, session.begin():
             ids = await _old_rows(session)
-        path = ROOT / "alembic/versions/20261024_0012_knowbot_lifecycle.py"
+        # 0012 回填，再跑后面的（仓库按当前的表读）
+        later = sorted(
+            p
+            for p in (ROOT / "alembic/versions").glob("2026*.py")
+            if p.name[:13] > "20261023_0011"
+        )
         async with engine.begin() as c:
-            await c.run_sync(lambda conn: _run(conn, [path]))
+            await c.run_sync(lambda conn: _run(conn, later))
         async with factory() as session:
             repo = SqlKnowlabRepository(session)
             for rid in (ids["r1"], ids["r2"]):
@@ -809,7 +883,7 @@ async def test_0012_backfills_versions_acceptances_tests_and_experts() -> None:
             assert found is not None and found.id == expert.id
         # 退回去再进来：退回时已上架的准专家改回「已交付」，再进来回填照旧
         async with engine.begin() as c:
-            await c.run_sync(lambda conn: _run(conn, [path], "downgrade"))
+            await c.run_sync(lambda conn: _run(conn, later[::-1], "downgrade"))
         async with factory() as session:
             status = await session.execute(
                 text(
@@ -820,7 +894,7 @@ async def test_0012_backfills_versions_acceptances_tests_and_experts() -> None:
             )
             assert tuple(status.one()) == ("delivered", DELIVERY["knowbot_id"])
         async with engine.begin() as c:
-            await c.run_sync(lambda conn: _run(conn, [path]))
+            await c.run_sync(lambda conn: _run(conn, later))
         async with factory() as session:
             repo = SqlKnowlabRepository(session)
             [expert] = await repo.list_experts([ids["r1"]])

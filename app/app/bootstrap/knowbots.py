@@ -14,8 +14,10 @@ from app.application.services.knowbot_data_read import KnowbotDataReader
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.application.services.knowbot_test_data import KnowbotTestData
 from app.infrastructure.documents.table_extract import CachedTableExtractor
 from app.infrastructure.documents.text_extract import CachedTextExtractor
+from app.infrastructure.external.knowbase_data_v2 import KnowbaseDataV2
 from app.infrastructure.external.knowbase_user_data import (
     KnowbaseKnowledgeBase,
     KnowbaseUserData,
@@ -24,6 +26,7 @@ from app.infrastructure.external.knowbot_clients import (
     KnowmartDeliveryClient,
     RuntimeTestClients,
 )
+from app.infrastructure.external.knowfeed_supply import KnowfeedSupply
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.data_store import S3DataStore
 
@@ -59,6 +62,26 @@ def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
         runtime_clients(),
         on_refresh=questions.resend,
         knowledge=knowledge_base(),
+        test_data=knowbot_test_data(session),
+    )
+
+
+def knowbot_test_data(session: AsyncSession) -> KnowbotTestData | None:
+    """测试集与测试里专家提出的数据（SDD 0046 第三节）；没配 knowbase 就没有。
+    补采开关 `KNOWLAB_DATA_SUPPLY_ENABLED` 默认关（fail-closed，同 knowbench）。"""
+    if not os.environ.get("KNOWBASE_INTERNAL_URL", "").strip():
+        return None
+    from app.application.services.knowbot_service import MAX_WAIT_SECONDS
+
+    repo = SqlKnowlabRepository(session)
+    return KnowbotTestData(
+        repo,
+        KnowbaseDataV2(),
+        KnowfeedSupply(),
+        KnowbotQuestionService(repo, runtime_clients()),
+        supply_enabled=os.environ.get("KNOWLAB_DATA_SUPPLY_ENABLED", "").lower()
+        in ("1", "true", "yes"),
+        max_wait_seconds=MAX_WAIT_SECONDS,
     )
 
 

@@ -181,6 +181,12 @@ class KnowbotTest(Base):
     run_id: Mapped[str] = mapped_column(String(128), nullable=False)
     grant_id: Mapped[str | None] = mapped_column(String(64))
     started_by: Mapped[str | None] = mapped_column(String(512))
+    # 这次带的测试集是第几版（SDD 0046 第三节）；没带的（第一次测、清单 v1）是空的
+    test_set_version: Mapped[int | None] = mapped_column(Integer)
+    # 带测试集发起时每条用例签的测试运行授权，测试结束撤
+    case_grants: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
@@ -336,13 +342,18 @@ class KnowbotQuestion(TimestampMixin, Base):
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # data 问题（SDD 0046 第三节）：专家提出的几样，与在 knowbase 解析、确认、补采到哪
+    requests: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    data_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     __table_args__ = (
         UniqueConstraint(
             "draft_id", "run_id", "question_id", name="uq_knowbot_question_once"
         ),
         CheckConstraint(
-            "kind IN ('tool_approval', 'question', 'ask_before')",
+            "kind IN ('tool_approval', 'question', 'ask_before', 'data')",
             name="ck_knowbot_question_kind",
         ),
         CheckConstraint(
@@ -446,4 +457,29 @@ class KnowbotTestConsent(Base):
     items_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class KnowbotTestSet(Base):
+    """测试集（SDD 0046 第三节，decisions ⑭）：测试问题 + 作者确认的数据，按用例记，
+    同一名称里版本只增。cases：{用例编号: {"items": [钉住的一份]}}。"""
+
+    __tablename__ = "knowbot_test_set"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    cases: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    from_test_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("request_id", "version", name="uq_knowbot_test_set_version"),
+        CheckConstraint("version >= 1", name="ck_knowbot_test_set_version"),
     )

@@ -26,6 +26,7 @@ from app.application.ports.knowbots import (
     RequestVersionRecord,
     TestOutputRecord,
     TestRecord,
+    TestSetRecord,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import (
@@ -183,6 +184,7 @@ class MemoryKnowlab:
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
         self.datasets: dict[uuid.UUID, DatasetRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
+        self.test_sets: list[TestSetRecord] = []
         self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
         self.consents: dict[str, dict[str, str]] = {}
@@ -498,6 +500,7 @@ class MemoryKnowlab:
                 step_id=q.get("step_id"),
                 key=q.get("key"),
                 route=q.get("route"),
+                requests=list(q.get("requests") or []),
             )
             self.questions[record.id] = record
 
@@ -518,6 +521,13 @@ class MemoryKnowlab:
 
     async def update_question(self, question: uuid.UUID, **changes: Any) -> None:
         self.questions[question] = replace(self.questions[question], **changes)
+
+    async def latest_test_set(self, request_id: uuid.UUID) -> TestSetRecord | None:
+        mine = [t for t in self.test_sets if t.request_id == request_id]
+        return max(mine, key=lambda t: t.version) if mine else None
+
+    async def add_test_set(self, record: TestSetRecord) -> None:
+        self.test_sets.append(record)
 
     # ---------- 用户的数据 ----------
     async def lock_owner_data(self, owner_subject: str) -> None:

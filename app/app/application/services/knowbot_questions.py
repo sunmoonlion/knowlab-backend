@@ -315,6 +315,12 @@ class KnowbotQuestionService:
                     q.id, sent_at=self.now(), last_error=None
                 )
 
+    async def deliver(
+        self, run_id: str, request: RequestRecord, ids: list[uuid.UUID]
+    ) -> None:
+        """把答好的送运行方（测试数据的回答也走这里）；送不到下次刷新补送。"""
+        await self._send(run_id, request, ids)
+
     async def resend(self, test: TestRecord, request: RequestRecord) -> None:
         """刷新前补送这次测试答过但没送到运行方的答案。"""
         pending = [

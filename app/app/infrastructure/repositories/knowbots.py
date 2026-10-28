@@ -28,6 +28,7 @@ from app.application.ports.knowbots import (
     RequestVersionRecord,
     TestOutputRecord,
     TestRecord,
+    TestSetRecord,
 )
 from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
@@ -43,13 +44,24 @@ from app.infrastructure.models.knowbots import (
     KnowbotTest,
     KnowbotTestConsent,
     KnowbotTestOutput,
+    KnowbotTestSet,
 )
 
 # 0012 起准专家只改这几栏；run、报告、交付几栏不再写（内容在测试、专家表）
 DRAFT_FIELDS = frozenset(
     {"status", "rules_reviewed_by", "rules_reviewed_at", "user_review"}
 )
-TEST_FIELDS = frozenset({"status", "grant_id", "finished_at", "report", "error"})
+TEST_FIELDS = frozenset(
+    {
+        "status",
+        "grant_id",
+        "finished_at",
+        "report",
+        "error",
+        "test_set_version",
+        "case_grants",
+    }
+)
 EXPERT_FIELDS = frozenset(
     {
         "returned_by",
@@ -147,6 +159,8 @@ def _test(row: KnowbotTest) -> TestRecord:
         finished_at=row.finished_at,
         report=row.report,
         error=row.error,
+        test_set_version=row.test_set_version,
+        case_grants=list(row.case_grants or []),
     )
 
 
@@ -203,6 +217,7 @@ QUESTION_FIELDS = frozenset(
         "answered_at",
         "sent_at",
         "last_error",
+        "data_state",
     }
 )
 
@@ -228,6 +243,8 @@ def _question(row: KnowbotQuestion) -> QuestionRecord:
         answered_at=row.answered_at,
         sent_at=row.sent_at,
         last_error=row.last_error,
+        requests=list(row.requests or []),
+        data_state=row.data_state,
     )
 
 
@@ -494,6 +511,8 @@ class SqlKnowlabRepository:
             grant_id=record.grant_id,
             started_by=record.started_by,
             started_at=record.started_at,
+            test_set_version=record.test_set_version,
+            case_grants=list(record.case_grants),
         )
         self.session.add(row)
         try:
@@ -952,6 +971,7 @@ class SqlKnowlabRepository:
                     allow_free_text=bool(q.get("allow_free_text", True)),
                     asked_at=q["asked_at"],
                     route=q.get("route"),
+                    requests=list(q.get("requests") or []),
                 )
                 .on_conflict_do_nothing(constraint="uq_knowbot_question_once")
             )
@@ -981,6 +1001,39 @@ class SqlKnowlabRepository:
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalars()
         return [_question(r) for r in rows]
+
+    async def latest_test_set(self, request_id: uuid.UUID) -> TestSetRecord | None:
+        row = (
+            await self.session.execute(
+                select(KnowbotTestSet)
+                .where(KnowbotTestSet.request_id == request_id)
+                .order_by(KnowbotTestSet.version.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return TestSetRecord(
+            id=row.id,
+            request_id=row.request_id,
+            version=row.version,
+            cases=dict(row.cases),
+            created_at=row.created_at,
+            from_test_id=row.from_test_id,
+        )
+
+    async def add_test_set(self, record: TestSetRecord) -> None:
+        self.session.add(
+            KnowbotTestSet(
+                id=record.id,
+                request_id=record.request_id,
+                version=record.version,
+                cases=record.cases,
+                from_test_id=record.from_test_id,
+                created_at=record.created_at,
+            )
+        )
+        await self.session.flush()
 
     async def update_question(self, question: uuid.UUID, **changes: Any) -> None:
         unknown = set(changes) - QUESTION_FIELDS

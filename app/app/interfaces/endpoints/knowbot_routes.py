@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.errors.exceptions import ServiceUnavailableError
 from app.application.ports.knowbots import DraftRecord
 from app.application.services.knowbot_board import (
     KnowbotBoard,
@@ -42,12 +43,14 @@ from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.application.services.knowbot_test_data import KnowbotTestData
 from app.bootstrap.knowbots import (
     knowbot_board,
     knowbot_data_service,
     knowbot_expert_service,
     knowbot_question_service,
     knowbot_service,
+    knowbot_test_data,
     runtime_clients,
 )
 from app.domain.knowbots.datasets import MAX_FILE_BYTES, QUOTA_BYTES
@@ -406,6 +409,67 @@ async def answer_my_question(
 ) -> JSONResponse:
     found = await questions.answer_as_user(principal.subject, question_id, body.given())
     return _ok({"question_id": str(found.id), "sent": found.sent_at is not None})
+
+
+def test_data_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotTestData:
+    found = knowbot_test_data(session)
+    if found is None:
+        raise ServiceUnavailableError(
+            "knowbase is not configured", code="knowbase_unconfigured"
+        )
+    return found
+
+
+TestData = Annotated[KnowbotTestData, Depends(test_data_service)]
+
+
+@web_router.get("/knowbot-tests/{test_id}/data")
+async def my_test_data(
+    principal: User, data: TestData, user_token: KnowbaseToken, test_id: ItemId
+) -> JSONResponse:
+    """这次测试里专家提出的数据（SDD 0046 第三节）：每一样解析到哪、候选有哪些、
+    在取的、没取到的。只有我自己的测试。"""
+    found = await data.pending(principal.subject, test_id, user_token)
+    return _ok({"requests": found})
+
+
+class TestDataBody(BaseModel):
+    """确认测试数据：可以先改（needs 是改过的整份），换一份、去掉几样；
+    都不给就照提出的。"""
+
+    model_config = ConfigDict(extra="forbid")
+    picks: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=200)
+    dropped: list[str] = Field(default_factory=list, max_length=200)
+    needs: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+
+
+@web_router.post("/knowbot-test-data/{question_id}/confirm")
+async def confirm_my_test_data(
+    principal: User,
+    data: TestData,
+    user_token: KnowbaseToken,
+    question_id: ItemId,
+    body: TestDataBody,
+) -> JSONResponse:
+    done = await data.confirm(
+        principal.subject,
+        question_id,
+        user_token,
+        picks=body.picks,
+        dropped=body.dropped,
+        needs=body.needs,
+    )
+    return _ok(done)
+
+
+@web_router.post("/knowbot-test-data/{question_id}/decline")
+async def decline_my_test_data(
+    principal: User, data: TestData, question_id: ItemId
+) -> JSONResponse:
+    """不要这几样，或没取到的照现有的接着做：记「数据不全」。"""
+    return _ok(await data.decline(principal.subject, question_id))
 
 
 # ---------- 管理端（我们的运营） ----------

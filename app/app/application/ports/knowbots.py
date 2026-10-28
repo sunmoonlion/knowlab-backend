@@ -99,6 +99,22 @@ class TestRecord:
     finished_at: datetime | None = None
     report: dict[str, Any] | None = None
     error: str | None = None
+    test_set_version: int | None = None
+    case_grants: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TestSetRecord:
+    """测试集的一版（SDD 0046 第三节）：用例编号 → 钉住的几份。"""
+
+    __test__ = False  # 不是 pytest 的测试类
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    version: int
+    cases: dict[str, Any]
+    created_at: datetime
+    from_test_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +207,9 @@ class QuestionRecord:
     answer: dict[str, Any] | None = None
     answered_by: str | None = None
     answered_at: datetime | None = None
+    # data 问题（SDD 0046 第三节）：专家提出的几样；在 knowbase 解析、确认、补采到哪
+    requests: list[dict[str, Any]] = field(default_factory=list)
+    data_state: dict[str, Any] | None = None
     sent_at: datetime | None = None
     last_error: str | None = None
 
@@ -385,6 +404,10 @@ class KnowlabRepository(Protocol):
     ) -> Sequence[QuestionRecord]:
         """open_only：还没回答的。"""
         ...
+
+    async def latest_test_set(self, request_id: uuid.UUID) -> TestSetRecord | None: ...
+
+    async def add_test_set(self, record: TestSetRecord) -> None: ...
 
     async def update_question(self, question: uuid.UUID, **changes: Any) -> None: ...
 
