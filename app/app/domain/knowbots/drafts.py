@@ -24,7 +24,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.knowbots.data_needs import parse_needs
-from app.domain.knowbots.data_needs_v2 import parse_needs_v2
 from app.domain.knowbots.test_run import RunCase
 
 DraftStatus = Literal["pending_test", "testing", "passed", "failed"]
@@ -181,7 +180,12 @@ def draft_manifest_problems(
             "each rule source must be user_text or user_confirmed with a ref"
         )
     if doc.get("schema") == MANIFEST_SCHEMA_V2:
-        problems += parse_needs_v2(doc.get("data_needs"))[1]
+        if "data_needs" in doc:
+            # 清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：要什么数据每件委托由
+            # 第 0 步按问题提出；要提示模型，写在步骤说明里
+            problems.append(
+                "a v2 manifest declares no data needs (say it in the step instead)"
+            )
         if "data_bindings" in doc:
             problems.append(
                 "a v2 manifest has no data_bindings (test sets are separate)"

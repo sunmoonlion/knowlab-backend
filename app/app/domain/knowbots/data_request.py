@@ -1,16 +1,17 @@
-"""数据需求声明 v2：照 knowbase 的契约 `knowbot-data-needs/v2` 写的同一份模型。
+"""一样数据的描述：照 knowbase 的契约 `data-request/v1` 写的同一份模型。
 
-作者在 knowlab 写声明模板（清单 v2 的 `data_needs`）。真源在
-`knowbase-app/contracts/knowbot-data-needs/v2/`，本仓 `contracts/` 的锁钉住它的摘要；
+10-28 起清单 v2 不再有数据需求声明（decisions ⑭）：测试时作者写测试问题，第 0 步
+模型按这个形状提出要哪些数据，作者确认后钉成测试集（SDD 0043 第 4.2 节，块 7）。
+真源在 `knowbase-app/contracts/data-request/v1/`，本仓 `contracts/` 的锁钉住它的摘要；
 并列检出 knowbase-app 时，测试核这里生成的 schema 与真源一致（不计说明文字）。
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 DocType = Literal[
     "disclosure",
@@ -140,13 +141,15 @@ class PeriodRule(_Strict):
     months: int | None = Field(default=None, ge=1, le=60)
 
 
-class DataNeed(_Strict):
-    """声明模板里的一样：类型（细类，或只写大类）、期间规则、版本形态、格式、份数、
-    必填、要的读法、来源限制、多候选时的优先策略、表格类的表与列；事项与行业写了就是
-    缩小范围；口径与说明只展示。"""
+class DataRequest(_Strict):
+    """一样数据：主体（证券代码、机构编号；空是不限主体）、类型（细类，或只写大类）、
+    期间规则、版本形态、格式、份数、是不是必需、要的读法、来源限制、多候选时的优先
+    策略、表格类的表与列；事项与行业写了就是缩小范围；名字、说明（为什么要）、口径
+    只展示。"""
 
     key: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
     name: str = Field(min_length=1, max_length=80)
+    subject: str | None = Field(default=None, min_length=1, max_length=64)
     doc_type: DocType
     period: PeriodRule
     formats: tuple[DataFormat, ...] = Field(min_length=1, max_length=6)
@@ -164,37 +167,3 @@ class DataNeed(_Strict):
     edition: Edition = "full"
     topics: tuple[Topic, ...] = Field(default=(), max_length=12)
     industry: Industry | None = None
-
-
-MAX_NEEDS = 20
-TABULAR: frozenset[str] = frozenset({"excel", "csv"})
-
-
-def parse_needs_v2(raw: Any) -> tuple[list[DataNeed], list[str]]:
-    """（读出的声明，不合规矩的地方）。没写就是空的声明（不要数据的专家）。"""
-    if raw is None:
-        return [], []
-    if not isinstance(raw, list):
-        return [], ["data_needs must be a list"]
-    if len(raw) > MAX_NEEDS:
-        return [], [f"at most {MAX_NEEDS} data needs"]
-    needs: list[DataNeed] = []
-    problems: list[str] = []
-    for i, item in enumerate(raw):
-        try:
-            needs.append(DataNeed.model_validate(item))
-        except ValidationError as exc:
-            where = sorted(
-                {".".join(str(p) for p in e["loc"]) or "need" for e in exc.errors()}
-            )
-            problems.append(f"data_needs[{i}] is invalid: " + ", ".join(where[:5]))
-    if problems:
-        return [], problems
-    if len({n.key for n in needs}) != len(needs):
-        problems.append("each data need needs its own key")
-    for n in needs:
-        if n.max_count < n.min_count:
-            problems.append(f"{n.key}: max_count must not be below min_count")
-        if n.tables and not set(n.formats) <= TABULAR:
-            problems.append(f"{n.key}: tables can be required only of Excel or CSV")
-    return needs, problems

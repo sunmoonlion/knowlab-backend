@@ -103,7 +103,8 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
 
 
 def manifest_v2(version: str = "1", **overrides: Any) -> dict[str, Any]:
-    """清单 v2 的草稿：声明 v2，不带绑定（作者绑的数据交付时才冻结）。"""
+    """清单 v2 的草稿：逻辑；没有数据需求声明，不带绑定（作者挑选的数据
+    交付时才冻结）。"""
     doc: dict[str, Any] = {
         "schema": "knowbot-manifest/v2",
         "name": "财务分析与预测",
@@ -115,16 +116,6 @@ def manifest_v2(version: str = "1", **overrides: Any) -> dict[str, Any]:
             "version": version,
             "workflow": [{"step_id": "s1", "title": "读财报"}],
         },
-        "data_needs": [
-            {
-                "key": "annual",
-                "name": "年报",
-                "doc_type": "annual_report",
-                "period": {"kind": "latest", "count": 3},
-                "formats": ["pdf"],
-                "reading": "table",
-            }
-        ],
         "rule_sources": [
             {"rule": "毛利率口径", "source": "user_text", "ref": "想法原文第 4 问"}
         ],

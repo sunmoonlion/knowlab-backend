@@ -124,7 +124,8 @@ def test_approx_expectations_need_a_number_and_a_tolerance() -> None:
 # —— 清单 v2（SDD 0043 块 4）——
 
 
-def test_v2_drafts_check_the_v2_declaration() -> None:
+def test_v2_drafts_declare_no_data_needs() -> None:
+    """清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：草稿里写了声明就不收。"""
     from app.domain.knowbots.drafts import draft_manifest_problems
     from tests.knowbot_fakes import manifest_v2
 
@@ -134,14 +135,15 @@ def test_v2_drafts_check_the_v2_declaration() -> None:
         )
 
     assert problems() == []
-    assert problems(data_needs=None) == []  # 不要数据的专家
-    need = manifest_v2()["data_needs"][0]
-    assert problems(data_needs=[{**need, "doc_type": "茅台年报"}]) == [
-        "data_needs[0] is invalid: doc_type"
-    ]
-    assert problems(data_needs=[need, need]) == ["each data need needs its own key"]
-    assert problems(data_needs=[{**need, "tables": [{"columns": ["营业收入"]}]}]) == [
-        "annual: tables can be required only of Excel or CSV"
+    need = {
+        "key": "annual",
+        "name": "年报",
+        "doc_type": "annual_report",
+        "period": {"kind": "latest", "count": 3},
+        "formats": ["pdf"],
+    }
+    assert problems(data_needs=[need]) == [
+        "a v2 manifest declares no data needs (say it in the step instead)"
     ]
     assert problems(data_bindings=[]) == [
         "a v2 manifest has no data_bindings (test sets are separate)"

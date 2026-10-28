@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app.domain.knowbots.data_needs_v2 import DataNeed
+from app.domain.knowbots.data_request import DataRequest
 from app.domain.knowbots.drafts import draft_manifest_problems
 from tests.knowbot_fakes import manifest, manifest_v2
 
@@ -51,10 +51,10 @@ def test_a_manifest_knowlab_accepts_satisfies_the_provider_schema() -> None:
     jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))
 
 
-# —— 清单 v2 与声明 v2（SDD 0043 块 4）——
+# —— 清单 v2 与一样数据的描述（SDD 0043 块 4、6a）——
 
 LOCK_V2 = PARENT / "contracts/knowmart-knowbot-manifest-v2-lock.json"
-LOCK_NEEDS = PARENT / "contracts/knowbase-data-needs-lock.json"
+LOCK_REQUEST = PARENT / "contracts/knowbase-data-request-lock.json"
 
 
 def _read_lock(path: Path) -> dict:
@@ -83,22 +83,22 @@ def test_v2_locks_match_their_providers() -> None:
     assert (v2["provider"], v2["major_version"]) == ("knowmart-app", 2)
     schema = _sibling("knowmart-app", v2)
     assert hashlib.sha256(schema.read_bytes()).hexdigest() == v2["sha256"]
-    needs = _read_lock(LOCK_NEEDS)
-    assert (needs["provider"], needs["contract"]) == (
+    request = _read_lock(LOCK_REQUEST)
+    assert (request["provider"], request["contract"]) == (
         "knowbase-app",
-        "knowbot-data-needs",
+        "data-request",
     )
-    provider = _sibling("knowbase-app", needs)
-    assert hashlib.sha256(provider.read_bytes()).hexdigest() == needs["sha256"]
+    provider = _sibling("knowbase-app", request)
+    assert hashlib.sha256(provider.read_bytes()).hexdigest() == request["sha256"]
 
 
-def test_our_data_need_is_the_knowbase_data_need() -> None:
+def test_our_data_request_is_the_knowbase_data_request() -> None:
     provider = json.loads(
-        _sibling("knowbase-app", _read_lock(LOCK_NEEDS)).read_text(encoding="utf-8")
+        _sibling("knowbase-app", _read_lock(LOCK_REQUEST)).read_text(encoding="utf-8")
     )
-    ours = DataNeed.model_json_schema(ref_template="#/$defs/{model}")
+    ours = DataRequest.model_json_schema(ref_template="#/$defs/{model}")
     defs = ours.pop("$defs", {})
-    defs["DataNeed"] = ours
+    defs["DataRequest"] = ours
     assert _structure(defs) == _structure(provider["$defs"])
 
 
