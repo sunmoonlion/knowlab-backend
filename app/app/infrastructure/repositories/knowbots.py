@@ -28,6 +28,8 @@ from app.application.ports.knowbots import (
     TestOutputRecord,
     TestRecord,
     TestSetRecord,
+    WorkdraftEntryRecord,
+    WorkdraftRecord,
 )
 from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
@@ -41,6 +43,8 @@ from app.infrastructure.models.knowbots import (
     KnowbotTest,
     KnowbotTestOutput,
     KnowbotTestSet,
+    KnowbotWorkdraft,
+    KnowbotWorkdraftRecord,
 )
 
 # 0012 起准专家只改这几栏；run、报告、交付几栏不再写（内容在测试、专家表）
@@ -135,6 +139,34 @@ def _draft(row: KnowbotDraft) -> DraftRecord:
         created_at=row.created_at,
         request_version=row.request_version,
         user_review=row.user_review,
+        mode=row.mode,
+    )
+
+
+def _workdraft(row: KnowbotWorkdraft) -> WorkdraftRecord:
+    return WorkdraftRecord(
+        id=row.id,
+        request_id=row.request_id,
+        owner_subject=row.owner_subject,
+        body=row.body,
+        sources=row.sources or {},
+        revision=row.revision,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _entry(row: KnowbotWorkdraftRecord) -> WorkdraftEntryRecord:
+    return WorkdraftEntryRecord(
+        id=row.id,
+        workdraft_id=row.workdraft_id,
+        kind=row.kind,
+        actor_subject=row.actor_subject,
+        actor_role=row.actor_role,
+        text=row.text,
+        path=row.path,
+        suggestion_ref=row.suggestion_ref,
+        created_at=row.created_at,
     )
 
 
@@ -420,6 +452,7 @@ class SqlKnowlabRepository:
         revision: int,
         version: str,
         manifest: dict[str, Any],
+        mode: str = "platform",
     ) -> DraftRecord:
         row = KnowbotDraft(
             id=uuid.uuid4(),
@@ -430,6 +463,7 @@ class SqlKnowlabRepository:
             status="pending_test",
             manifest=manifest,
             run_attempts=0,
+            mode=mode,
         )
         self.session.add(row)
         await self.session.flush()
@@ -838,6 +872,96 @@ class SqlKnowlabRepository:
             )
         )
         await self.session.flush()
+
+    # ---------- 工作稿 ----------
+    async def get_workdraft(
+        self, request_id: uuid.UUID, *, for_update: bool = False
+    ) -> WorkdraftRecord | None:
+        query = select(KnowbotWorkdraft).where(
+            KnowbotWorkdraft.request_id == request_id
+        )
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _workdraft(row)
+
+    async def create_workdraft(
+        self, *, request_id: uuid.UUID, owner_subject: str, body: dict[str, Any]
+    ) -> WorkdraftRecord:
+        row = KnowbotWorkdraft(
+            id=uuid.uuid4(),
+            request_id=request_id,
+            owner_subject=owner_subject,
+            body=body,
+            sources={},
+            revision=0,
+        )
+        self.session.add(row)
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "This knowbot already has its workdraft", code="workdraft_revision"
+            ) from exc
+        await self.session.refresh(row)
+        return _workdraft(row)
+
+    async def update_workdraft(
+        self,
+        workdraft_id: uuid.UUID,
+        *,
+        body: dict[str, Any],
+        sources: dict[str, Any],
+        revision: int,
+    ) -> None:
+        await self.session.execute(
+            update(KnowbotWorkdraft)
+            .where(KnowbotWorkdraft.id == workdraft_id)
+            .values(body=body, sources=sources, revision=revision)
+        )
+
+    async def add_workdraft_entry(
+        self,
+        *,
+        workdraft_id: uuid.UUID,
+        kind: str,
+        actor_subject: str,
+        actor_role: str,
+        text: str,
+        path: str | None = None,
+        suggestion_ref: str | None = None,
+    ) -> WorkdraftEntryRecord:
+        row = KnowbotWorkdraftRecord(
+            id=uuid.uuid4(),
+            workdraft_id=workdraft_id,
+            kind=kind,
+            actor_subject=actor_subject,
+            actor_role=actor_role,
+            path=path,
+            text=text,
+            suggestion_ref=suggestion_ref,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        await self.session.refresh(row)
+        return _entry(row)
+
+    async def list_workdraft_entries(
+        self, entry_ids: Collection[uuid.UUID]
+    ) -> Sequence[WorkdraftEntryRecord]:
+        if not entry_ids:
+            return []
+        rows = (
+            await self.session.execute(
+                select(KnowbotWorkdraftRecord).where(
+                    KnowbotWorkdraftRecord.id.in_(list(entry_ids))
+                )
+            )
+        ).scalars()
+        return [_entry(r) for r in rows]
 
     async def update_question(self, question: uuid.UUID, **changes: Any) -> None:
         unknown = set(changes) - QUESTION_FIELDS

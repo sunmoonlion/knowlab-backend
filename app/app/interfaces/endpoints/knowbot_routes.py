@@ -2,7 +2,8 @@
 
 web端（用户会话），左边栏「申请 · 审核 · 专家」：申请（出创意 v1）、改创意（出新版本）、
 审核待办箱（转给自己的问题、请自己审核的准专家、交回等自己定的专家）、专家（交回了的各
-版：要不要、停用）。不是自己的与没有的一样，都是 404。
+版：要不要、停用）；名称的「孵化」栏里是工作稿（专家孵化方案：存格子、导入、复制自己的、
+预览、出一版）。不是自己的与没有的一样，都是 404。
 
 管理端（管理员会话，我们的运营；admin、operator 现在能做的一样），左边栏
 「受理 · 孵化 · 测试 · 交付」：每栏的大类列表与「等我们」的数；受理（写受理单）、孵化
@@ -43,12 +44,14 @@ from app.application.services.knowbot_experts import KnowbotExpertService, stage
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
+from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.bootstrap.knowbots import (
     knowbot_board,
     knowbot_expert_service,
     knowbot_question_service,
     knowbot_service,
     knowbot_test_data,
+    knowbot_workdraft_service,
     runtime_clients,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
@@ -72,6 +75,7 @@ from app.interfaces.endpoints.knowbot_views import (
     question_view,
     test_view,
     version_view,
+    workdraft_view,
 )
 from app.interfaces.http.middleware.auth import (
     get_web_current_user,
@@ -112,7 +116,14 @@ def question_service(
     return knowbot_question_service(session)
 
 
+def workdraft_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotWorkdraftService:
+    return knowbot_workdraft_service(session)
+
+
 Service = Annotated[KnowbotCreationService, Depends(service)]
+Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
 Board = Annotated[KnowbotBoard, Depends(board_service)]
 Questions = Annotated[KnowbotQuestionService, Depends(question_service)]
@@ -397,6 +408,116 @@ async def refresh_my_test(
     """自己的测试刷新一次：问运行方结果、查在取的数据。"""
     test = await svc.refresh_mine(principal.subject, test_id)
     return _ok({"test_id": str(test.id), "status": test.status})
+
+
+# ---------- web端：工作稿（专家孵化方案第五至十一节） ----------
+class CellIn(BaseModel):
+    """存一格：path 是格子路径（domain/knowbots/workdraft.py），value 为 null 是删。"""
+
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1, max_length=300)
+    value: Any
+
+
+class SaveCellsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)  # 读到的那一版；对不上回 409
+    cells: list[CellIn] = Field(min_length=1, max_length=200)
+
+
+class ImportIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    manifest: dict[str, Any]
+
+
+class CopyIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    draft_id: str = Field(min_length=1, max_length=64)
+
+
+@web_router.get("/knowbot-requests/{request_id}/workdraft")
+async def my_workdraft(
+    principal: User, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """这个名称的工作稿：格子、每格的出处、revision（还没存过的是空的一份）。"""
+    request, found = await workdrafts.get(principal.subject, request_id)
+    return _ok(workdraft_view(request, found))
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/cells")
+async def save_cells(
+    principal: User, body: SaveCellsIn, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """存几格（自动保存）：每格改了的记一条编辑记录，算我的原话。"""
+    found = await workdrafts.save(
+        principal.subject,
+        request_id,
+        revision=body.revision,
+        edits=[(c.path, c.value) for c in body.cells],
+    )
+    request, _ = await workdrafts.get(principal.subject, request_id)
+    return _ok(workdraft_view(request, found))
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/import")
+async def import_pack(
+    principal: User, body: ImportIn, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """导入专家包（清单 v2）：整份换掉；导入的内容算我的原话，工程层留进「高级」。"""
+    found, notes = await workdrafts.import_manifest(
+        principal.subject, request_id, revision=body.revision, manifest=body.manifest
+    )
+    request, _ = await workdrafts.get(principal.subject, request_id)
+    return _ok(workdraft_view(request, found) | {"notes": notes})
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/copy")
+async def copy_mine(
+    principal: User, body: CopyIn, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """拿我自己的一位准专家作起点：整份换掉。别人的不行。"""
+    found, notes = await workdrafts.copy_from(
+        principal.subject, request_id, revision=body.revision, draft_id=body.draft_id
+    )
+    request, _ = await workdrafts.get(principal.subject, request_id)
+    return _ok(workdraft_view(request, found) | {"notes": notes})
+
+
+@web_router.get("/knowbot-requests/{request_id}/workdraft/preview")
+async def preview_workdraft(
+    principal: User, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """编出的清单与出不了版本的地方（按格子路径标红），不出版本。"""
+    manifest, problems, version = await workdrafts.preview(
+        principal.subject, request_id
+    )
+    return _ok(
+        {
+            "version": version,
+            "manifest": manifest,
+            "problems": [{"path": p.path, "message": p.message} for p in problems],
+        }
+    )
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/publish")
+async def publish_workdraft(
+    principal: User, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """出一版：把关都过了就出准专家第 n 版（自助），拿去测。工作稿不变。"""
+    draft = await workdrafts.publish(principal.subject, request_id)
+    return _ok(
+        {
+            "draft_id": str(draft.id),
+            "version": draft.version,
+            "revision": draft.revision,
+            "request_version": draft.request_version,
+            "mode": draft.mode,
+        },
+        status_code=201,
+    )
 
 
 def test_data_service(

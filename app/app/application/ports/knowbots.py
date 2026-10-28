@@ -76,6 +76,39 @@ class DraftRecord:
     request_version: int = 1  # 出自创意第几版
     # 请用户审核：{requested_by, requested_at, ok, note, answered_at}
     user_review: dict[str, Any] | None = None
+    # 平台孵化（运营建的）还是自助（作者从工作稿出的一版，专家孵化方案第十一节）
+    mode: str = "platform"
+
+
+@dataclass(frozen=True)
+class WorkdraftRecord:
+    """工作稿（专家孵化方案第五节）：一个名称一份。body 是方法层的格子，sources 是每格
+    的出处（格子路径 → {kind, ref}）；revision 每存一次加 1。"""
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    owner_subject: str
+    body: dict[str, Any] = field(repr=False)
+    sources: dict[str, Any] = field(repr=False)
+    revision: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class WorkdraftEntryRecord:
+    """工作稿的一条记录（表 knowbot_workdraft_record，只增不改）：谁、以什么身份、改了
+    哪一格、存的原文。kind：edit 编辑、accept 接受建议、import 导入、copy 复制。"""
+
+    id: uuid.UUID
+    workdraft_id: uuid.UUID
+    kind: str
+    actor_subject: str
+    actor_role: str
+    text: str = field(repr=False)
+    path: str | None = None
+    suggestion_ref: str | None = None
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -281,6 +314,7 @@ class KnowlabRepository(Protocol):
         revision: int,
         version: str,
         manifest: dict[str, Any],
+        mode: str = "platform",
     ) -> DraftRecord: ...
 
     async def get_draft(
@@ -383,6 +417,46 @@ class KnowlabRepository(Protocol):
         ...
 
     async def latest_test_set(self, request_id: uuid.UUID) -> TestSetRecord | None: ...
+
+    # ---------- 工作稿（专家孵化方案） ----------
+    async def get_workdraft(
+        self, request_id: uuid.UUID, *, for_update: bool = False
+    ) -> WorkdraftRecord | None: ...
+
+    async def create_workdraft(
+        self, *, request_id: uuid.UUID, owner_subject: str, body: dict[str, Any]
+    ) -> WorkdraftRecord:
+        """建一份空的（revision 0）；这个名称已有就抛 ConcurrencyConflictError。"""
+        ...
+
+    async def update_workdraft(
+        self,
+        workdraft_id: uuid.UUID,
+        *,
+        body: dict[str, Any],
+        sources: dict[str, Any],
+        revision: int,
+    ) -> None: ...
+
+    async def add_workdraft_entry(
+        self,
+        *,
+        workdraft_id: uuid.UUID,
+        kind: str,
+        actor_subject: str,
+        actor_role: str,
+        text: str,
+        path: str | None = None,
+        suggestion_ref: str | None = None,
+    ) -> WorkdraftEntryRecord:
+        """记一条（只增不改）。"""
+        ...
+
+    async def list_workdraft_entries(
+        self, entry_ids: Collection[uuid.UUID]
+    ) -> Sequence[WorkdraftEntryRecord]:
+        """按编号取记录，不论属于哪份工作稿（核出处时好认出引错了的）。"""
+        ...
 
     async def add_test_set(self, record: TestSetRecord) -> None: ...
 

@@ -141,9 +141,14 @@ class KnowbotDraft(TimestampMixin, Base):
     request_version: Mapped[int] = mapped_column(Integer, nullable=False)
     # 请用户审核：{requested_by, requested_at, ok, note, answered_at}
     user_review: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # platform（运营建的）或 self（作者从工作稿出的一版，专家孵化方案第十一节）
+    mode: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default="platform"
+    )
 
     __table_args__ = (
         UniqueConstraint("request_id", "revision", name="uq_knowbot_draft_revision"),
+        CheckConstraint("mode IN ('platform', 'self')", name="ck_knowbot_draft_mode"),
         ForeignKeyConstraint(
             ["request_id", "request_version"],
             ["knowbot_request_version.request_id", "knowbot_request_version.version"],
@@ -425,4 +430,80 @@ class KnowbotTestSet(Base):
     __table_args__ = (
         UniqueConstraint("request_id", "version", name="uq_knowbot_test_set_version"),
         CheckConstraint("version >= 1", name="ck_knowbot_test_set_version"),
+    )
+
+
+class KnowbotWorkdraft(TimestampMixin, Base):
+    """工作稿（专家孵化方案第五节）：一个名称一份，方法层的格子与每格的出处。
+
+    body：方法层（WorkdraftBody）；sources：格子路径 → {kind, ref}；revision 每存一次
+    加 1，存时带上读到的，对不上回 409。
+    """
+
+    __tablename__ = "knowbot_workdraft"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    body: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    sources: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_knowbot_workdraft_request"),
+        CheckConstraint("revision >= 0", name="ck_knowbot_workdraft_revision"),
+    )
+
+
+class KnowbotWorkdraftRecord(Base):
+    """工作稿的一条记录：编辑、接受建议、导入、复制（专家孵化方案第 9.1 节）。只增不改。
+
+    格子的出处引它（`record:<id>`），原话核对拿格子文字与 text 逐字比；导入、复制的 text
+    记着拆出的每一格。
+    """
+
+    __tablename__ = "knowbot_workdraft_record"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    workdraft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_workdraft.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    actor_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(8), nullable=False)
+    path: Mapped[str | None] = mapped_column(String(512))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    # 接受的是哪一条建议（以后 AI、运营的建议）
+    suggestion_ref: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('edit', 'accept', 'import', 'copy')",
+            name="ck_knowbot_workdraft_record_kind",
+        ),
+        CheckConstraint(
+            "actor_role IN ('author', 'operator')",
+            name="ck_knowbot_workdraft_record_role",
+        ),
+        # 编辑、接受是一格一条；导入、复制是整份
+        CheckConstraint(
+            "(kind IN ('edit', 'accept')) = (path IS NOT NULL)",
+            name="ck_knowbot_workdraft_record_path",
+        ),
+        CheckConstraint(
+            "suggestion_ref IS NULL OR kind = 'accept'",
+            name="ck_knowbot_workdraft_record_suggestion",
+        ),
+        Index("ix_knowbot_workdraft_record_workdraft", "workdraft_id"),
     )

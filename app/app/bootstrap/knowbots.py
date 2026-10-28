@@ -12,6 +12,7 @@ from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
+from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.external.knowbase_data_v2 import KnowbaseDataV2
 from app.infrastructure.external.knowbot_clients import (
     KnowmartDeliveryClient,
@@ -68,6 +69,11 @@ def knowbot_test_data(session: AsyncSession) -> KnowbotTestData | None:
 def knowbot_expert_service(session: AsyncSession) -> KnowbotExpertService:
     """专家的交回、两道门、上架、停用（SDD 0037）。"""
     return KnowbotExpertService(SqlKnowlabRepository(session), knowmart_client())
+
+
+def knowbot_workdraft_service(session: AsyncSession) -> KnowbotWorkdraftService:
+    """工作稿：作者直接改、导入、复制、预览、出一版（专家孵化方案）。"""
+    return KnowbotWorkdraftService(SqlKnowlabRepository(session))
 
 
 def knowbot_board(session: AsyncSession) -> KnowbotBoard:

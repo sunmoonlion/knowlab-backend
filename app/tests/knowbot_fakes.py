@@ -26,6 +26,8 @@ from app.application.ports.knowbots import (
     TestOutputRecord,
     TestRecord,
     TestSetRecord,
+    WorkdraftEntryRecord,
+    WorkdraftRecord,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import (
@@ -164,6 +166,8 @@ class MemoryKnowlab:
         self.test_sets: list[TestSetRecord] = []
         self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
+        self.workdrafts: dict[uuid.UUID, WorkdraftRecord] = {}  # 按名称
+        self.entries: dict[uuid.UUID, WorkdraftEntryRecord] = {}
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -184,6 +188,8 @@ class MemoryKnowlab:
             dict(self.acceptances),
             dict(self.tests),
             dict(self.experts),
+            dict(self.workdrafts),
+            dict(self.entries),
         )
         try:
             yield
@@ -199,6 +205,8 @@ class MemoryKnowlab:
                 self.acceptances,
                 self.tests,
                 self.experts,
+                self.workdrafts,
+                self.entries,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -519,6 +527,59 @@ class MemoryKnowlab:
                 self.outputs[key] = replace(out, outputs=None, note=OUTPUTS_EXPIRED)
                 count += 1
         return count
+
+    # ---------- 工作稿 ----------
+    async def get_workdraft(
+        self, request_id: uuid.UUID, *, for_update: bool = False
+    ) -> WorkdraftRecord | None:
+        found = self.workdrafts.get(request_id)
+        return None if found is None else copy.deepcopy(found)
+
+    async def create_workdraft(
+        self, *, request_id: uuid.UUID, owner_subject: str, body: dict[str, Any]
+    ) -> WorkdraftRecord:
+        if request_id in self.workdrafts:
+            raise ConcurrencyConflictError("exists", code="workdraft_revision")
+        record = WorkdraftRecord(
+            id=uuid.uuid4(),
+            request_id=request_id,
+            owner_subject=owner_subject,
+            body=copy.deepcopy(body),
+            sources={},
+            revision=0,
+            created_at=self._now(),
+            updated_at=self._now(),
+        )
+        self.workdrafts[request_id] = record
+        return record
+
+    async def update_workdraft(
+        self,
+        workdraft_id: uuid.UUID,
+        *,
+        body: dict[str, Any],
+        sources: dict[str, Any],
+        revision: int,
+    ) -> None:
+        for key, found in self.workdrafts.items():
+            if found.id == workdraft_id:
+                self.workdrafts[key] = replace(
+                    found,
+                    body=copy.deepcopy(body),
+                    sources=copy.deepcopy(sources),
+                    revision=revision,
+                    updated_at=self._now(),
+                )
+
+    async def add_workdraft_entry(self, **fields: Any) -> WorkdraftEntryRecord:
+        record = WorkdraftEntryRecord(id=uuid.uuid4(), created_at=self._now(), **fields)
+        self.entries[record.id] = record
+        return record
+
+    async def list_workdraft_entries(
+        self, entry_ids: Any
+    ) -> Sequence[WorkdraftEntryRecord]:
+        return [self.entries[i] for i in entry_ids if i in self.entries]
 
     async def put_test_output(self, record: TestOutputRecord) -> None:
         key = (record.draft_id, record.run_id, record.case_id)

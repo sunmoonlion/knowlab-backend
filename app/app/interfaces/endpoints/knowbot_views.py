@@ -18,11 +18,13 @@ from app.application.ports.knowbots import (
     RequestVersionRecord,
     TestOutputRecord,
     TestRecord,
+    WorkdraftRecord,
 )
 from app.application.services.knowbot_board import Life, start_blocker, summary
 from app.application.services.knowbot_experts import stage_of
 from app.domain.knowbots.drafts import CONSENT_VERSION
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS, draft_label, review_state
+from app.domain.knowbots.workdraft import empty_body
 
 
 def iso(value: Any) -> str | None:
@@ -92,6 +94,7 @@ def draft_view(draft: DraftRecord, life: Life, *, admin: bool) -> dict[str, Any]
         "revision": draft.revision,
         "request_version": draft.request_version,
         "status": draft.status,
+        "mode": draft.mode,
         "name": draft.manifest.get("name"),
         "created_at": iso(draft.created_at),
         "user_review": _user_review(draft),
@@ -302,3 +305,26 @@ def answered_view(q: QuestionRecord, *, admin: bool) -> dict[str, Any]:
     if admin:
         view["route_reason"] = q.route_reason
     return view
+
+
+def workdraft_view(
+    request: RequestRecord, workdraft: WorkdraftRecord | None
+) -> dict[str, Any]:
+    """工作稿（作者本人看）：方法层的格子、每格的出处、revision。还没存过的是空的一份。"""
+    if workdraft is None:
+        return {
+            "request_id": str(request.id),
+            "title": request.title,
+            "revision": 0,
+            "body": empty_body(),
+            "sources": {},
+            "updated_at": None,
+        }
+    return {
+        "request_id": str(request.id),
+        "title": request.title,
+        "revision": workdraft.revision,
+        "body": workdraft.body,
+        "sources": workdraft.sources,
+        "updated_at": iso(workdraft.updated_at),
+    }
