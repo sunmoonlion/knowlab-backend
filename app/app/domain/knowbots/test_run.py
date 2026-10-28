@@ -63,10 +63,84 @@ class CaseInput(Strict):
     answers: dict[str, str] = Field(default_factory=dict, max_length=64)
 
 
+class Runner(Strict):
+    """谁跑这次测试（SDD 0046 第三节）：平台的测试账号（缺省），或用户本人——跑在他接入
+    的电脑、他选的工作区根目录、他的模型 key，他出钱。v1 冻结后加的可选字段。"""
+
+    kind: Literal["platform", "user"]
+    environment_id: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f-]{36}$",
+        exclude_if=lambda value: value is None,
+    )
+    workspace_root: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=1024,
+        exclude_if=lambda value: value is None,
+    )
+
+    @model_validator(mode="after")
+    def _where_for_the_user(self) -> Runner:
+        mine = self.environment_id is not None and self.workspace_root is not None
+        if (self.kind == "user") != mine:
+            raise ValueError("a user runner names the computer and workspace root")
+        if self.kind == "platform" and (self.environment_id or self.workspace_root):
+            raise ValueError("the platform runner uses its own test computer")
+        return self
+
+
+class PinnedInput(Strict):
+    """测试集里钉住的一份（清单 v2，SDD 0043 第 2.9 节）：资料、内容版本、读法与摘要、
+    权利依据。"""
+
+    material_id: str = Field(min_length=1, max_length=64)
+    version_no: int = Field(ge=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rendition_kind: str | None = Field(
+        default=None, max_length=16, exclude_if=lambda value: value is None
+    )
+    rendition_no: int | None = Field(
+        default=None, ge=1, exclude_if=lambda value: value is None
+    )
+    rendition_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        exclude_if=lambda value: value is None,
+    )
+    basis: Literal["display", "reference", "public", "frozen_binding"]
+    basis_ref: str = Field(min_length=1, max_length=160)
+    name: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="", max_length=128)
+    size_bytes: int = Field(default=0, ge=0)
+
+
+class CaseData(Strict):
+    """一条用例用的数据（清单 v2，SDD 0046 第三节）：knowbase 签的这条用例的测试运行
+    授权与钉住的几份。用例带了就不跑第 0 步；回答 `data` 问题时也是这个形状（几份都
+    不要时 items 为空、不带授权）。"""
+
+    grant_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        exclude_if=lambda value: value is None,
+    )
+    items: tuple[PinnedInput, ...] = Field(default=(), max_length=200)
+
+    @model_validator(mode="after")
+    def _grant_with_items(self) -> CaseData:
+        if bool(self.items) != (self.grant_id is not None):
+            raise ValueError("pinned items come with their grant, and only then")
+        return self
+
+
 class RunCase(Strict):
     case_id: str = Field(pattern=CASE_ID)
     input: CaseInput
     expectations: tuple[Expectation, ...] = Field(default=(), max_length=64)
+    # 清单 v2：这条用例的测试集（带了就不跑第 0 步）；没有时不进摘要
+    data: CaseData | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class Budget(Strict):
@@ -115,6 +189,8 @@ class RunRequestV1(Strict):
     data_grant: DataGrant | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # 谁跑：没有就是平台的测试账号（SDD 0046 第三节）
+    runner: Runner | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def _unique_cases(self) -> RunRequestV1:
@@ -156,22 +232,27 @@ class Option(Strict):
 
 class PendingQuestion(Strict):
     """跑到要人决定的地方。tool_approval：能不能做这件事（运营答）；question：Codex
-    反问；ask_before：开步前的提问（key 是清单里提问的 id，答案可记回用例）。"""
+    反问；ask_before：开步前的提问（key 是清单里提问的 id，答案可记回用例）；data：
+    第 0 步或运行中专家提出要哪些数据（`requests`，契约 knowbase `data-request/v1` 的
+    形状），作者本人确认，回答带 `data`（SDD 0046 第三节）。"""
 
     question_id: str = Field(pattern=r"^[A-Za-z0-9._:-]{1,128}$")
     case_id: str = Field(pattern=CASE_ID)
     step_id: str | None = Field(default=None, max_length=128)
-    kind: Literal["tool_approval", "question", "ask_before"]
+    kind: Literal["tool_approval", "question", "ask_before", "data"]
     key: str | None = Field(default=None, max_length=64)
     text: str = Field(min_length=1, max_length=4000)
     options: tuple[Option, ...] = Field(default=(), max_length=20)
     allow_free_text: bool = True
     asked_at: str = Field(min_length=1, max_length=40)
+    requests: tuple[dict[str, Any], ...] = Field(
+        default=(), max_length=20, exclude_if=lambda value: not value
+    )
 
 
 def first_route(kind: str) -> str | None:
-    """问题先归谁（C-L1，审读第 2 条）：工具审批归我们（空）；投资判断与开步前的提问
-    归用户本人，运营要写理由改派给自己才能答。"""
+    """问题先归谁（C-L1，审读第 2 条）：工具审批归我们（空）；投资判断、开步前的提问
+    与要哪些数据归用户本人，运营要写理由改派给自己才能答（数据只能本人确认）。"""
     return None if kind == "tool_approval" else "user"
 
 
@@ -333,10 +414,18 @@ class Answer(Strict):
     decision: Literal["approve", "deny"] | None = None
     option_id: str | None = Field(default=None, max_length=64)
     text: str | None = Field(default=None, min_length=1, max_length=4000)
+    # 回答 data 问题：作者确认的这条用例的数据（几份都不要时 items 为空）
+    data: CaseData | None = Field(default=None, exclude_if=lambda value: value is None)
     answered_by: Literal["operator", "user"]
 
     @model_validator(mode="after")
     def _one_kind_of_answer(self) -> Answer:
+        if self.data is not None:
+            if any(v is not None for v in (self.decision, self.option_id, self.text)):
+                raise ValueError("a data answer carries only the data")
+            if self.answered_by != "user":
+                raise ValueError("only the user confirms the data")
+            return self
         given = [v for v in (self.decision, self.option_id, self.text) if v is not None]
         if len(given) != 1 and not (self.option_id and self.text):
             raise ValueError("give a decision, an option, or text")
