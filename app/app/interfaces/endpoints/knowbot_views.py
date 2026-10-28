@@ -11,7 +11,6 @@ from typing import Any
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
-    DatasetRecord,
     DraftRecord,
     ExpertRecord,
     QuestionRecord,
@@ -258,19 +257,6 @@ def outputs_view(
     if admin:
         view["run_id"] = test.run_id
     return view
-
-
-def dataset_view(found: DatasetRecord) -> dict[str, Any]:
-    return {
-        "dataset_id": str(found.id),
-        "name": found.name,
-        "version": found.version,
-        "content_type": found.content_type,
-        "size_bytes": found.size_bytes,
-        "sha256": found.sha256,
-        "created_at": iso(found.created_at),
-        "no_resale": found.no_resale,
-    }
 
 
 def question_view(

@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -138,8 +137,6 @@ class KnowbotDraft(TimestampMixin, Base):
     report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     delivery: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     last_error: Mapped[str | None] = mapped_column(Text)
-    # 这次测试的运行授权（SDD 0042 第七节）：knowbase 签给运行方，测试结束撤
-    run_grant_id: Mapped[str | None] = mapped_column(String(64))
     # 出自创意第几版（SDD 0037）
     request_version: Mapped[int] = mapped_column(Integer, nullable=False)
     # 请用户审核：{requested_by, requested_at, ok, note, answered_at}
@@ -179,9 +176,8 @@ class KnowbotTest(Base):
     budget_limit: Mapped[str | None] = mapped_column(String(16))  # 回填的不知道
     timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     run_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    grant_id: Mapped[str | None] = mapped_column(String(64))
     started_by: Mapped[str | None] = mapped_column(String(512))
-    # 这次带的测试集是第几版（SDD 0046 第三节）；没带的（第一次测、清单 v1）是空的
+    # 这次带的测试集是第几版（SDD 0046 第三节）；没带的（第一次测）是空的
     test_set_version: Mapped[int | None] = mapped_column(Integer)
     # 带测试集发起时每条用例签的测试运行授权，测试结束撤
     case_grants: Mapped[list[str]] = mapped_column(
@@ -286,38 +282,6 @@ class KnowbotExpert(Base):
             name="ck_knowbot_expert_stopped",
         ),
         Index("ix_knowbot_expert_knowmart", "knowmart_knowbot_id", "version"),
-    )
-
-
-class KnowbotDataset(TimestampMixin, Base):
-    """用户上传的一份数据（SDD 0027 决定 4）。内容在对象存储，这里只有元数据。"""
-
-    __tablename__ = "knowbot_dataset"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    version: Mapped[str] = mapped_column(String(16), nullable=False)
-    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    # knowlab 自己的旧对象（2026-10-23 前传的）；新传的只在 knowbase，这两栏为空
-    object_key: Mapped[str | None] = mapped_column(String(256))
-    version_id: Mapped[str | None] = mapped_column(String(256))
-    # knowbase 里 knowlab 分区的那份（SDD 0042 第七节）
-    knowbase_item_id: Mapped[str | None] = mapped_column(String(64))
-    # 在 knowmart 买来、卖家写明不许转卖的（Fable 评审 P2-16）
-    no_resale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-    __table_args__ = (
-        Index("ix_knowbot_dataset_owner_subject", "owner_subject"),
-        CheckConstraint("size_bytes > 0", name="ck_knowbot_dataset_size"),
-        CheckConstraint(
-            "knowbase_item_id IS NOT NULL"
-            " OR (object_key IS NOT NULL AND version_id IS NOT NULL)",
-            name="ck_knowbot_dataset_somewhere",
-        ),
     )
 
 
@@ -436,34 +400,6 @@ class KnowbotTestOutput(TimestampMixin, Base):
         CheckConstraint(
             "outputs IS NOT NULL OR note IS NOT NULL", name="ck_knowbot_test_output_any"
         ),
-    )
-
-
-class KnowbotConsentWithdrawal(Base):
-    """换下来、还要在 knowbase 撤的旧测试同意：撤成了才删这一行，撤不成下次再撤。
-
-    knowbase 有没撤的同意含着一份资料就不让删它，旧编号不能丢（Astra 评审 F03）。
-    """
-
-    __tablename__ = "knowbot_consent_withdrawal"
-
-    consent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
-class KnowbotTestConsent(Base):
-    """每个用户一条测试同意（SDD 0042 第七节）：范围是他 knowlab 知识库里的全部资料。"""
-
-    __tablename__ = "knowbot_test_consent"
-
-    owner_subject: Mapped[str] = mapped_column(String(512), primary_key=True)
-    consent_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    items_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

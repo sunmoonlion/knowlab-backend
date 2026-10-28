@@ -67,14 +67,6 @@ def test_manifest_limits_match_knowmart() -> None:
     assert draft_manifest_problems(
         manifest(rule_sources=[ok] * 501), runtime="knowbench", version="1"
     ) == ["at most 500 rule sources"]
-    binding = {"dataset_id": "d", "version": "1", "sha256": "0" * 64}
-    assert draft_manifest_problems(
-        manifest(data_bindings=[binding, binding]), runtime="knowbench", version="1"
-    ) == ["a dataset may be bound only once per version"]
-    many = [binding | {"dataset_id": f"d{i}"} for i in range(65)]
-    assert draft_manifest_problems(
-        manifest(data_bindings=many), runtime="knowbench", version="1"
-    ) == ["at most 64 data bindings"]
     huge = manifest(tagline="长" * 400_000)
     assert draft_manifest_problems(huge, runtime="knowbench", version="1") == [
         "manifest is larger than 1000000 bytes"
@@ -121,17 +113,15 @@ def test_approx_expectations_need_a_number_and_a_tolerance() -> None:
         )
 
 
-# —— 清单 v2（SDD 0043 块 4）——
+# —— 清单 v2（SDD 0043 块 4；decisions ⑰ 起只收 v2）——
 
 
 def test_v2_drafts_declare_no_data_needs() -> None:
     """清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：草稿里写了声明就不收。"""
-    from app.domain.knowbots.drafts import draft_manifest_problems
-    from tests.knowbot_fakes import manifest_v2
 
     def problems(**overrides):
         return draft_manifest_problems(
-            manifest_v2(**overrides), runtime="knowbench", version="1"
+            manifest(**overrides), runtime="knowbench", version="1"
         )
 
     assert problems() == []
@@ -151,4 +141,6 @@ def test_v2_drafts_declare_no_data_needs() -> None:
     assert problems(bindings=[]) == [
         "bindings are frozen at delivery, not written in a draft"
     ]
-    assert problems(schema="knowbot-manifest/v3")[0].startswith("schema must be one of")
+    # 只收 v2：v1（数据需求声明、数据集绑定）与别的都不收
+    for other in ("knowbot-manifest/v1", "knowbot-manifest/v3", None):
+        assert problems(schema=other) == ["schema must be knowbot-manifest/v2"]

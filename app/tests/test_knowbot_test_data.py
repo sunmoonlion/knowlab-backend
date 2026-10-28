@@ -24,7 +24,7 @@ from tests.knowbot_fakes import (
     FakeRuntime,
     MemoryKnowlab,
     accepted_request,
-    manifest_v2,
+    manifest,
     result,
 )
 
@@ -189,7 +189,7 @@ async def world():
     )
     svc = KnowbotCreationService(repo, runtime, on_refresh=asks.resend, test_data=data)
     request = await accepted_request(svc)
-    draft = await svc.add_draft(str(request.id), manifest_v2())
+    draft = await svc.add_draft(str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     test = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     runtime.results[test.run_id] = asking(test.run_id)
@@ -324,7 +324,7 @@ async def test_the_author_tests_on_his_own_computer() -> None:
     repo, runtime = MemoryKnowlab(), FakeRuntime()
     svc = KnowbotCreationService(repo, runtime)
     request = await accepted_request(svc)
-    draft = await svc.add_draft(str(request.id), manifest_v2())
+    draft = await svc.add_draft(str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     env = "11111111-1111-4111-8111-111111111111"
     first = await svc.my_computers(OWNER, str(draft.id))

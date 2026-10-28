@@ -23,7 +23,6 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.application.errors.exceptions import ConcurrencyConflictError
-from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
@@ -34,7 +33,6 @@ from tests.knowbot_fakes import (
     OWNER,
     FakeKnowmart,
     FakeRuntime,
-    MemoryDataStore,
     accepted_request,
     all_clear,
     list_expert,
@@ -151,16 +149,11 @@ async def test_the_whole_life_round_trips(db) -> None:
             test.id,
             "to_return",
         )
-        assert await repo.find_listed_expert("kb-1", "1") is None  # 还没上架
     async with db() as session:
         listed = await list_expert(experts(session), expert.id)
     assert stage_of(listed) == "listed"
     async with db() as session:
         repo = SqlKnowlabRepository(session)
-        found_expert = await repo.find_listed_expert("kb-1", "1")
-        assert found_expert is not None and found_expert.id == expert.id
-        assert await repo.find_listed_expert("kb-1", "2") is None
-        assert await repo.find_listed_expert("kb-1", "x") is None
         stored = await repo.get_request(request.id)
         assert stored and stored.latest_version == 1
         [v1] = await repo.list_versions([request.id])
@@ -330,57 +323,6 @@ async def test_two_acceptances_of_one_version_leave_one_and_a_409(db) -> None:
     results = await asyncio.gather(accept(), accept(), return_exceptions=True)
     conflicts = [r for r in results if isinstance(r, ConcurrencyConflictError)]
     assert len(conflicts) == 1 and conflicts[0].code == "already_decided", results
-
-
-@pytest.mark.asyncio
-async def test_bound_data_stays_while_the_draft_or_its_expert_lives(db) -> None:
-    store = MemoryDataStore()
-    async with db() as session:
-        data = KnowbotDataService(SqlKnowlabRepository(session), store)
-        mine = await data.upload(OWNER, "年报.pdf", b"%PDF-1.7 a")
-        await data.upload("someone-else", "别人的.pdf", b"%PDF-1.7 b")
-        found, used = await data.mine(OWNER)
-        assert [d.id for d in found] == [mine.id] and used == len(b"%PDF-1.7 a")
-    async with db() as session:
-        request = await accepted_request(service(session))
-    binding = [{"dataset_id": str(mine.id), "version": "1", "sha256": mine.sha256}]
-    async with db() as session:
-        draft = await service(session).add_draft(
-            str(request.id), manifest(data_bindings=binding)
-        )
-    async with db() as session:
-        repo = SqlKnowlabRepository(session)
-        assert await repo.dataset_in_use(OWNER, mine.id)  # 待测的准专家绑着
-    async with db() as session:
-        await service(session).review_rules(str(draft.id), "admin-1")
-    test = await _start(db, draft)
-    RUNTIME.results[test.run_id] = result(test.run_id, "failed")
-    async with db() as session:
-        await service(session).refresh(str(test.id))
-    async with db() as session:
-        # 没通过：没有专家，也不在测，可以删
-        assert not await SqlKnowlabRepository(session).dataset_in_use(OWNER, mine.id)
-    async with db() as session:
-        again = await service(session).add_draft(
-            str(request.id), manifest(data_bindings=binding)
-        )
-    async with db() as session:
-        await service(session).review_rules(str(again.id), "admin-1")
-    second = await _start(db, again)
-    RUNTIME.results[second.run_id] = result(second.run_id, "passed")
-    async with db() as session:
-        await service(session).refresh(str(second.id))
-    async with db() as session:
-        repo = SqlKnowlabRepository(session)
-        assert await repo.dataset_in_use(OWNER, mine.id)  # 专家还没走完
-        [expert] = await repo.list_experts([request.id])
-    async with db() as session:
-        exp = experts(session)
-        await exp.return_to_user(str(expert.id), "admin-1")
-        await exp.decide(OWNER, str(expert.id), ExpertDecisionIn(accept=False))
-    async with db() as session:
-        # 用户不要：这一版走完了
-        assert not await SqlKnowlabRepository(session).dataset_in_use(OWNER, mine.id)
 
 
 @pytest.mark.asyncio
@@ -705,73 +647,6 @@ async def test_consent_version_and_output_expiry_on_the_real_database(db) -> Non
         await connection.run_sync(_step(name, "upgrade"))
 
 
-@pytest.mark.asyncio
-async def test_the_knowledge_base_moves_into_knowbase(db) -> None:
-    """SDD 0042 第七节：资料编号、测试同意、测试的运行授权都记得住；旧数据搬一次。"""
-    from tests.test_knowbot_knowledge_base import FakeKnowledge, token
-
-    store, kb = MemoryDataStore(), FakeKnowledge()
-    async with db() as session:
-        legacy = KnowbotDataService(SqlKnowlabRepository(session), store)
-        old = await legacy.upload(OWNER, "老年报.pdf", b"%PDF-1.7 old")
-    async with db() as session:
-        data = KnowbotDataService(SqlKnowlabRepository(session), store, knowledge=kb)
-        new = await data.upload(OWNER, "新年报.pdf", b"%PDF-1.7 new", token)
-        assert (new.item_id, new.object_key) == ("item-1", None)
-        repo = SqlKnowlabRepository(session)
-        assert [d.id for d in await repo.datasets_to_import()] == [old.id]
-        assert await data.import_old() == 1
-        assert await repo.datasets_to_import() == []
-        await data.ensure_consent(OWNER, token)
-        consent = await repo.get_test_consent(OWNER)
-        assert consent is not None and consent["consent_id"] == "consent-2"
-        assert sorted(i["item_id"] for i in kb.consents["consent-2"]) == [
-            "imported-" + str(old.id),
-            "item-1",
-        ]
-        # 换下来的旧同意记在待撤，撤成了划掉（Astra 评审 F03）
-        assert await repo.consent_withdrawals(OWNER) == []
-        async with repo.transaction():
-            await repo.add_consent_withdrawal(OWNER, "old-1")
-            await repo.add_consent_withdrawal(OWNER, "old-1")
-            await repo.add_consent_withdrawal("someone-else", "old-2")
-        assert await repo.consent_withdrawals(OWNER) == ["old-1"]
-        async with repo.transaction():
-            await repo.drop_consent_withdrawal("old-1")
-        assert await repo.consent_withdrawals(OWNER) == []
-        # 按 knowbase 的资料编号找回数据记录（补登记买来的用，Astra 评审 F04）
-        by_item = await repo.get_dataset_by_item("item-1")
-        assert by_item is not None and by_item.id == new.id
-        assert by_item.no_resale is False
-        assert await repo.get_dataset_by_item("no-such-item") is None
-    _, draft = await _reviewed(db)
-    test = await _start(db, draft)
-    async with db() as session:
-        repo = SqlKnowlabRepository(session)
-        async with repo.transaction():
-            await repo.update_test(test.id, grant_id="grant-9")
-        found = await repo.get_test(test.id)
-        assert found is not None and found.grant_id == "grant-9"
-    # 一份资料要么有 knowbase 的编号，要么有旧对象
-    async with db() as session:
-        with pytest.raises(DBAPIError, match="ck_knowbot_dataset_somewhere"):
-            async with session.begin():
-                await session.execute(
-                    text(
-                        "update knowbot_dataset"
-                        " set object_key = null, version_id = null where id = :i"
-                    ),
-                    {"i": new.id},
-                )
-                await session.execute(
-                    text(
-                        "update knowbot_dataset"
-                        " set knowbase_item_id = null where id = :i"
-                    ),
-                    {"i": new.id},
-                )
-
-
 # ---------- 0012 的回填（SDD 0037 第十节） ----------
 DELIVERY = {
     "accepted_by": OWNER,
@@ -810,7 +685,7 @@ async def _old_rows(session) -> dict[str, uuid.UUID]:
                 "INSERT INTO knowbot_draft (id, request_id, revision, version, status,"
                 " manifest, run_attempts, run_id, run_started_at, run_timeout_seconds,"
                 " report, delivery, last_error, created_at, updated_at) VALUES (:id,"
-                " :r, :rev, :ver, :s, '{}'::jsonb, 1, :run, :at, 600,"
+                " :r, :rev, :ver, :s, CAST(:manifest AS jsonb), 1, :run, :at, 600,"
                 " CAST(:report AS jsonb), CAST(:delivery AS jsonb), :err, :at, :at)"
             ),
             {
@@ -819,6 +694,8 @@ async def _old_rows(session) -> dict[str, uuid.UUID]:
                 "rev": rev,
                 "ver": "1",
                 "s": status,
+                # 写成清单 v2：之后的 0016 只删不是 v2 的（删 v1 另有测试）
+                "manifest": json.dumps({"schema": "knowbot-manifest/v2"}),
                 "run": f"knowlab-{did}-1",
                 "at": datetime(2026, 10, 17 + rev, tzinfo=UTC),
                 "report": None if report is None else json.dumps(report),
@@ -879,8 +756,6 @@ async def test_0012_backfills_versions_acceptances_tests_and_experts() -> None:
             assert await repo.list_experts([ids["r2"]]) == []
             d2 = await repo.get_draft(ids["d2"])
             assert d2 is not None and d2.status == "passed" and d2.request_version == 1
-            found = await repo.find_listed_expert(DELIVERY["knowbot_id"], "1")
-            assert found is not None and found.id == expert.id
         # 退回去再进来：退回时已上架的准专家改回「已交付」，再进来回填照旧
         async with engine.begin() as c:
             await c.run_sync(lambda conn: _run(conn, later[::-1], "downgrade"))
@@ -927,54 +802,6 @@ async def test_0012_stops_and_names_the_rows_its_backfill_cannot_take() -> None:
             assert found.scalar() is True
     finally:
         await _drop(engine, schema)
-
-
-@pytest.mark.asyncio
-async def test_concurrent_consent_refreshes_leave_one_consent(db) -> None:
-    """上传与打开页面同时刷新测试同意：只立一条，没有 knowlab 不知道的旧同意
-    （Fable 评审 P2-5）。"""
-    from app.application.ports.knowbots import DatasetRecord
-    from tests.test_knowbot_knowledge_base import FakeKnowledge, token
-
-    class Slow(FakeKnowledge):
-        async def consent(self, user_token, ref, items):  # type: ignore[no-untyped-def]
-            await asyncio.sleep(0.05)  # 让另一次刷新赶上
-            return await super().consent(user_token, ref, items)
-
-    kb = Slow()
-    async with db() as session:
-        repo = SqlKnowlabRepository(session)
-        async with repo.transaction():
-            for n in range(2):
-                await repo.create_dataset(
-                    DatasetRecord(
-                        id=uuid.uuid4(),
-                        owner_subject=OWNER,
-                        name=f"{n}.pdf",
-                        version="1",
-                        content_type="application/pdf",
-                        size_bytes=1,
-                        sha256=str(n) * 64,
-                        object_key=None,
-                        version_id=None,
-                        item_id=f"item-{n}",
-                    )
-                )
-
-    async def refresh() -> None:
-        async with db() as session:
-            data = KnowbotDataService(
-                SqlKnowlabRepository(session), MemoryDataStore(), knowledge=kb
-            )
-            await data.ensure_consent(OWNER, token)
-
-    await asyncio.gather(refresh(), refresh())
-    async with db() as session:
-        repo = SqlKnowlabRepository(session)
-        current = await repo.get_test_consent(OWNER)
-        assert current is not None
-        assert list(kb.consents) == [current["consent_id"]]
-        assert await repo.consent_withdrawals(OWNER) == []
 
 
 @pytest.mark.asyncio

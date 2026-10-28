@@ -2,7 +2,7 @@
 
 web端（用户会话），左边栏「申请 · 审核 · 专家」：申请（出创意 v1）、改创意（出新版本）、
 审核待办箱（转给自己的问题、请自己审核的准专家、交回等自己定的专家）、专家（交回了的各
-版：要不要、停用）；知识库照旧。不是自己的与没有的一样，都是 404。
+版：要不要、停用）。不是自己的与没有的一样，都是 404。
 
 管理端（管理员会话，我们的运营；admin、operator 现在能做的一样），左边栏
 「受理 · 孵化 · 测试 · 交付」：每栏的大类列表与「等我们」的数；受理（写受理单）、孵化
@@ -19,7 +19,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, File, Path, UploadFile
+from fastapi import APIRouter, Depends, Path
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,21 +39,18 @@ from app.application.services.knowbot_board import (
     timeline,
     user_expert_items,
 )
-from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.bootstrap.knowbots import (
     knowbot_board,
-    knowbot_data_service,
     knowbot_expert_service,
     knowbot_question_service,
     knowbot_service,
     knowbot_test_data,
     runtime_clients,
 )
-from app.domain.knowbots.datasets import MAX_FILE_BYTES, QUOTA_BYTES
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
@@ -68,7 +65,6 @@ from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.endpoints.knowbot_views import (
     amendment_view,
     answered_view,
-    dataset_view,
     draft_view,
     expert_view,
     life_view,
@@ -110,12 +106,6 @@ def board_service(
     return knowbot_board(session)
 
 
-def data_service(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> KnowbotDataService:
-    return knowbot_data_service(session)
-
-
 def question_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotQuestionService:
@@ -126,8 +116,7 @@ Service = Annotated[KnowbotCreationService, Depends(service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
 Board = Annotated[KnowbotBoard, Depends(board_service)]
 Questions = Annotated[KnowbotQuestionService, Depends(question_service)]
-DataService = Annotated[KnowbotDataService, Depends(data_service)]
-# knowbase 用户令牌：真要动 knowbase 时才换（SDD 0042 第七节）
+# knowbase 用户令牌：真要动 knowbase 时才换（测试集与测试里的数据，SDD 0046 第三节）
 KnowbaseToken = Annotated[
     Callable[[], Awaitable[str]], Depends(get_web_knowbase_token_provider)
 ]
@@ -335,51 +324,6 @@ async def stop_mine(
         expert_id, body.reason, principal.subject, owner_subject=principal.subject
     )
     return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
-
-
-@web_router.get("/knowbot-datasets")
-async def my_datasets(
-    principal: User, data: DataService, user_token: KnowbaseToken
-) -> JSONResponse:
-    """知识库：只有自己的、没删的，和用了多少。
-
-    顺带让测试同意跟上（SDD 0042 第七节）。
-    """
-    await data.ensure_consent(principal.subject, user_token)
-    found, used = await data.mine(principal.subject)
-    return _ok(
-        {
-            "datasets": [dataset_view(d) for d in found],
-            "used_bytes": used,
-            "quota_bytes": QUOTA_BYTES,
-            "max_file_bytes": MAX_FILE_BYTES,
-        }
-    )
-
-
-@web_router.post("/knowbot-datasets")
-async def upload_dataset(
-    principal: User,
-    data: DataService,
-    user_token: KnowbaseToken,
-    file: Annotated[UploadFile, File()],
-) -> JSONResponse:
-    """上传一份数据。只收 PDF、Excel、CSV、文本。
-
-    单个不超过 50 MB，每人不超过 1 GB、1000 份。
-    """
-    body = await file.read(MAX_FILE_BYTES + 1)
-    found = await data.upload(principal.subject, file.filename, body, user_token)
-    return _ok({"dataset": dataset_view(found)}, status_code=201)
-
-
-@web_router.delete("/knowbot-datasets/{dataset_id}", status_code=204)
-async def delete_dataset(
-    principal: User, data: DataService, user_token: KnowbaseToken, dataset_id: ItemId
-) -> Response:
-    """删一份数据。待测、测试中的准专家或还没走完的专家绑着的不能删（先停用那一版）。"""
-    await data.delete(principal.subject, dataset_id, user_token)
-    return Response(status_code=204, headers=NO_STORE)
 
 
 @web_router.get("/knowbot-questions")
@@ -593,18 +537,14 @@ async def request_detail(
     _: Admin,
     svc: Service,
     board: Board,
-    data: DataService,
     questions: Questions,
     request_id: ItemId,
 ) -> JSONResponse:
-    """一个名称的详情页（管理端看全的）；孵化要看的：用户的数据（只有元数据，清单的
-    data_bindings 照这里写：数据 id + 版本 + sha256）、测试中答过的问题。"""
+    """一个名称的详情页（管理端看全的）；孵化要看的：测试中答过的问题。"""
     life = await board.life(request_id)
-    found, _used = await data.mine(life.request.owner_subject)
     return _ok(
         await _detail(life, svc, admin=True)
         | {
-            "datasets": [dataset_view(d) for d in found],
             # 测试中答过的：用户确认的判断写进下一位准专家的规则出处（user_confirmed）
             "answered": [
                 answered_view(q, admin=True)

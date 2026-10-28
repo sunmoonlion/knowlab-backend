@@ -38,24 +38,17 @@ from app.application.errors.exceptions import (
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
-    DatasetRecord,
     DraftRecord,
     ExpertRecord,
     KnowlabRepository,
-    KnowledgeBase,
     RequestRecord,
     RequestVersionRecord,
     RuntimeTestClient,
     TestOutputRecord,
     TestRecord,
 )
-from app.application.services.knowbot_data import consent_items, items_digest
-from app.domain.knowbots.data_needs import bound_problems, format_of, parse_needs
-from app.domain.knowbots.datasets import binding_problems
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
-    MANIFEST_SCHEMA,
-    MANIFEST_SCHEMA_V2,
     OUTPUTS_KEEP_DAYS,
     KnowbotRequestIn,
     amendment_refs,
@@ -74,8 +67,6 @@ from app.domain.knowbots.lifecycle import (
 )
 from app.domain.knowbots.test_run import (
     CONTRACT,
-    DataGrant,
-    GrantedData,
     RunCase,
     RunRequestV1,
     RunResultV1,
@@ -91,9 +82,9 @@ OWNER = re.compile(r"^[A-Za-z0-9._:@-]{1,512}$")
 NO_OUTPUTS = "这次测试没有取产出：运行方没有这条用例的成稿与交回物"
 OUTPUTS_PER_REFRESH = 10  # 一次刷新最多取几条用例的产出，其余下次刷新再取
 STUCK_GRACE = timedelta(minutes=5)
-# 测试运行授权的时限：测试的超时加最长等人，再留一小时；knowbase 最长给 7 天
+# 测试运行授权的时限：测试的超时加最长等人，再留一小时；最长 14 天
 GRANT_MARGIN_SECONDS = 3600
-GRANT_MAX_SECONDS = 7 * 24 * 3600
+GRANT_MAX_SECONDS = 14 * 24 * 3600
 # 一个问题最多等多久（所有者定 3 天）；过了运行方把那条用例记 needs_human
 MAX_WAIT_SECONDS = 3 * 24 * 3600
 MAX_VERSIONS = 200  # 一个创意最多改这么多版
@@ -142,16 +133,13 @@ class KnowbotCreationService:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         on_refresh: Callable[[TestRecord, RequestRecord], Awaitable[None]]
         | None = None,
-        knowledge: KnowledgeBase | None = None,
         test_data: KnowbotTestData | None = None,
     ) -> None:
         self.repo = repo
         self.runtimes = runtimes
         self.now = now
         self.on_refresh = on_refresh
-        # 配了 knowbase：测试读绑定的数据凭测试运行授权（SDD 0042 第七节）
-        self.knowledge = knowledge
-        # 清单 v2 的草稿：测试集与测试里专家提出的数据（SDD 0046 第三节）
+        # 配了 knowbase：测试集与测试里专家提出的数据（SDD 0046 第三节）
         self.test_data = test_data
 
     # ---------- 用户：申请与修改 ----------
@@ -339,19 +327,6 @@ class KnowbotCreationService:
                     problems = [
                         "rule sources cite the idea version; amendments are retired"
                     ]
-            if not problems and manifest.get("schema") == MANIFEST_SCHEMA:
-                # 测试只读这一版绑定的、这个用户自己的数据（C-L2）；写了数据需求声明的，
-                # 绑定按声明核（SDD 0042 第五节）。清单 v2 不带绑定（测试集另记）
-                assert isinstance(manifest, dict)
-                datasets = await self.repo.list_datasets(request.owner_subject)
-                owned = {str(d.id): (d.version, d.sha256) for d in datasets}
-                problems = binding_problems(manifest.get("data_bindings"), owned)
-                if not problems:
-                    problems = bound_problems(
-                        parse_needs(manifest.get("data_needs"))[0],
-                        manifest.get("data_bindings"),
-                        {str(d.id): format_of(d.content_type) for d in datasets},
-                    )
             if problems:
                 raise BadRequestError("; ".join(problems), code="manifest_invalid")
             assert isinstance(manifest, dict)
@@ -473,7 +448,6 @@ class KnowbotCreationService:
                 draft.request_id, draft.request_version
             )
             assert request is not None and version is not None
-            needs = await self._grant_needs(request.owner_subject, draft.manifest)
             test_id = uuid.uuid4()
             run = RunRequestV1.model_validate(
                 {
@@ -506,21 +480,8 @@ class KnowbotCreationService:
                 )
             )
             await self._move(draft, "testing")
-        grant = None
-        if needs is not None:
-            try:
-                grant = await self._data_grant(request.owner_subject, run, *needs)
-            except AppException as exc:
-                # 签不出就不开跑（SDD 0042「申请不到不开跑」）：这一次记平台出错
-                await self._end_on_platform(test.id, f"test grant refused: {exc.code}")
-                raise
-            run = run.model_copy(update={"data_grant": grant})
-            async with self.repo.transaction():
-                await self.repo.update_test(test.id, grant_id=grant.grant_id)
         grants: list[str] = []
-        if self.test_data is not None and draft.manifest.get("schema") == (
-            MANIFEST_SCHEMA_V2
-        ):
+        if self.test_data is not None:
             # 带测试集发起：有的用例每条签一张授权、带上钉住的几份（不跑第 0 步）
             try:
                 cases, set_version, grants = await self.test_data.with_test_set(
@@ -528,7 +489,7 @@ class KnowbotCreationService:
                     [c.model_dump(mode="json") for c in run.cases],
                     run_id=run.run_id,
                     ttl_seconds=min(
-                        14 * 24 * 3600,
+                        GRANT_MAX_SECONDS,
                         timeout_seconds + MAX_WAIT_SECONDS + GRANT_MARGIN_SECONDS,
                     ),
                 )
@@ -547,7 +508,6 @@ class KnowbotCreationService:
             result = await self.runtimes.start(request.runtime, run)
         except AppException as exc:
             await self._end_on_platform(test.id, f"start failed: {exc.code}")
-            await self._revoke(grant.grant_id if grant else None)
             if self.test_data is not None:
                 await self.test_data.revoke(grants)
             raise
@@ -608,112 +568,6 @@ class KnowbotCreationService:
         if request.owner_subject != owner_subject:
             raise NotFoundError("No such test", code="test_not_found")
         return await self.refresh(str(test.id))
-
-    async def _grant_needs(
-        self, owner_subject: str, manifest: dict[str, Any]
-    ) -> tuple[list[DatasetRecord], dict[str, Any]] | None:
-        """这次测试要不要签测试运行授权（SDD 0042 第七节，Astra 评审 F02）。
-
-        三种：没绑数据，不签（None）；绑的都还没搬进 knowbase（没有资料编号），照旧经
-        knowlab 读，不签（None，第 1 版停用后这条路撤掉）；有搬进去的，就必须签，回
-        （要读的那几份，测试同意）。例外：搬过来的旧数据（还有旧对象）在本人补上测试
-        同意之前，照旧经 knowlab 读。缺一样（搬了一半、数据变了、没有测试同意、knowbase
-        没配）就报明原因、不开跑，不退回旧读路。
-        """
-        raw = manifest.get("data_bindings")
-        bindings = (
-            [b for b in raw if isinstance(b, dict)] if isinstance(raw, list) else []
-        )
-        records = []
-        for binding in bindings:
-            try:
-                found = await self.repo.get_dataset(
-                    uuid.UUID(str(binding.get("dataset_id")))
-                )
-            except ValueError:
-                found = None
-            if (
-                found is None
-                or found.owner_subject != owner_subject
-                or found.deleted_at is not None
-                or found.sha256 != binding.get("sha256")
-            ):
-                raise _conflict(
-                    "A bound dataset is gone or changed; incubate again",
-                    "data_binding_stale",
-                )
-            records.append(found)
-        imported = [d for d in records if d.item_id]
-        if not imported:
-            return None
-        if len(imported) != len(records):
-            raise _conflict(
-                "Some bound data is not in knowbase yet; run import_datasets first",
-                "data_not_imported",
-            )
-        if self.knowledge is None:
-            raise ServiceUnavailableError(
-                "knowbase is not configured", code="knowbase_unconfigured"
-            )
-        consent = await self.repo.get_test_consent(owner_subject)
-        current = items_digest(
-            consent_items(await self.repo.list_datasets(owner_subject))
-        )
-        if consent is None or consent["items_digest"] != current:
-            if all(d.object_key for d in records):
-                # 搬过来了、测试同意还没跟上（本人还没打开过知识库页），这几份
-                # 都还有旧对象：照旧经 knowlab 读，搬家后运营发起的测试不被卡住
-                # （Fable 评审 P2-4）
-                return None
-            raise _conflict(
-                "The owner has not consented to testing with this data",
-                "test_consent_missing",
-            )
-        return records, consent
-
-    async def _data_grant(
-        self,
-        owner_subject: str,
-        run: RunRequestV1,
-        records: list[DatasetRecord],
-        consent: dict[str, Any],
-    ) -> DataGrant:
-        """向 knowbase 签这次测试读绑定数据的测试运行授权；拒了、不可达照原样抛出。"""
-        assert self.knowledge is not None
-        ttl = min(
-            GRANT_MAX_SECONDS,
-            run.timeout_seconds + run.max_wait_seconds + GRANT_MARGIN_SECONDS,
-        )
-        grant_id = await self.knowledge.test_grant(
-            owner=owner_subject,
-            consent_id=consent["consent_id"],
-            ref=run.run_id,
-            items=[{"item_id": str(d.item_id), "sha256": d.sha256} for d in records],
-            ttl_seconds=ttl,
-        )
-        return DataGrant(
-            grant_id=grant_id,
-            items=tuple(
-                GrantedData(
-                    dataset_id=str(d.id),
-                    item_id=str(d.item_id),
-                    name=d.name,
-                    media_type=d.content_type,
-                    size_bytes=d.size_bytes,
-                    sha256=d.sha256,
-                )
-                for d in records
-            ),
-        )
-
-    async def _revoke(self, grant_id: str | None) -> None:
-        """测试结束撤运行授权；撤不成只记一行（授权到期自己失效）。"""
-        if grant_id is None or self.knowledge is None:
-            return
-        try:
-            await self.knowledge.revoke_test_grant(grant_id)
-        except AppException as exc:
-            log.warning("test grant not revoked grant=%s code=%s", grant_id, exc.code)
 
     async def refresh(self, test_id: str) -> TestRecord:
         """问运行方结果；有了结论就记下（通过的出专家）。测完了还缺的产出补取。"""
@@ -852,7 +706,6 @@ class KnowbotCreationService:
                 await self._move(draft, "failed")
             else:
                 await self._move(draft, "pending_test")
-        await self._revoke(test.grant_id)
         await self._wrap_up(test.id)
 
     async def _wrap_up(self, test_id: uuid.UUID) -> None:
@@ -896,5 +749,4 @@ class KnowbotCreationService:
         if self.now() < deadline:
             raise _conflict("The test is still within its time", "not_stuck")
         await self._end_on_platform(test.id, "timed out")
-        await self._revoke(test.grant_id)
         await self._wrap_up(test.id)

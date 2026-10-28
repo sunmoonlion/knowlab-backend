@@ -18,7 +18,6 @@ from app.application.errors.exceptions import (
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
-    DatasetRecord,
     DraftRecord,
     ExpertRecord,
     QuestionRecord,
@@ -83,27 +82,6 @@ def request_body(**overrides: Any) -> dict[str, Any]:
 
 
 def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
-    doc: dict[str, Any] = {
-        "schema": "knowbot-manifest/v1",
-        "name": "财务分析与预测",
-        "tagline": "按我的方法分析一家公司的财报",
-        "version": version,
-        "runtime": "knowbench",
-        "pack": {
-            "pack_id": "fin-forecast",
-            "version": version,
-            "workflow": [{"step_id": "s1", "title": "读财报"}],
-        },
-        "data_bindings": [],
-        "rule_sources": [
-            {"rule": "毛利率口径", "source": "user_text", "ref": "想法原文第 4 问"}
-        ],
-    }
-    doc.update(overrides)
-    return doc
-
-
-def manifest_v2(version: str = "1", **overrides: Any) -> dict[str, Any]:
     """清单 v2 的草稿：逻辑；没有数据需求声明，不带绑定（作者挑选的数据
     交付时才冻结）。"""
     doc: dict[str, Any] = {
@@ -182,13 +160,10 @@ class MemoryKnowlab:
         self.tests: dict[uuid.UUID, TestRecord] = {}
         self.experts: dict[uuid.UUID, ExpertRecord] = {}
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
-        self.datasets: dict[uuid.UUID, DatasetRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
         self.test_sets: list[TestSetRecord] = []
         self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
-        self.consents: dict[str, dict[str, str]] = {}
-        self.withdrawals: dict[str, str] = {}  # 待撤的旧同意 → 所有者
         self.commits = 0
         self.rollbacks = 0
         self._tick = 0
@@ -202,7 +177,6 @@ class MemoryKnowlab:
         snapshot = (
             dict(self.requests),
             dict(self.drafts),
-            dict(self.datasets),
             dict(self.questions),
             dict(self.amendments),
             dict(self.outputs),
@@ -218,7 +192,6 @@ class MemoryKnowlab:
             (
                 self.requests,
                 self.drafts,
-                self.datasets,
                 self.questions,
                 self.amendments,
                 self.outputs,
@@ -432,19 +405,6 @@ class MemoryKnowlab:
         ]
         return sorted(found, key=lambda e: (e.created_at, str(e.id)))[:limit]
 
-    async def find_listed_expert(
-        self, knowbot_id: str, version: str
-    ) -> ExpertRecord | None:
-        for e in self.experts.values():
-            if (
-                e.knowmart_knowbot_id == knowbot_id
-                and str(e.version) == version
-                and e.listed_at is not None
-                and e.stopped_at is None
-            ):
-                return e
-        return None
-
     # ---------- 补充方法 ----------
     async def create_amendment(
         self, *, request_id: uuid.UUID, owner_subject: str, text: str
@@ -528,87 +488,6 @@ class MemoryKnowlab:
 
     async def add_test_set(self, record: TestSetRecord) -> None:
         self.test_sets.append(record)
-
-    # ---------- 用户的数据 ----------
-    async def lock_owner_data(self, owner_subject: str) -> None:
-        return None
-
-    async def create_dataset(self, record: DatasetRecord) -> DatasetRecord:
-        stored = replace(record, created_at=self._now())
-        self.datasets[record.id] = stored
-        return stored
-
-    async def list_datasets(self, owner_subject: str) -> Sequence[DatasetRecord]:
-        mine = [
-            d
-            for d in self.datasets.values()
-            if d.owner_subject == owner_subject and d.deleted_at is None
-        ]
-        return sorted(mine, key=lambda d: d.created_at or 0, reverse=True)
-
-    async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None:
-        return self.datasets.get(dataset_id)
-
-    async def get_dataset_by_item(self, item_id: str) -> DatasetRecord | None:
-        return next((d for d in self.datasets.values() if d.item_id == item_id), None)
-
-    async def mark_dataset_deleted(self, dataset_id: uuid.UUID, at: Any) -> None:
-        self.datasets[dataset_id] = replace(self.datasets[dataset_id], deleted_at=at)
-
-    async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
-        self.datasets[dataset_id] = replace(self.datasets[dataset_id], item_id=item_id)
-
-    async def datasets_to_import(self, limit: int = 50) -> Sequence[DatasetRecord]:
-        found = [
-            d
-            for d in self.datasets.values()
-            if d.item_id is None and d.object_key and d.deleted_at is None
-        ]
-        return sorted(found, key=lambda d: d.created_at or 0)[:limit]
-
-    async def get_test_consent(self, owner_subject: str) -> dict[str, str] | None:
-        found = self.consents.get(owner_subject)
-        return dict(found) if found else None
-
-    async def put_test_consent(
-        self, owner_subject: str, consent_id: str, items_digest: str
-    ) -> None:
-        self.consents[owner_subject] = {
-            "consent_id": consent_id,
-            "items_digest": items_digest,
-        }
-
-    async def delete_test_consent(self, owner_subject: str) -> None:
-        self.consents.pop(owner_subject, None)
-
-    async def add_consent_withdrawal(self, owner_subject: str, consent_id: str) -> None:
-        self.withdrawals.setdefault(consent_id, owner_subject)
-
-    async def consent_withdrawals(self, owner_subject: str) -> list[str]:
-        return [c for c, o in self.withdrawals.items() if o == owner_subject]
-
-    async def drop_consent_withdrawal(self, consent_id: str) -> None:
-        self.withdrawals.pop(consent_id, None)
-
-    async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
-        """同 SQL：待测、测试中的准专家，或还没走完、没停用的专家绑着。"""
-        live = {
-            e.draft_id
-            for e in self.experts.values()
-            if e.stopped_at is None
-            and e.user_accepted is not False
-            and e.review_approved is not False
-        }
-        for draft in self.drafts.values():
-            request = self.requests[draft.request_id]
-            if request.owner_subject != owner_subject:
-                continue
-            if draft.status not in ("pending_test", "testing") and draft.id not in live:
-                continue
-            bindings = draft.manifest.get("data_bindings") or []
-            if any(b.get("dataset_id") == str(dataset_id) for b in bindings):
-                return True
-        return False
 
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         self.requests[request_id] = replace(
@@ -745,36 +624,6 @@ class FakeKnowmart:
         if self.fail:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
         self.unlisted.append(body)
-
-
-class MemoryDataStore:
-    """假的对象存储：记下放进去的与删掉的。"""
-
-    def __init__(self, enabled: bool = True) -> None:
-        self.enabled = enabled
-        self.objects: dict[str, bytes] = {}
-        self.deleted: list[str] = []
-
-    async def put(
-        self, *, object_key: str, data: bytes, content_type: str
-    ) -> tuple[str, str]:
-        import hashlib
-
-        self.objects[object_key] = data
-        return f"v-{len(self.objects)}", hashlib.sha256(data).hexdigest()
-
-    async def delete(self, *, object_key: str) -> None:
-        self.deleted.append(object_key)
-
-    async def get(
-        self, *, object_key: str, version_id: str, sha256: str, max_bytes: int
-    ) -> bytes:
-        import hashlib
-
-        data = self.objects[object_key]
-        if hashlib.sha256(data).hexdigest() != sha256 or len(data) > max_bytes:
-            raise RuntimeError("stored_object_digest_mismatch")
-        return data
 
 
 def waiting(run_id: str) -> RunResultV1:

@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
-from app.domain.knowbots.data_read import Extracted, Tables
 from app.domain.knowbots.test_run import (
     AnswersV1,
     CaseOutputsV1,
@@ -94,7 +93,6 @@ class TestRecord:
     started_at: datetime
     budget_limit: str | None = None
     timeout_seconds: int | None = None
-    grant_id: str | None = None
     started_by: str | None = None
     finished_at: datetime | None = None
     report: dict[str, Any] | None = None
@@ -151,25 +149,6 @@ class ExpertRecord:
     stop_reason: str | None = None
     trial: bool = False
     unlisted_sent_at: datetime | None = None  # 没上架的结局送到 knowmart 的时刻
-
-
-@dataclass(frozen=True)
-class DatasetRecord:
-    id: uuid.UUID
-    owner_subject: str
-    name: str
-    version: str
-    content_type: str
-    size_bytes: int
-    sha256: str
-    # knowlab 自己的旧对象（10-23 前传的）；新传的只在 knowbase，这两栏为空
-    object_key: str | None
-    version_id: str | None
-    created_at: datetime | None = None
-    deleted_at: datetime | None = None
-    # knowbase 里 knowlab 分区的那份（SDD 0042 第七节）
-    item_id: str | None = None
-    no_resale: bool = False  # 在 knowmart 买来、不许转卖的（Fable 评审 P2-16）
 
 
 @dataclass(frozen=True)
@@ -367,12 +346,6 @@ class KnowlabRepository(Protocol):
 
     async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None: ...
 
-    async def find_listed_expert(
-        self, knowbot_id: str, version: str
-    ) -> ExpertRecord | None:
-        """knowmart 的专家 id 与版本对应的、上架了没停用的那版（运行方读数据时核）。"""
-        ...
-
     # ---------- 补充方法 ----------
     async def create_amendment(
         self, *, request_id: uuid.UUID, owner_subject: str, text: str
@@ -414,61 +387,6 @@ class KnowlabRepository(Protocol):
     async def add_test_set(self, record: TestSetRecord) -> None: ...
 
     async def update_question(self, question: uuid.UUID, **changes: Any) -> None: ...
-
-    # ---------- 用户的数据 ----------
-    async def lock_owner_data(self, owner_subject: str) -> None:
-        """串行化同一个人的上传与删除（配额不超）。"""
-        ...
-
-    async def create_dataset(self, record: DatasetRecord) -> DatasetRecord: ...
-
-    async def list_datasets(self, owner_subject: str) -> Sequence[DatasetRecord]:
-        """这个人没删的数据，新的在前。"""
-        ...
-
-    async def get_dataset_by_item(self, item_id: str) -> DatasetRecord | None:
-        """knowbase 那份对应的数据记录（删了的也算）。"""
-        ...
-
-    async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None: ...
-
-    async def mark_dataset_deleted(
-        self, dataset_id: uuid.UUID, at: datetime
-    ) -> None: ...
-
-    async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
-        """这个人在待测、测试中的准专家，或还没走完、没停用的专家，有没有绑着这份数据。"""
-        ...
-
-    async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
-        """记下搬进 knowbase 后的资料编号。"""
-        ...
-
-    async def datasets_to_import(self, limit: int = 50) -> Sequence[DatasetRecord]:
-        """还没搬进 knowbase 的旧数据（有旧对象、没删、没有资料编号）。"""
-        ...
-
-    async def get_test_consent(self, owner_subject: str) -> dict[str, str] | None:
-        """这个人在 knowbase 的测试同意：{consent_id, items_digest}；没有就是 None。"""
-        ...
-
-    async def put_test_consent(
-        self, owner_subject: str, consent_id: str, items_digest: str
-    ) -> None: ...
-
-    async def delete_test_consent(self, owner_subject: str) -> None: ...
-
-    async def add_consent_withdrawal(self, owner_subject: str, consent_id: str) -> None:
-        """记下一条换下来、还要在 knowbase 撤的旧测试同意（Astra 评审 F03）。"""
-        ...
-
-    async def consent_withdrawals(self, owner_subject: str) -> Sequence[str]:
-        """这个人还没撤成的旧测试同意编号。"""
-        ...
-
-    async def drop_consent_withdrawal(self, consent_id: str) -> None:
-        """撤成了，划掉。"""
-        ...
 
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         """用户同意了新一版测试数据说明。"""
@@ -521,98 +439,6 @@ class RuntimeTestClient(Protocol):
     async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
         """用户接入过的电脑（SDD 0046 第三节）：名字、系统、在线与否、白名单根目录。"""
         ...
-
-
-class KnowledgeBase(Protocol):
-    """knowbase 里 knowlab 的知识库分区（契约 user-data/v1，SDD 0042 第七节）。
-
-    本人的操作凭换来的用户令牌；签测试授权、撤、搬旧数据凭 knowlab 的服务身份。
-    knowbase 拒了按情形转成本应用的错（资料在用 409 dataset_in_use 等）；不可达、
-    没配好是 503。
-    """
-
-    async def upload(self, user_token: str, name: str, data: bytes) -> dict[str, Any]:
-        """传一份，回 knowbase 的资料（item_id、sha256……）。"""
-        ...
-
-    async def delete(self, user_token: str, item_id: str) -> None:
-        """删一份；已经没有了当删过了。"""
-        ...
-
-    async def items(self, user_token: str) -> list[dict[str, Any]]:
-        """本人 knowlab 分区里的全部资料。
-
-        每份有 item_id、name、media_type、size_bytes、sha256。
-        """
-        ...
-
-    async def consent(
-        self, user_token: str, ref: str, items: list[dict[str, str]]
-    ) -> str:
-        """立一条测试同意（范围是这几份），回同意编号。"""
-        ...
-
-    async def withdraw(self, user_token: str, consent_id: str) -> None: ...
-
-    async def test_grant(
-        self,
-        *,
-        owner: str,
-        consent_id: str,
-        ref: str,
-        items: list[dict[str, str]],
-        ttl_seconds: int,
-    ) -> str:
-        """凭同意签测试运行授权（读的一方是 knowbench），回授权编号。"""
-        ...
-
-    async def revoke_test_grant(self, grant_id: str) -> None: ...
-
-    async def import_item(
-        self, *, owner: str, name: str, data: bytes, ref: str
-    ) -> dict[str, Any]:
-        """把一份旧数据搬进这个用户的 knowlab 分区（按 ref 幂等），回资料。"""
-        ...
-
-
-class DataStore(Protocol):
-    """用户数据的对象存储（本应用自己的桶）。没接时 enabled 为 False。"""
-
-    @property
-    def enabled(self) -> bool: ...
-
-    async def put(
-        self, *, object_key: str, data: bytes, content_type: str
-    ) -> tuple[str, str]:
-        """存进去，回（版本号，sha256）。"""
-        ...
-
-    async def delete(self, *, object_key: str) -> None: ...
-
-    async def get(
-        self, *, object_key: str, version_id: str, sha256: str, max_bytes: int
-    ) -> bytes:
-        """按版本读回，核 sha256；对不上抛错，不返回内容。"""
-        ...
-
-
-class TextExtractor(Protocol):
-    """把用户的数据抽成文字（CSV、文本原样；Excel 每张表转 CSV；PDF 逐页抽字）。"""
-
-    async def extract(
-        self, *, data: bytes, content_type: str, sha256: str
-    ) -> Extracted: ...
-
-
-class TableExtractor(Protocol):
-    """把 CSV、Excel 解析成带行标签、列标签的格子（0030 §3.1）。
-
-    不是表格抛 TableUnreadable。
-    """
-
-    async def tables(
-        self, *, data: bytes, content_type: str, sha256: str
-    ) -> Tables: ...
 
 
 class KnowmartClient(Protocol):

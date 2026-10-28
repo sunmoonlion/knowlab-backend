@@ -23,7 +23,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.knowbots.data_needs import parse_needs
 from app.domain.knowbots.test_run import RunCase
 
 DraftStatus = Literal["pending_test", "testing", "passed", "failed"]
@@ -35,10 +34,9 @@ TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
         ("testing", "failed"),
     }
 )
-MANIFEST_SCHEMA = "knowbot-manifest/v1"
-# 清单 v2（SDD 0043）：声明 v2；作者绑的数据交付时才冻结进 `bindings`，草稿里不写
-MANIFEST_SCHEMA_V2 = "knowbot-manifest/v2"
-MANIFEST_SCHEMAS = (MANIFEST_SCHEMA, MANIFEST_SCHEMA_V2)
+# 只收清单 v2（SDD 0043；decisions ⑰ 起不留 v1）：作者绑的数据交付时才冻结进
+# `bindings`，草稿里不写
+MANIFEST_SCHEMA = "knowbot-manifest/v2"
 RULE_SOURCES = frozenset({"user_text", "user_confirmed"})
 
 
@@ -124,7 +122,6 @@ class KnowbotRequestIn(Strict):
 # 与 knowmart 交付时的上限一致（审读第 10 条）：草稿测过了、交付才被拒，白测一轮
 MAX_MANIFEST_BYTES = 1_000_000
 MAX_RULE_SOURCES = 500
-MAX_DATA_BINDINGS = 64
 
 
 def _size(document: dict[str, Any]) -> int:
@@ -149,8 +146,8 @@ def draft_manifest_problems(
     if _size(doc) > MAX_MANIFEST_BYTES:
         return [f"manifest is larger than {MAX_MANIFEST_BYTES} bytes"]
     problems: list[str] = []
-    if doc.get("schema") not in MANIFEST_SCHEMAS:
-        problems.append(f"schema must be one of {', '.join(MANIFEST_SCHEMAS)}")
+    if doc.get("schema") != MANIFEST_SCHEMA:
+        return [f"schema must be {MANIFEST_SCHEMA}"]
     if doc.get("runtime") != runtime:
         problems.append(f"runtime must be {runtime}")
     if doc.get("version") != version:
@@ -179,30 +176,16 @@ def draft_manifest_problems(
         problems.append(
             "each rule source must be user_text or user_confirmed with a ref"
         )
-    if doc.get("schema") == MANIFEST_SCHEMA_V2:
-        if "data_needs" in doc:
-            # 清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：要什么数据每件委托由
-            # 第 0 步按问题提出；要提示模型，写在步骤说明里
-            problems.append(
-                "a v2 manifest declares no data needs (say it in the step instead)"
-            )
-        if "data_bindings" in doc:
-            problems.append(
-                "a v2 manifest has no data_bindings (test sets are separate)"
-            )
-        if "bindings" in doc:
-            problems.append("bindings are frozen at delivery, not written in a draft")
-        return problems
-    problems += parse_needs(doc.get("data_needs"))[1]
-    bindings = doc.get("data_bindings", [])
-    if not isinstance(bindings, list):
-        problems.append("data_bindings must be a list")
-    elif len(bindings) > MAX_DATA_BINDINGS:
-        problems.append(f"at most {MAX_DATA_BINDINGS} data bindings")
-    else:
-        ids = [b.get("dataset_id") for b in bindings if isinstance(b, dict)]
-        if len(ids) != len(set(ids)):
-            problems.append("a dataset may be bound only once per version")
+    if "data_needs" in doc:
+        # 清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：要什么数据每件委托由
+        # 第 0 步按问题提出；要提示模型，写在步骤说明里
+        problems.append(
+            "a v2 manifest declares no data needs (say it in the step instead)"
+        )
+    if "data_bindings" in doc:
+        problems.append("a v2 manifest has no data_bindings (test sets are separate)")
+    if "bindings" in doc:
+        problems.append("bindings are frozen at delivery, not written in a draft")
     return problems
 
 

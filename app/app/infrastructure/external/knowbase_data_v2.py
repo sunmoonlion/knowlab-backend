@@ -12,16 +12,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit
 
-from app.application.errors.exceptions import ServiceUnavailableError
-from app.infrastructure.external.knowbase_user_data import KnowbaseUserData, _segment
+from app.infrastructure.external.knowbase_client import KnowbaseClient, _segment
 
-BASE_V2 = "/api/internal/v2/user-data"
 CONTRACT = "data-request/v1"
 
 
-class KnowbaseDataV2(KnowbaseUserData):
+class KnowbaseDataV2(KnowbaseClient):
+    BASE = "/api/internal/v2/user-data"
+
     # —— 作者本人 ——
 
     async def resolve(
@@ -126,11 +125,3 @@ class KnowbaseDataV2(KnowbaseUserData):
     async def revoke_case_grant(self, grant_id: str) -> None:
         token = await self._service_token("user-data-grant-test")
         await self._send("DELETE", f"/service/run-grants/{_segment(grant_id)}", token)
-
-    def _base(self) -> str:
-        url = self._environ.get("KNOWBASE_INTERNAL_URL", "").strip()
-        if urlsplit(url).scheme != "https":
-            raise ServiceUnavailableError(
-                "knowbase is not configured", code="knowbase_unconfigured"
-            )
-        return url.rstrip("/") + BASE_V2

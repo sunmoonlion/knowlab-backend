@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import exists, func, or_, select, text, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,6 @@ from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
-    DatasetRecord,
     DraftRecord,
     ExpertRecord,
     QuestionRecord,
@@ -34,15 +33,12 @@ from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
     KnowbotAcceptance,
     KnowbotAmendment,
-    KnowbotConsentWithdrawal,
-    KnowbotDataset,
     KnowbotDraft,
     KnowbotExpert,
     KnowbotQuestion,
     KnowbotRequest,
     KnowbotRequestVersion,
     KnowbotTest,
-    KnowbotTestConsent,
     KnowbotTestOutput,
     KnowbotTestSet,
 )
@@ -54,7 +50,6 @@ DRAFT_FIELDS = frozenset(
 TEST_FIELDS = frozenset(
     {
         "status",
-        "grant_id",
         "finished_at",
         "report",
         "error",
@@ -154,7 +149,6 @@ def _test(row: KnowbotTest) -> TestRecord:
         started_at=row.started_at,
         budget_limit=row.budget_limit,
         timeout_seconds=row.timeout_seconds,
-        grant_id=row.grant_id,
         started_by=row.started_by,
         finished_at=row.finished_at,
         report=row.report,
@@ -177,24 +171,6 @@ def _expert(row: KnowbotExpert) -> ExpertRecord:
         test_id=row.test_id,
         **{name: getattr(row, name) for name in EXPERT_FIELDS},
         trial=row.trial,
-    )
-
-
-def _dataset(row: KnowbotDataset) -> DatasetRecord:
-    return DatasetRecord(
-        id=row.id,
-        owner_subject=row.owner_subject,
-        name=row.name,
-        version=row.version,
-        content_type=row.content_type,
-        size_bytes=row.size_bytes,
-        sha256=row.sha256,
-        object_key=row.object_key,
-        version_id=row.version_id,
-        created_at=row.created_at,
-        deleted_at=row.deleted_at,
-        item_id=row.knowbase_item_id,
-        no_resale=row.no_resale,
     )
 
 
@@ -511,7 +487,6 @@ class SqlKnowlabRepository:
             budget_limit=record.budget_limit,
             timeout_seconds=record.timeout_seconds,
             run_id=record.run_id,
-            grant_id=record.grant_id,
             started_by=record.started_by,
             started_at=record.started_at,
             test_set_version=record.test_set_version,
@@ -647,183 +622,6 @@ class SqlKnowlabRepository:
         await self.session.execute(
             update(KnowbotExpert).where(KnowbotExpert.id == expert_id).values(**changes)
         )
-
-    async def find_listed_expert(
-        self, knowbot_id: str, version: str
-    ) -> ExpertRecord | None:
-        if not version.isdigit() or len(version) > 9:
-            return None
-        row = (
-            await self.session.execute(
-                select(KnowbotExpert)
-                .where(
-                    KnowbotExpert.knowmart_knowbot_id == knowbot_id,
-                    KnowbotExpert.version == int(version),
-                    KnowbotExpert.listed_at.is_not(None),
-                    KnowbotExpert.stopped_at.is_(None),
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        return None if row is None else _expert(row)
-
-    # ---------- 用户的数据 ----------
-    async def lock_owner_data(self, owner_subject: str) -> None:
-        await self.session.execute(
-            text("select pg_advisory_xact_lock(hashtextextended(:k, 0))"),
-            {"k": "knowbot_dataset:" + owner_subject},
-        )
-
-    async def create_dataset(self, record: DatasetRecord) -> DatasetRecord:
-        row = KnowbotDataset(
-            id=record.id,
-            owner_subject=record.owner_subject,
-            name=record.name,
-            version=record.version,
-            content_type=record.content_type,
-            size_bytes=record.size_bytes,
-            sha256=record.sha256,
-            object_key=record.object_key,
-            version_id=record.version_id,
-            knowbase_item_id=record.item_id,
-            no_resale=record.no_resale,
-        )
-        self.session.add(row)
-        await self.session.flush()
-        await self.session.refresh(row)
-        return _dataset(row)
-
-    async def list_datasets(self, owner_subject: str) -> Sequence[DatasetRecord]:
-        rows = (
-            await self.session.execute(
-                select(KnowbotDataset)
-                .where(
-                    KnowbotDataset.owner_subject == owner_subject,
-                    KnowbotDataset.deleted_at.is_(None),
-                )
-                .order_by(KnowbotDataset.created_at.desc(), KnowbotDataset.id)
-            )
-        ).scalars()
-        return [_dataset(r) for r in rows]
-
-    async def get_dataset_by_item(self, item_id: str) -> DatasetRecord | None:
-        row = (
-            await self.session.execute(
-                select(KnowbotDataset).where(KnowbotDataset.knowbase_item_id == item_id)
-            )
-        ).scalar_one_or_none()
-        return _dataset(row) if row else None
-
-    async def get_dataset(self, dataset_id: uuid.UUID) -> DatasetRecord | None:
-        row = await self.session.get(KnowbotDataset, dataset_id)
-        return None if row is None else _dataset(row)
-
-    async def mark_dataset_deleted(self, dataset_id: uuid.UUID, at: Any) -> None:
-        await self.session.execute(
-            update(KnowbotDataset)
-            .where(KnowbotDataset.id == dataset_id)
-            .values(deleted_at=at)
-        )
-
-    async def set_dataset_item(self, dataset_id: uuid.UUID, item_id: str) -> None:
-        await self.session.execute(
-            update(KnowbotDataset)
-            .where(KnowbotDataset.id == dataset_id)
-            .values(knowbase_item_id=item_id)
-        )
-
-    async def datasets_to_import(self, limit: int = 50) -> Sequence[DatasetRecord]:
-        rows = (
-            await self.session.execute(
-                select(KnowbotDataset)
-                .where(
-                    KnowbotDataset.knowbase_item_id.is_(None),
-                    KnowbotDataset.object_key.is_not(None),
-                    KnowbotDataset.deleted_at.is_(None),
-                )
-                .order_by(KnowbotDataset.created_at, KnowbotDataset.id)
-                .limit(limit)
-            )
-        ).scalars()
-        return [_dataset(r) for r in rows]
-
-    async def get_test_consent(self, owner_subject: str) -> dict[str, str] | None:
-        row = await self.session.get(KnowbotTestConsent, owner_subject)
-        if row is None:
-            return None
-        return {"consent_id": row.consent_id, "items_digest": row.items_digest}
-
-    async def put_test_consent(
-        self, owner_subject: str, consent_id: str, items_digest: str
-    ) -> None:
-        row = await self.session.get(KnowbotTestConsent, owner_subject)
-        if row is None:
-            self.session.add(
-                KnowbotTestConsent(
-                    owner_subject=owner_subject,
-                    consent_id=consent_id,
-                    items_digest=items_digest,
-                )
-            )
-        else:
-            row.consent_id = consent_id
-            row.items_digest = items_digest
-        await self.session.flush()
-
-    async def delete_test_consent(self, owner_subject: str) -> None:
-        row = await self.session.get(KnowbotTestConsent, owner_subject)
-        if row is not None:
-            await self.session.delete(row)
-            await self.session.flush()
-
-    async def add_consent_withdrawal(self, owner_subject: str, consent_id: str) -> None:
-        if await self.session.get(KnowbotConsentWithdrawal, consent_id) is None:
-            self.session.add(
-                KnowbotConsentWithdrawal(
-                    consent_id=consent_id, owner_subject=owner_subject
-                )
-            )
-            await self.session.flush()
-
-    async def consent_withdrawals(self, owner_subject: str) -> list[str]:
-        rows = await self.session.execute(
-            select(KnowbotConsentWithdrawal.consent_id)
-            .where(KnowbotConsentWithdrawal.owner_subject == owner_subject)
-            .order_by(KnowbotConsentWithdrawal.created_at)
-        )
-        return list(rows.scalars())
-
-    async def drop_consent_withdrawal(self, consent_id: str) -> None:
-        row = await self.session.get(KnowbotConsentWithdrawal, consent_id)
-        if row is not None:
-            await self.session.delete(row)
-            await self.session.flush()
-
-    async def dataset_in_use(self, owner_subject: str, dataset_id: uuid.UUID) -> bool:
-        binding = func.jsonb_build_array(
-            func.jsonb_build_object("dataset_id", str(dataset_id))
-        )
-        # 还没走完、没停用的专家：用户没说不要、审核没驳回、没停用
-        live_expert = exists().where(
-            KnowbotExpert.draft_id == KnowbotDraft.id,
-            KnowbotExpert.stopped_at.is_(None),
-            KnowbotExpert.user_accepted.is_not(False),
-            KnowbotExpert.review_approved.is_not(False),
-        )
-        found = await self.session.execute(
-            select(KnowbotDraft.id)
-            .join(KnowbotRequest, KnowbotRequest.id == KnowbotDraft.request_id)
-            .where(
-                KnowbotRequest.owner_subject == owner_subject,
-                or_(
-                    KnowbotDraft.status.in_(("pending_test", "testing")),
-                    live_expert,
-                ),
-                KnowbotDraft.manifest["data_bindings"].op("@>")(binding),
-            )
-            .limit(1)
-        )
-        return found.first() is not None
 
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         await self.session.execute(

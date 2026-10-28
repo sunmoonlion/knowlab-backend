@@ -32,7 +32,6 @@ from app.application.ports.knowbots import (
     RequestRecord,
 )
 from app.application.services.knowbot_service import parse_id
-from app.domain.knowbots.data_needs import for_knowmart
 from app.domain.knowbots.lifecycle import (
     ExpertDecisionIn,
     ExpertGates,
@@ -194,7 +193,7 @@ class KnowbotExpertService:
                 delivery_id=f"knowlab-expert-{found.id}",
                 owner_subject=request.owner_subject,
                 knowbot_ref=f"knowlab-{request.id}",
-                manifest=for_knowmart(draft.manifest),
+                manifest=draft.manifest,
                 request_public=found.review_listing == "public",
             )
         except AppException as exc:

@@ -8,7 +8,6 @@ import pytest
 
 import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_board import KnowbotBoard
-from app.application.services.knowbot_data import KnowbotDataService
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
@@ -19,7 +18,6 @@ from tests.knowbot_fakes import (
     OWNER,
     FakeKnowmart,
     FakeRuntime,
-    MemoryDataStore,
     MemoryKnowlab,
     accepted_request,
     manifest,
@@ -64,8 +62,6 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[knowbot_routes.service] = lambda: svc
     app.dependency_overrides[knowbot_routes.expert_service] = lambda: experts
     app.dependency_overrides[knowbot_routes.board_service] = lambda: KnowbotBoard(repo)
-    data = KnowbotDataService(repo, MemoryDataStore())
-    app.dependency_overrides[knowbot_routes.data_service] = lambda: data
     app.dependency_overrides[knowbot_routes.question_service] = lambda: asks
     yield svc, repo, runtime, knowmart
     app.dependency_overrides.clear()
@@ -419,29 +415,15 @@ async def test_unknown_ids_are_404(wired) -> None:
 
 
 @pytest.mark.asyncio
-async def test_my_data_upload_list_delete_and_admin_sees_metadata_only(wired) -> None:
+async def test_the_old_data_routes_are_gone(wired) -> None:
+    """decisions ⑰：knowlab 不再存用户数据（在 knowbase user-data/v2），旧的知识库
+    接口没有了，详情页也不再带数据。"""
     async with client() as c:
         c.cookies.set(WEB_SID, "member")
         files = {"file": ("年报.pdf", b"%PDF-1.7 test", "application/pdf")}
-        no_csrf = await c.post("/api/web/v1/knowbot-datasets", files=files)
-        assert no_csrf.status_code == 403
+        assert (await c.get("/api/web/v1/knowbot-datasets")).status_code == 404
         made = await c.post("/api/web/v1/knowbot-datasets", files=files, headers=WEB)
-        assert made.status_code == 201, made.text
-        dataset = made.json()["dataset"]
-        assert dataset["name"] == "年报.pdf" and dataset["version"] == "1"
-        bad = await c.post(
-            "/api/web/v1/knowbot-datasets",
-            files={"file": ("x.exe", b"MZ", "application/octet-stream")},
-            headers=WEB,
-        )
-        assert (
-            bad.status_code == 400 and bad.json()["code"] == "dataset_type_not_allowed"
-        )
-        mine = (await c.get("/api/web/v1/knowbot-datasets")).json()
-        assert [d["dataset_id"] for d in mine["datasets"]] == [dataset["dataset_id"]]
-        assert mine["used_bytes"] == len(b"%PDF-1.7 test")
-        assert mine["quota_bytes"] == 1024**3
-
+        assert made.status_code == 404
         request_id = (
             await c.post(
                 "/api/web/v1/knowbot-requests", json=request_body(), headers=WEB
@@ -449,13 +431,7 @@ async def test_my_data_upload_list_delete_and_admin_sees_metadata_only(wired) ->
         ).json()["request_id"]
         c.cookies.set(ADMIN_SID, "admin")
         detail = (await c.get(f"/api/admin/v1/knowbot-requests/{request_id}")).json()
-        assert [d["dataset_id"] for d in detail["datasets"]] == [dataset["dataset_id"]]
-        assert "object_key" not in str(detail) and "version_id" not in str(detail)
-
-        url = f"/api/web/v1/knowbot-datasets/{dataset['dataset_id']}"
-        assert (await c.delete(url)).status_code == 403
-        assert (await c.delete(url, headers=WEB)).status_code == 204
-        assert (await c.delete(url, headers=WEB)).status_code == 404
+        assert "datasets" not in detail and detail["answered"] == []
 
 
 @pytest.mark.asyncio
