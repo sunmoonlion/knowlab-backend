@@ -187,6 +187,13 @@ class KnowbotTest(Base):
     case_grants: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default="[]"
     )
+    # 自助（用户本人在他自己的电脑上跑）还是平台（SDD 0046 第三节）；
+    # 自助的记电脑与根目录
+    mode: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default="platform"
+    )
+    environment_id: Mapped[str | None] = mapped_column(String(36))
+    workspace_root: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

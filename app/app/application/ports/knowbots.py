@@ -101,6 +101,10 @@ class TestRecord:
     error: str | None = None
     test_set_version: int | None = None
     case_grants: list[str] = field(default_factory=list)
+    # 自助（self）还是平台（platform）；自助的那台电脑与根目录（SDD 0046 第三节）
+    mode: str = "platform"
+    environment_id: str | None = None
+    workspace_root: str | None = None
 
 
 @dataclass(frozen=True)
@@ -513,6 +517,10 @@ class RuntimeTestClient(Protocol):
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1
     ) -> RunResultV1: ...
+
+    async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
+        """用户接入过的电脑（SDD 0046 第三节）：名字、系统、在线与否、白名单根目录。"""
+        ...
 
 
 class KnowledgeBase(Protocol):

@@ -697,6 +697,16 @@ class FakeRuntime:
             raise BadGatewayError("bad", code="test_run_contract_invalid")
         return self.case_outputs.get((run_id, case_id))
 
+    async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "environment_id": "11111111-1111-4111-8111-111111111111",
+                "name": "我的电脑",
+                "online": True,
+                "roots": ["/home/me/work"],
+            }
+        ]
+
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1
     ) -> RunResultV1:

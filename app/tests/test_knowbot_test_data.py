@@ -316,3 +316,47 @@ async def test_declining_everything_answers_with_no_data(world) -> None:
         "最近一年的年报：你没要",
         "上一年比较：你没要",
     ]
+
+
+async def test_the_author_tests_on_his_own_computer() -> None:
+    """自助测试（SDD 0046 第三节）：选他接入的电脑与根目录、他设费用上限；测试记模式与
+    电脑，下次默认用这台。只有自己的准专家。"""
+    repo, runtime = MemoryKnowlab(), FakeRuntime()
+    svc = KnowbotCreationService(repo, runtime)
+    request = await accepted_request(svc)
+    draft = await svc.add_draft(str(request.id), manifest_v2())
+    await svc.review_rules(str(draft.id), "admin-1")
+    env = "11111111-1111-4111-8111-111111111111"
+    first = await svc.my_computers(OWNER, str(draft.id))
+    assert first["last"] is None and first["computers"][0]["environment_id"] == env
+    with pytest.raises(NotFoundError):
+        await svc.start_self_test(
+            "someone-else",
+            str(draft.id),
+            environment_id=env,
+            workspace_root="/home/me/work",
+            budget_limit="5",
+            timeout_seconds=600,
+        )
+    test = await svc.start_self_test(
+        OWNER,
+        str(draft.id),
+        environment_id=env,
+        workspace_root="/home/me/work",
+        budget_limit="5",
+        timeout_seconds=600,
+    )
+    sent = runtime.started[-1][1]
+    assert sent.runner is not None and sent.runner.kind == "user"
+    assert (sent.runner.environment_id, sent.runner.workspace_root) == (
+        env,
+        "/home/me/work",
+    )
+    assert sent.budget.limit == "5"
+    found = repo.tests[test.id]
+    assert (found.mode, found.environment_id, found.started_by) == ("self", env, OWNER)
+    again = await svc.my_computers(OWNER, str(draft.id))
+    assert again["last"] == {"environment_id": env, "workspace_root": "/home/me/work"}
+    with pytest.raises(NotFoundError):
+        await svc.refresh_mine("someone-else", str(test.id))
+    assert (await svc.refresh_mine(OWNER, str(test.id))).id == test.id

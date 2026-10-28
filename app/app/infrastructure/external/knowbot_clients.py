@@ -28,6 +28,7 @@ from app.infrastructure.external.service_client import ServiceClient, service_re
 
 RUNTIME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 TEST_RUNS = "/test-runs"  # 接在运行方入口 /api/internal/v1/knowbot-runtime 后面
+USERS = "/users"  # 同上：用户接入过的电脑
 
 
 def registered_runtimes(environ: Mapping[str, str] | None = None) -> frozenset[str]:
@@ -102,6 +103,14 @@ class RuntimeTestClients:
                 "The runtime answered another run", code="run_mismatch"
             )
         return result
+
+    async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
+        """用户接入过的电脑（SDD 0046 第三节「怎么选电脑」）。"""
+        _, body = await self._client(runtime).request(
+            "GET", f"{USERS}/{quote(subject, safe='')}/computers"
+        )
+        found = body.get("computers") if isinstance(body, dict) else None
+        return [c for c in found or [] if isinstance(c, dict)]
 
     async def outputs(
         self, runtime: str, run_id: str, case_id: str

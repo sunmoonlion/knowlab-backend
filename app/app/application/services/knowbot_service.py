@@ -432,8 +432,10 @@ class KnowbotCreationService:
         budget_limit: str,
         timeout_seconds: int,
         starter: str | None = None,
+        runner: dict[str, str] | None = None,
     ) -> TestRecord:
-        """拿一位准专家按用例跑一次：新编号。"""
+        """拿一位准专家按用例跑一次：新编号。runner 给了就是用户本人在他自己的电脑上跑
+        （自助，SDD 0046 第三节）：{environment_id, workspace_root}。"""
         async with self.repo.transaction():
             found = await self.repo.get_draft(parse_id(draft_id))
             if found is None:
@@ -483,6 +485,7 @@ class KnowbotCreationService:
                     "budget": {"limit": budget_limit},
                     "timeout_seconds": timeout_seconds,
                     "max_wait_seconds": MAX_WAIT_SECONDS,
+                    **({"runner": {"kind": "user", **runner}} if runner else {}),
                 }
             )
             test = await self.repo.create_test(
@@ -497,6 +500,9 @@ class KnowbotCreationService:
                     budget_limit=budget_limit,
                     timeout_seconds=timeout_seconds,
                     started_by=starter,
+                    mode="self" if runner else "platform",
+                    environment_id=(runner or {}).get("environment_id"),
+                    workspace_root=(runner or {}).get("workspace_root"),
                 )
             )
             await self._move(draft, "testing")
@@ -552,6 +558,56 @@ class KnowbotCreationService:
         started = await self.repo.get_test(test.id)
         assert started is not None
         return started
+
+    async def start_self_test(
+        self,
+        owner_subject: str,
+        draft_id: str,
+        *,
+        environment_id: str,
+        workspace_root: str,
+        budget_limit: str,
+        timeout_seconds: int,
+    ) -> TestRecord:
+        """自助测试（SDD 0046 第三节）：用户本人在他自己的电脑上、用他的模型 key 跑，
+        费用上限他自己设。只有自己的准专家。"""
+        await self.my_draft(owner_subject, draft_id)
+        return await self.start_test(
+            draft_id,
+            budget_limit=budget_limit,
+            timeout_seconds=timeout_seconds,
+            starter=owner_subject,
+            runner={"environment_id": environment_id, "workspace_root": workspace_root},
+        )
+
+    async def my_computers(self, owner_subject: str, draft_id: str) -> dict[str, Any]:
+        """选电脑（SDD 0046 第三节）：他接入过的电脑，与上次自助测试用的那台
+        与根目录。"""
+        _, request = await self.my_draft(owner_subject, draft_id)
+        found = await self.runtimes.computers(request.runtime, owner_subject)
+        mine = [
+            t
+            for r in await self.repo.list_requests_for_owner(owner_subject)
+            for t in await self.repo.list_tests(request_ids=[r.id])
+            if t.mode == "self" and t.environment_id
+        ]
+        last = max(mine, key=lambda t: t.started_at, default=None)
+        return {
+            "computers": found,
+            "last": {
+                "environment_id": last.environment_id,
+                "workspace_root": last.workspace_root,
+            }
+            if last
+            else None,
+        }
+
+    async def refresh_mine(self, owner_subject: str, test_id: str) -> TestRecord:
+        """自己的测试刷新一次（自助测试的页面轮询）。"""
+        test, request = await self.test_with_request(test_id)
+        if request.owner_subject != owner_subject:
+            raise NotFoundError("No such test", code="test_not_found")
+        return await self.refresh(str(test.id))
 
     async def _grant_needs(
         self, owner_subject: str, manifest: dict[str, Any]

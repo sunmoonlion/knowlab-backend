@@ -161,6 +161,9 @@ def _test(row: KnowbotTest) -> TestRecord:
         error=row.error,
         test_set_version=row.test_set_version,
         case_grants=list(row.case_grants or []),
+        mode=row.mode,
+        environment_id=row.environment_id,
+        workspace_root=row.workspace_root,
     )
 
 
@@ -513,6 +516,9 @@ class SqlKnowlabRepository:
             started_at=record.started_at,
             test_set_version=record.test_set_version,
             case_grants=list(record.case_grants),
+            mode=record.mode,
+            environment_id=record.environment_id,
+            workspace_root=record.workspace_root,
         )
         self.session.add(row)
         try:

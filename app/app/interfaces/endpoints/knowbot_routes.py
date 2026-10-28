@@ -411,6 +411,50 @@ async def answer_my_question(
     return _ok({"question_id": str(found.id), "sent": found.sent_at is not None})
 
 
+class SelfTestIn(BaseModel):
+    """自助测试（SDD 0046 第三节）：在哪台电脑、哪个根目录下跑，费用上限多少。"""
+
+    model_config = ConfigDict(extra="forbid")
+    environment_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    workspace_root: str = Field(min_length=1, max_length=1024)
+    budget_limit: str = Field(pattern=r"^[0-9]{1,6}(\.[0-9]{1,2})?$")
+    timeout_seconds: int = Field(default=3600, ge=60, le=86400)
+
+
+@web_router.get("/knowbot-drafts/{draft_id}/computers")
+async def my_computers(principal: User, svc: Service, draft_id: ItemId) -> JSONResponse:
+    """自助测试选电脑：我接入过的电脑（在线与否、白名单根目录）与上次用的那台。"""
+    return _ok(await svc.my_computers(principal.subject, draft_id))
+
+
+@web_router.post("/knowbot-drafts/{draft_id}/self-tests")
+async def start_self_test(
+    principal: User, svc: Service, body: SelfTestIn, draft_id: ItemId
+) -> JSONResponse:
+    """自己拿这位准专家测一次：在我自己的电脑上、用我的模型 key，费用上限我自己设。"""
+    test = await svc.start_self_test(
+        principal.subject,
+        draft_id,
+        environment_id=body.environment_id,
+        workspace_root=body.workspace_root,
+        budget_limit=body.budget_limit,
+        timeout_seconds=body.timeout_seconds,
+    )
+    return _ok(
+        {"test_id": str(test.id), "status": test.status, "mode": test.mode},
+        status_code=201,
+    )
+
+
+@web_router.post("/knowbot-tests/{test_id}/refresh")
+async def refresh_my_test(
+    principal: User, svc: Service, test_id: ItemId
+) -> JSONResponse:
+    """自己的测试刷新一次：问运行方结果、查在取的数据。"""
+    test = await svc.refresh_mine(principal.subject, test_id)
+    return _ok({"test_id": str(test.id), "status": test.status})
+
+
 def test_data_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotTestData:
