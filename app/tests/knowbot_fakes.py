@@ -22,6 +22,7 @@ from app.application.ports.knowbots import (
     ExpertRecord,
     GrantRecord,
     IncubationRecord,
+    ProposalRecord,
     QuestionRecord,
     RequestRecord,
     RequestVersionRecord,
@@ -180,6 +181,7 @@ class MemoryKnowlab:
         self.entries: dict[uuid.UUID, WorkdraftEntryRecord] = {}
         self.incubations: dict[uuid.UUID, IncubationRecord] = {}
         self.grants: dict[uuid.UUID, GrantRecord] = {}
+        self.proposals: dict[uuid.UUID, ProposalRecord] = {}
         # 作者在别的名称上自助测过的（不在这份假仓里）：用户 → 那一次。平台测试照它定在
         # 哪跑（decisions ⑯），测试里用 own_computer 预置
         self.earlier_self_tests: dict[str, TestRecord] = {}
@@ -207,6 +209,7 @@ class MemoryKnowlab:
             dict(self.entries),
             dict(self.incubations),
             dict(self.grants),
+            dict(self.proposals),
         )
         try:
             yield
@@ -226,6 +229,7 @@ class MemoryKnowlab:
                 self.entries,
                 self.incubations,
                 self.grants,
+                self.proposals,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -349,6 +353,25 @@ class MemoryKnowlab:
 
     async def update_grant(self, grant_id: uuid.UUID, **changes: Any) -> None:
         self.grants[grant_id] = replace(self.grants[grant_id], **changes)
+
+    # ---------- 运营的提议 ----------
+    async def add_proposals(self, records: Sequence[ProposalRecord]) -> None:
+        for r in records:
+            self.proposals[r.id] = copy.deepcopy(r)
+
+    async def get_proposal(
+        self, proposal_id: uuid.UUID, *, for_update: bool = False
+    ) -> ProposalRecord | None:
+        return self.proposals.get(proposal_id)
+
+    async def list_proposals(self, request_id: uuid.UUID) -> Sequence[ProposalRecord]:
+        return sorted(
+            (p for p in self.proposals.values() if p.request_id == request_id),
+            key=lambda p: (p.proposed_at, str(p.id)),
+        )
+
+    async def update_proposal(self, proposal_id: uuid.UUID, **changes: Any) -> None:
+        self.proposals[proposal_id] = replace(self.proposals[proposal_id], **changes)
 
     async def list_requests_for_owner(
         self, owner_subject: str
@@ -955,3 +978,31 @@ def waiting(run_id: str) -> RunResultV1:
             ],
         }
     )
+
+
+async def platform_draft(
+    svc: Any,
+    request_id: str,
+    manifest_doc: dict[str, Any],
+    request_version: int | None = None,
+) -> DraftRecord:
+    """测试里建一位平台孵化的准专家：等于运营在管理端「出一版」的结果，跳过工作稿
+    （工作稿与出处把关另有测试）。出自最新正式受理了的版本；版本号 = 已有专家的最大
+    版本号 + 1，修订号在这个名称里递增。"""
+    repo = svc.repo
+    rid = uuid.UUID(str(request_id))
+    accepted = sorted(
+        a.version
+        for a in await repo.list_acceptances([rid])
+        if a.accepted and a.kind == "formal"
+    )
+    drafts = await repo.list_drafts(request_id=rid)
+    experts = await repo.list_experts([rid])
+    async with repo.transaction():
+        return await repo.create_draft(
+            request_id=rid,
+            request_version=request_version or accepted[-1],
+            revision=max((d.revision for d in drafts), default=0) + 1,
+            version=str(max((e.version for e in experts), default=0) + 1),
+            manifest=manifest_doc,
+        )

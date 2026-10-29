@@ -10,6 +10,7 @@ import pytest
 
 import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_board import KnowbotBoard
+from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.drafts import KnowbotRequestIn
@@ -21,6 +22,7 @@ from tests.knowbot_fakes import (
     MemoryKnowlab,
     accepted_request,
     manifest,
+    platform_draft,
     request_body,
 )
 from tests.test_auth_routes_security import FakeAuthService, session
@@ -56,6 +58,9 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(auth_middleware, "admin_auth_service", admin)
     app.dependency_overrides[knowbot_routes.service] = lambda: svc
     app.dependency_overrides[knowbot_routes.workdraft_service] = lambda: works
+    app.dependency_overrides[knowbot_routes.proposal_service] = lambda: (
+        KnowbotProposalService(repo)
+    )
     app.dependency_overrides[knowbot_routes.board_service] = lambda: KnowbotBoard(repo)
     yield svc, repo
     app.dependency_overrides.clear()
@@ -229,7 +234,7 @@ async def test_import_and_copy_my_own(wired) -> None:
         assert copied.json()["body"]["steps"][0]["title"] == "数据摸底"
         assert copied.json()["origins"]["steps/overview/title"] == "copy"
         theirs = await accepted_request(svc, "someone-else")
-        foreign = await svc.add_draft(str(theirs.id), manifest())
+        foreign = await platform_draft(svc, str(theirs.id), manifest())
         refused = await c.post(
             f"{other}/copy",
             json={"revision": 1, "draft_id": str(foreign.id)},

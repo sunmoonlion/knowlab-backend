@@ -11,6 +11,7 @@ import pytest
 import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_incubation import KnowbotIncubationService
+from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
@@ -75,6 +76,9 @@ def wired(monkeypatch: pytest.MonkeyPatch):
         KnowbotIncubationService(repo, incubator, runtime)
     )
     app.dependency_overrides[knowbot_routes.board_service] = lambda: KnowbotBoard(repo)
+    app.dependency_overrides[knowbot_routes.proposal_service] = lambda: (
+        KnowbotProposalService(repo)
+    )
     app.dependency_overrides[knowbot_routes.question_service] = lambda: (
         KnowbotQuestionService(repo, runtime)
     )

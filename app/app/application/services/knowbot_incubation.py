@@ -46,6 +46,7 @@ from app.application.ports.knowbots import (
     RuntimeTestClient,
     WorkdraftRecord,
 )
+from app.application.services.knowbot_grants import live_incubation
 from app.application.services.knowbot_service import parse_id
 from app.application.services.knowbot_workdraft import (
     AUTHOR,
@@ -232,6 +233,7 @@ class KnowbotIncubationService:
         environment_id: str | None = None,
         workspace_root: str | None = None,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+        mode: str = "self",
     ) -> IncubationRecord:
         """发起一轮：先记下（排队），再交运行方；交不出去的记失败，照样报错。"""
         request = await self._request(owner_subject, request_id)
@@ -354,6 +356,7 @@ class KnowbotIncubationService:
                     workdraft_revision=current.revision,
                     answer_ids=[str(q.id) for q in answered],
                     started_at=self.now(),
+                    mode=mode,
                 )
             )
         try:
@@ -365,6 +368,51 @@ class KnowbotIncubationService:
         found = await self.repo.get_incubation(record.id)
         assert found is not None
         return found
+
+    async def operator_start(
+        self,
+        request_id: str,
+        *,
+        action: str,
+        instruction: str | None = None,
+        step_id: str | None = None,
+    ) -> IncubationRecord:
+        """平台孵化时运营发起一轮（专家孵化方案第十二节）：仍在作者的账号下、作者上次用的
+        电脑上、用作者的 key 跑（decisions ⑯），上限是作者请平台孵化时设的；记平台模式。
+        建议照旧直接给作者处理，运营看得到、可以改成自己的提议再交。"""
+        request = await self.repo.get_request(parse_id(request_id, "request"))
+        grant = (
+            None
+            if request is None
+            else live_incubation(await self.repo.list_grants([request.id]), self.now())
+        )
+        if request is None or grant is None or grant.status != "active":
+            raise NotFoundError("No such request", code="request_not_found")
+        return await self.start(
+            request.owner_subject,
+            request_id,
+            action=action,
+            instruction=instruction,
+            step_id=step_id,
+            budget_limit=f"{grant.budget_limit:.2f}",
+            mode="platform",
+        )
+
+    async def operator_rounds(self, request_id: str) -> Sequence[IncubationRecord]:
+        """孵化授权已生效时运营看的各轮：只有平台模式的（作者自助的那几轮看不到）。"""
+        request = await self.repo.get_request(parse_id(request_id, "request"))
+        grant = (
+            None
+            if request is None
+            else live_incubation(await self.repo.list_grants([request.id]), self.now())
+        )
+        if request is None or grant is None or grant.status != "active":
+            raise NotFoundError("No such request", code="request_not_found")
+        return [
+            r
+            for r in await self.repo.list_incubations(request_id=request.id)
+            if r.mode == "platform"
+        ]
 
     async def _end(self, incubation_id: uuid.UUID, error: str) -> None:
         async with self.repo.transaction():

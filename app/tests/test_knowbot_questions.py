@@ -32,6 +32,7 @@ from tests.knowbot_fakes import (
     accepted_request,
     manifest,
     own_computer,
+    platform_draft,
     result,
     waiting,
 )
@@ -52,7 +53,7 @@ async def testing():
     asks = KnowbotQuestionService(repo, runtime, now=clock)
     svc = KnowbotCreationService(repo, runtime, now=clock, on_refresh=asks.resend)
     request = await accepted_request(svc)
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     run = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     runtime.results[run.run_id] = waiting(run.run_id)

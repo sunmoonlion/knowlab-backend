@@ -51,6 +51,7 @@ from app.application.services.knowbot_incubation import (
     KnowbotIncubationService,
 )
 from app.application.services.knowbot_platform import KnowbotPlatformService
+from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
@@ -60,6 +61,7 @@ from app.bootstrap.knowbots import (
     knowbot_expert_service,
     knowbot_incubation_service,
     knowbot_platform_service,
+    knowbot_proposal_service,
     knowbot_question_service,
     knowbot_service,
     knowbot_test_data,
@@ -92,6 +94,7 @@ from app.interfaces.endpoints.knowbot_views import (
     incubation_view,
     life_view,
     outputs_view,
+    proposal_view,
     question_view,
     test_view,
     version_view,
@@ -142,6 +145,12 @@ def workdraft_service(
     return knowbot_workdraft_service(session)
 
 
+def proposal_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotProposalService:
+    return knowbot_proposal_service(session)
+
+
 def platform_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotPlatformService:
@@ -156,6 +165,7 @@ def incubation_service(
 
 Service = Annotated[KnowbotCreationService, Depends(service)]
 Platform = Annotated[KnowbotPlatformService, Depends(platform_service)]
+Proposals = Annotated[KnowbotProposalService, Depends(proposal_service)]
 Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
@@ -539,11 +549,46 @@ class CopyIn(BaseModel):
 
 @web_router.get("/knowbot-requests/{request_id}/workdraft")
 async def my_workdraft(
-    principal: User, workdrafts: Workdrafts, request_id: ItemId
+    principal: User, workdrafts: Workdrafts, props: Proposals, request_id: ItemId
 ) -> JSONResponse:
-    """这个名称的工作稿：格子、每格的出处、revision（还没存过的是空的一份）。"""
+    """这个名称的工作稿：格子、每格的出处、revision（还没存过的是空的一份）；平台孵化时
+    运营的提议也带上（作者逐条处理）。"""
     request, found = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found, await workdrafts.origins(found)))
+    _, proposals = await props.mine(principal.subject, request_id)
+    return _ok(
+        workdraft_view(request, found, await workdrafts.origins(found))
+        | {"proposals": [proposal_view(p, admin=False) for p in proposals]}
+    )
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/proposals/{proposal_id}")
+async def decide_proposal(
+    principal: User,
+    body: DecisionIn,
+    props: Proposals,
+    workdrafts: Workdrafts,
+    request_id: ItemId,
+    proposal_id: ItemId,
+) -> JSONResponse:
+    """接受、改了再接受、不要运营的一条提议（专家孵化方案第十二节）；工作稿别处改过回
+    409 workdraft_revision。"""
+    _, found = await props.decide(
+        principal.subject,
+        request_id,
+        proposal_id,
+        action=body.action,
+        revision=body.revision,
+        value=body.value,
+    )
+    request, workdraft = await workdrafts.get(principal.subject, request_id)
+    return _ok(
+        {
+            "workdraft": workdraft_view(
+                request, workdraft, await workdrafts.origins(workdraft)
+            ),
+            "proposal": proposal_view(found, admin=False),
+        }
+    )
 
 
 @web_router.post("/knowbot-requests/{request_id}/workdraft/cells")
@@ -942,6 +987,139 @@ async def accept(
     found = await svc.accept(request_id, version, body, admin.subject)
     return _ok(
         {"request_id": str(found.request_id), "version": found.version},
+        status_code=201,
+    )
+
+
+# ---------- 管理端：平台孵化的工作稿（专家孵化方案第十二节） ----------
+class ProposalItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1, max_length=200)
+    op: Literal["set", "add", "remove", "move"]
+    value: Any = None
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ProposalsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    proposals: list[ProposalItemIn] = Field(min_length=1, max_length=50)
+
+
+class OperatorRoundIn(BaseModel):
+    """运营发起一轮：起草或按一句话改；上限、电脑都按作者的（decisions ⑯）。"""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["draft", "revise"]
+    instruction: str | None = Field(default=None, min_length=1, max_length=4000)
+    step_id: str | None = Field(default=None, pattern=STEP_ID)
+
+
+async def _operator_workdraft(
+    request_id: str, workdrafts: KnowbotWorkdraftService, props: KnowbotProposalService
+) -> dict[str, Any]:
+    request, found, proposals = await props.operator_view(request_id)
+    return workdraft_view(request, found, await workdrafts.origins(found)) | {
+        "proposals": [proposal_view(p, admin=True) for p in proposals]
+    }
+
+
+@admin_router.get("/knowbot-requests/{request_id}/workdraft")
+async def operator_workdraft(
+    _: Admin, workdrafts: Workdrafts, props: Proposals, request_id: ItemId
+) -> JSONResponse:
+    """平台孵化的工作稿（孵化授权已生效才看得到）：格子、出处、运营的提议。"""
+    return _ok(await _operator_workdraft(request_id, workdrafts, props))
+
+
+@admin_router.post("/knowbot-requests/{request_id}/workdraft/proposals")
+async def propose(
+    admin: Releaser,
+    body: ProposalsIn,
+    workdrafts: Workdrafts,
+    props: Proposals,
+    request_id: ItemId,
+) -> JSONResponse:
+    """运营改格子：存成提议，作者在 web端接受了才进稿。套不上现稿的回 400。"""
+    await props.propose(
+        request_id, admin.subject, [p.model_dump(mode="json") for p in body.proposals]
+    )
+    return _ok(await _operator_workdraft(request_id, workdrafts, props), 201)
+
+
+@admin_router.post(
+    "/knowbot-requests/{request_id}/workdraft/proposals/{proposal_id}/withdraw"
+)
+async def withdraw_proposal(
+    _: Releaser,
+    workdrafts: Workdrafts,
+    props: Proposals,
+    request_id: ItemId,
+    proposal_id: ItemId,
+) -> JSONResponse:
+    """收回还没处理的提议。"""
+    await props.withdraw(request_id, proposal_id)
+    return _ok(await _operator_workdraft(request_id, workdrafts, props))
+
+
+@admin_router.get("/knowbot-requests/{request_id}/workdraft/preview")
+async def operator_preview(
+    _: Admin, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """编出的清单与出不了版本的地方（不出版本）。"""
+    manifest, problems, version = await workdrafts.operator_preview(request_id)
+    return _ok(
+        {
+            "version": version,
+            "manifest": manifest,
+            "problems": [{"path": p.path, "message": p.message} for p in problems],
+        }
+    )
+
+
+@admin_router.post("/knowbot-requests/{request_id}/workdraft/publish")
+async def operator_publish(
+    _: Releaser, workdrafts: Workdrafts, request_id: ItemId
+) -> JSONResponse:
+    """平台模式出一版（decisions 10-29）：准专家记平台；最新一版创意要正式受理过，
+    出处照样只认作者原话与作者接受的。"""
+    draft = await workdrafts.operator_publish(request_id)
+    return _ok(
+        {
+            "draft_id": str(draft.id),
+            "version": draft.version,
+            "revision": draft.revision,
+            "request_version": draft.request_version,
+            "mode": draft.mode,
+        },
+        status_code=201,
+    )
+
+
+@admin_router.get("/knowbot-requests/{request_id}/workdraft/incubations")
+async def operator_rounds(
+    _: Admin, incubations: Incubations, request_id: ItemId
+) -> JSONResponse:
+    """平台发起的各轮（作者自助的那几轮看不到），带交回的建议，运营可以改成提议。"""
+    found = await incubations.operator_rounds(request_id)
+    return _ok(
+        {"incubations": [incubation_view(r, await incubations.gaps(r)) for r in found]}
+    )
+
+
+@admin_router.post("/knowbot-requests/{request_id}/workdraft/incubations")
+async def operator_round(
+    _: Releaser, body: OperatorRoundIn, incubations: Incubations, request_id: ItemId
+) -> JSONResponse:
+    """运营发起一轮 AI：在作者的账号、作者上次用的电脑上、用作者的 key 跑，上限是作者
+    请平台孵化时设的（decisions ⑯）；建议直接给作者处理。"""
+    record = await incubations.operator_start(
+        request_id,
+        action=body.action,
+        instruction=body.instruction,
+        step_id=body.step_id,
+    )
+    return _ok(
+        {"incubation": incubation_view(record, await incubations.gaps(record))},
         status_code=201,
     )
 

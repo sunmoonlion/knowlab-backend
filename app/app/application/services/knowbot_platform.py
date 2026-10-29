@@ -109,6 +109,10 @@ class KnowbotPlatformService:
                     await self.repo.update_grant(
                         g.id, status="revoked", ended_by=owner_subject, ended_at=now
                     )
+            # 运营没被接受的提议作废（decisions 10-29）
+            for p in await self.repo.list_proposals(rid):
+                if p.state == "pending":
+                    await self.repo.update_proposal(p.id, state="void", decided_at=now)
             await self._to_self(rid, now)
 
     async def renew(self, owner_subject: str, request_id: str) -> GrantRecord:

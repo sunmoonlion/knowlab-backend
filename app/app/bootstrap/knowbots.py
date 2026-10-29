@@ -11,6 +11,7 @@ from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_incubation import KnowbotIncubationService
 from app.application.services.knowbot_platform import KnowbotPlatformService
+from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
@@ -100,3 +101,8 @@ def knowbot_board(session: AsyncSession) -> KnowbotBoard:
 def knowbot_platform_service(session: AsyncSession) -> KnowbotPlatformService:
     """孵化、测试在自助与平台之间切换（SDD 0046 第四节）。"""
     return KnowbotPlatformService(SqlKnowlabRepository(session))
+
+
+def knowbot_proposal_service(session: AsyncSession) -> KnowbotProposalService:
+    """运营对工作稿的提议，作者逐条处理（专家孵化方案第十二节）。"""
+    return KnowbotProposalService(SqlKnowlabRepository(session))

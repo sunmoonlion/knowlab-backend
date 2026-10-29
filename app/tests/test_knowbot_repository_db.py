@@ -40,6 +40,7 @@ from tests.knowbot_fakes import (
     all_clear,
     list_expert,
     manifest,
+    platform_draft,
     request_body,
     result,
     waiting,
@@ -120,7 +121,7 @@ async def _own_computer(db, owner: str = OWNER) -> None:
     async with db() as session:
         other = await accepted_request(service(session), owner)
     async with db() as session:
-        draft = await service(session).add_draft(str(other.id), manifest())
+        draft = await platform_draft(service(session), str(other.id), manifest())
     async with db() as session:
         repo = SqlKnowlabRepository(session)
         async with repo.transaction():
@@ -146,7 +147,7 @@ async def _reviewed(db, owner: str = OWNER):
     async with db() as session:
         request = await accepted_request(service(session), owner)
     async with db() as session:
-        draft = await service(session).add_draft(str(request.id), manifest())
+        draft = await platform_draft(service(session), str(request.id), manifest())
     async with db() as session:
         await service(session).review_rules(str(draft.id), "admin-1")
     return request, draft
@@ -327,7 +328,9 @@ async def test_concurrent_starts_leave_one_test_running(db) -> None:
     drafts = []
     for _ in range(2):
         async with db() as session:
-            drafts.append(await service(session).add_draft(str(request.id), manifest()))
+            drafts.append(
+                await platform_draft(service(session), str(request.id), manifest())
+            )
     assert sorted(d.revision for d in drafts) == [1, 2]
     for draft in drafts:
         async with db() as session:
@@ -693,7 +696,7 @@ async def test_consent_version_and_output_expiry_on_the_real_database(db) -> Non
             await SqlKnowlabRepository(session).get_request(request.id)
         ).consent_version == 1  # type: ignore[union-attr]
     async with db() as session:
-        first = await service(session).add_draft(str(request.id), manifest())
+        first = await platform_draft(service(session), str(request.id), manifest())
     async with db() as session, session.begin():
         repo = SqlKnowlabRepository(session)
         await repo.put_test_output(
@@ -709,7 +712,7 @@ async def test_consent_version_and_output_expiry_on_the_real_database(db) -> Non
 
     assert await expire(datetime.now(UTC) + timedelta(days=1)) == 0  # 没有更新的
     async with db() as session:
-        await service(session).add_draft(str(request.id), manifest())
+        await platform_draft(service(session), str(request.id), manifest())
     assert await expire(datetime.now(UTC) - timedelta(days=1)) == 0  # 还没满期
     assert await expire(datetime.now(UTC) + timedelta(days=1)) == 1
     async with db() as session:
@@ -720,7 +723,7 @@ async def test_consent_version_and_output_expiry_on_the_real_database(db) -> Non
     async with db() as session:
         other = await accepted_request(service(session))
     async with db() as session:
-        listed_draft = await service(session).add_draft(str(other.id), manifest())
+        listed_draft = await platform_draft(service(session), str(other.id), manifest())
     async with db() as session, session.begin():
         repo = SqlKnowlabRepository(session)
         await repo.put_test_output(

@@ -24,6 +24,7 @@ from app.application.ports.knowbots import (
     ExpertRecord,
     GrantRecord,
     IncubationRecord,
+    ProposalRecord,
     QuestionRecord,
     RequestRecord,
     RequestVersionRecord,
@@ -48,6 +49,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotTestOutput,
     KnowbotTestSet,
     KnowbotWorkdraft,
+    KnowbotWorkdraftProposal,
     KnowbotWorkdraftRecord,
 )
 
@@ -120,6 +122,25 @@ def _grant(row: KnowbotPlatformGrant) -> GrantRecord:
         reason=row.reason,
         ended_by=row.ended_by,
         ended_at=row.ended_at,
+    )
+
+
+PROPOSAL_FIELDS = frozenset({"state", "decided_at", "records"})
+
+
+def _proposal(row: KnowbotWorkdraftProposal) -> ProposalRecord:
+    return ProposalRecord(
+        id=row.id,
+        request_id=row.request_id,
+        path=row.path,
+        op=row.op,
+        value=row.value,
+        reason=row.reason,
+        proposed_by=row.proposed_by,
+        proposed_at=row.proposed_at,
+        state=row.state,
+        decided_at=row.decided_at,
+        records=list(row.records or []),
     )
 
 
@@ -604,6 +625,54 @@ class SqlKnowlabRepository:
         await self.session.execute(
             update(KnowbotPlatformGrant)
             .where(KnowbotPlatformGrant.id == grant_id)
+            .values(**changes)
+        )
+
+    # ---------- 运营的提议 ----------
+    async def add_proposals(self, records: Sequence[ProposalRecord]) -> None:
+        for r in records:
+            self.session.add(
+                KnowbotWorkdraftProposal(
+                    id=r.id,
+                    request_id=r.request_id,
+                    path=r.path,
+                    op=r.op,
+                    value=r.value,
+                    reason=r.reason,
+                    proposed_by=r.proposed_by,
+                    proposed_at=r.proposed_at,
+                    state=r.state,
+                    records=list(r.records),
+                )
+            )
+        await self.session.flush()
+
+    async def get_proposal(
+        self, proposal_id: uuid.UUID, *, for_update: bool = False
+    ) -> ProposalRecord | None:
+        query = select(KnowbotWorkdraftProposal).where(
+            KnowbotWorkdraftProposal.id == proposal_id
+        )
+        if for_update:
+            query = query.with_for_update()
+        row = (await self.session.execute(query)).scalar_one_or_none()
+        return None if row is None else _proposal(row)
+
+    async def list_proposals(self, request_id: uuid.UUID) -> Sequence[ProposalRecord]:
+        query = (
+            select(KnowbotWorkdraftProposal)
+            .where(KnowbotWorkdraftProposal.request_id == request_id)
+            .order_by(KnowbotWorkdraftProposal.proposed_at, KnowbotWorkdraftProposal.id)
+        )
+        return [_proposal(r) for r in (await self.session.execute(query)).scalars()]
+
+    async def update_proposal(self, proposal_id: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - PROPOSAL_FIELDS
+        if unknown:
+            raise ValueError(f"unknown proposal fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotWorkdraftProposal)
+            .where(KnowbotWorkdraftProposal.id == proposal_id)
             .values(**changes)
         )
 

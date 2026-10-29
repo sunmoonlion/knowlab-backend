@@ -29,6 +29,7 @@ from tests.knowbot_fakes import (
     all_clear,
     manifest,
     own_computer,
+    platform_draft,
     request_body,
     result,
 )
@@ -62,7 +63,7 @@ async def _accepted(svc: KnowbotCreationService, **body):
 
 async def _reviewed_draft(svc: KnowbotCreationService, **body):
     request = await _accepted(svc, **body)
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     return request, draft
 
@@ -103,7 +104,7 @@ async def test_a_pass_makes_the_expert_with_the_drafts_version(parts):
     assert (expert.version, expert.draft_id, expert.test_id) == (1, draft.id, test.id)
     assert expert.returned_at is None  # 交回由管理端发起
     # 出过第 1 版专家，下一位准专家冲第 2 版
-    nxt = await svc.add_draft(str(request.id), manifest("2"))
+    nxt = await platform_draft(svc, str(request.id), manifest("2"))
     assert (nxt.version, nxt.revision) == ("2", 2)
 
 
@@ -111,9 +112,6 @@ async def test_a_pass_makes_the_expert_with_the_drafts_version(parts):
 async def test_incubation_needs_an_accepted_version(parts):
     svc, *_ = parts
     request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
-    with pytest.raises(ConcurrencyConflictError) as raised:
-        await svc.add_draft(str(request.id), manifest())
-    assert raised.value.code == "version_not_accepted"
     rejected = all_clear(
         checks={
             "C-L5": {"ok": False, "note": "要给买卖建议"},
@@ -138,16 +136,12 @@ async def test_incubation_needs_an_accepted_version(parts):
     with pytest.raises(ConcurrencyConflictError) as raised:
         await svc.accept(str(request.id), 1, all_clear(), "admin-1")
     assert raised.value.code == "already_decided"
-    with pytest.raises(ConcurrencyConflictError):
-        await svc.add_draft(str(request.id), manifest())
     # 用户改创意出 v2，v2 受理了才能孵化
     v2 = await svc.revise(OWNER, str(request.id), _revision(not_solves="不给任何建议"))
     assert v2.version == 2
     await svc.accept(str(request.id), 2, all_clear(), "admin-1")
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     assert draft.request_version == 2
-    with pytest.raises(ConcurrencyConflictError):  # 选不受理的版本不行
-        await svc.add_draft(str(request.id), manifest(), request_version=1)
     with pytest.raises(NotFoundError):
         await svc.accept(str(request.id), 9, all_clear(), "admin-1")
 
@@ -165,26 +159,8 @@ async def test_revising_adds_a_version_and_keeps_the_old_one(parts):
     with pytest.raises(NotFoundError):
         await svc.revise("someone-else", str(request.id), _revision())
     # v2 还没受理：孵化默认选最新受理了的 v1
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     assert draft.request_version == 1
-
-
-@pytest.mark.asyncio
-async def test_amendment_citations_are_retired(parts):
-    svc, *_ = parts
-    request = await _accepted(svc)
-    cited = manifest(
-        rule_sources=[
-            {
-                "rule": "口径",
-                "source": "user_text",
-                "ref": "amendment:00000000-0000-4000-8000-000000000001",
-            }
-        ]
-    )
-    with pytest.raises(BadRequestError) as raised:
-        await svc.add_draft(str(request.id), cited)
-    assert "amendments are retired" in str(raised.value)
 
 
 @pytest.mark.asyncio
@@ -212,7 +188,7 @@ async def test_the_user_reviews_a_draft_before_it_is_tested(parts):
         await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     assert raised.value.code == "review_rejected"
     # 再孵化：新准专家，版本号不变、修订号加一
-    again = await svc.add_draft(str(request.id), manifest())
+    again = await platform_draft(svc, str(request.id), manifest())
     assert (again.version, again.revision) == ("1", 2)
     await svc.request_user_review(str(again.id), "admin-1")
     await svc.answer_user_review(OWNER, str(again.id), UserReviewIn(ok=True))
@@ -265,7 +241,7 @@ async def test_a_platform_test_runs_on_the_authors_computer(parts):
 async def test_rules_must_be_reviewed_before_testing(parts):
     svc, *_ = parts
     request = await _accepted(svc)
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     with pytest.raises(ConcurrencyConflictError) as raised:
         await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     assert raised.value.code == "rules_not_reviewed"
@@ -283,7 +259,7 @@ async def test_a_failed_test_ends_the_draft_and_a_new_draft_follows(parts):
     assert repo.experts == {}
     with pytest.raises(ConcurrencyConflictError):  # 没通过的不再测
         await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
-    again = await svc.add_draft(str(request.id), manifest())
+    again = await platform_draft(svc, str(request.id), manifest())
     assert (again.version, again.revision) == ("1", 2)
     assert again.rules_reviewed_by is None  # 新准专家要重新核出处
 
@@ -292,7 +268,7 @@ async def test_a_failed_test_ends_the_draft_and_a_new_draft_follows(parts):
 async def test_only_one_test_runs_per_knowbot(parts):
     svc, *_ = parts
     request, draft = await _reviewed_draft(svc)
-    other = await svc.add_draft(str(request.id), manifest())
+    other = await platform_draft(svc, str(request.id), manifest())
     await svc.review_rules(str(other.id), "admin-1")
     await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     with pytest.raises(ConcurrencyConflictError) as raised:
@@ -304,7 +280,7 @@ async def test_only_one_test_runs_per_knowbot(parts):
 async def test_a_draft_whose_version_is_taken_is_not_tested(parts):
     svc, _, runtime, _ = parts
     request, draft = await _reviewed_draft(svc)
-    spare = await svc.add_draft(str(request.id), manifest())  # 也冲第 1 版
+    spare = await platform_draft(svc, str(request.id), manifest())  # 也冲第 1 版
     await svc.review_rules(str(spare.id), "admin-1")
     test = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     runtime.results[test.run_id] = result(test.run_id, "passed")
@@ -322,13 +298,6 @@ async def test_bad_manifests_and_unknown_runtimes_are_refused(parts):
             OWNER, KnowbotRequestIn.model_validate(request_body(runtime="nowhere"))
         )
     assert raised.value.code == "runtime_not_registered"
-    request = await _accepted(svc)
-    with pytest.raises(BadRequestError) as raised:
-        await svc.add_draft(str(request.id), manifest(version="2"))
-    assert raised.value.code == "manifest_invalid"
-    with pytest.raises(NotFoundError) as missing:
-        await svc.add_draft("not-a-uuid", manifest())
-    assert missing.value.code == "request_not_found"
     with pytest.raises(NotFoundError) as missing:
         await svc.refresh("00000000-0000-4000-8000-000000000000")
     assert missing.value.code == "test_not_found"

@@ -123,3 +123,79 @@ async def test_hand_back_through_the_api(wired) -> None:  # noqa: F811
         assert (await c.post(f"{req}/hand-back", headers=ADMIN)).status_code == 204
         assert (await c.get(req)).status_code == 404
         assert repo.requests[next(iter(repo.requests))].incubation_mode == "self"
+
+
+STEP = {
+    "id": "overview",
+    "title": "数据摸底",
+    "does": "看清数据有哪些表、哪些报告期。",
+    "why": "先知道手上有什么。",
+    "rules": [{"id": "r1", "text": "合并、母公司都有时问用户。"}],
+    "outputs": [{"name": "periods", "type": "list"}],
+    "checks": [{"template": "list_min", "params": {"path": "periods"}}],
+}
+
+
+@pytest.mark.asyncio
+async def test_operators_propose_and_publish_through_the_api(wired) -> None:  # noqa: F811
+    svc, repo, *_ = wired
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        c.cookies.set(ADMIN_SID, "admin")
+        made = await c.post(
+            "/api/web/v1/knowbot-requests", json=request_body(), headers=WEB
+        )
+        rid = made.json()["request_id"]
+        req = f"/api/admin/v1/knowbot-requests/{rid}"
+        assert (await c.get(f"{req}/workdraft")).status_code == 404  # 还没受理
+        await c.post(f"{req}/versions/1/acceptance", json=ALL_CLEAR, headers=ADMIN)
+        mine = f"/api/web/v1/knowbot-requests/{rid}/workdraft"
+        saved = await c.post(
+            f"{mine}/cells",
+            json={
+                "revision": 0,
+                "cells": [
+                    {"path": "scope/does", "value": "A 股非金融公司的财务分析"},
+                    {"path": "steps/overview", "value": STEP},
+                ],
+            },
+            headers=WEB,
+        )
+        assert saved.status_code == 200, saved.text
+        proposed = await c.post(
+            f"{req}/workdraft/proposals",
+            json={
+                "proposals": [
+                    {
+                        "path": "steps/overview/why",
+                        "op": "set",
+                        "value": "心里有数。",
+                        "reason": "更短",
+                    }
+                ]
+            },
+            headers=ADMIN,
+        )
+        assert proposed.status_code == 201, proposed.text
+        [shown] = proposed.json()["proposals"]
+        assert shown["proposed_by"]  # 管理端看得到谁提的
+        # 作者在 web端看到、接受
+        view = (await c.get(mine)).json()
+        [pending] = view["proposals"]
+        assert "proposed_by" not in pending and pending["state"] == "pending"
+        decided = await c.post(
+            f"{mine}/proposals/{pending['proposal_id']}",
+            json={"action": "accept", "revision": view["revision"]},
+            headers=WEB,
+        )
+        assert decided.status_code == 200, decided.text
+        assert decided.json()["proposal"]["state"] == "accepted"
+        # 运营出一版：平台模式
+        preview = (await c.get(f"{req}/workdraft/preview")).json()
+        assert preview["problems"] == []
+        published = await c.post(f"{req}/workdraft/publish", headers=ADMIN)
+        assert published.status_code == 201, published.text
+        assert published.json()["mode"] == "platform"
+        # 老的「贴清单」路由没了
+        gone = await c.post(f"{req}/drafts", json={"manifest": {}}, headers=ADMIN)
+        assert gone.status_code in (404, 405)

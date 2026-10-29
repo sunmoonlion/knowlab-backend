@@ -87,6 +87,23 @@ class GrantRecord:
 
 
 @dataclass(frozen=True)
+class ProposalRecord:
+    """运营对工作稿一格的提议（形状同 AI 的建议），作者接受了才进稿。"""
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    path: str
+    op: str
+    value: Any
+    reason: str
+    proposed_by: str
+    proposed_at: datetime
+    state: str = "pending"
+    decided_at: datetime | None = None
+    records: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class DraftRecord:
     """准专家（一稿）。测试的经过在 TestRecord，专家在 ExpertRecord。"""
 
@@ -424,6 +441,18 @@ class KnowlabRepository(Protocol):
     ) -> Sequence[GrantRecord]: ...
 
     async def update_grant(self, grant_id: uuid.UUID, **changes: Any) -> None: ...
+
+    async def add_proposals(self, records: Sequence[ProposalRecord]) -> None: ...
+
+    async def get_proposal(
+        self, proposal_id: uuid.UUID, *, for_update: bool = False
+    ) -> ProposalRecord | None: ...
+
+    async def list_proposals(self, request_id: uuid.UUID) -> Sequence[ProposalRecord]:
+        """这个名称的提议，按提的先后。"""
+        ...
+
+    async def update_proposal(self, proposal_id: uuid.UUID, **changes: Any) -> None: ...
 
     async def lock_request(self, request_id: uuid.UUID) -> None:
         """串行化同一个名称的改版、建稿、发起测试、出专家（版本号、编号不重）。"""

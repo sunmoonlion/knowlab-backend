@@ -24,6 +24,7 @@ from tests.knowbot_fakes import (
     list_expert,
     manifest,
     own_computer,
+    platform_draft,
     result,
 )
 
@@ -66,7 +67,7 @@ async def shown(svc: KnowbotCreationService, repo: MemoryKnowlab, test):  # type
 
 async def _testing(svc: KnowbotCreationService):
     request = await accepted_request(svc)
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     test = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     return request, draft, test

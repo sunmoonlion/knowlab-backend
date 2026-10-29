@@ -704,3 +704,51 @@ class KnowbotPlatformGrant(Base):
             postgresql_where=text("kind = 'test' AND status IN ('pending', 'active')"),
         ),
     )
+
+
+class KnowbotWorkdraftProposal(Base):
+    """运营对工作稿的提议（迁移 20261029_0020）。"""
+
+    __tablename__ = "knowbot_workdraft_proposal"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    path: Mapped[str] = mapped_column(String(200), nullable=False)
+    op: Mapped[str] = mapped_column(String(8), nullable=False)
+    value: Mapped[Any] = mapped_column(JSONB)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_by: Mapped[str] = mapped_column(String(512), nullable=False)
+    proposed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    state: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="pending"
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    records: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "op IN ('set', 'add', 'remove', 'move')",
+            name="ck_knowbot_workdraft_proposal_op",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'accepted', 'accepted_edited', 'rejected',"
+            " 'withdrawn', 'void')",
+            name="ck_knowbot_workdraft_proposal_state",
+        ),
+        CheckConstraint(
+            "(op = 'remove') = (value IS NULL)",
+            name="ck_knowbot_workdraft_proposal_value",
+        ),
+        CheckConstraint(
+            "char_length(reason) > 0", name="ck_knowbot_workdraft_proposal_reason"
+        ),
+        Index("ix_knowbot_workdraft_proposal_request", "request_id", "proposed_at"),
+    )

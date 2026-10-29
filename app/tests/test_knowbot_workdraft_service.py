@@ -27,6 +27,7 @@ from tests.knowbot_fakes import (
     MemoryKnowlab,
     accepted_request,
     manifest,
+    platform_draft,
     request_body,
 )
 
@@ -247,7 +248,7 @@ async def test_an_empty_or_unfinished_workdraft_is_not_published(wired) -> None:
 async def test_version_follows_the_experts_already_made(wired) -> None:
     repo, works, svc, _ = wired
     request = await accepted_request(svc)
-    old = await svc.add_draft(str(request.id), manifest())
+    old = await platform_draft(svc, str(request.id), manifest())
     from app.application.ports.knowbots import ExpertRecord
 
     repo.experts[uuid.uuid4()] = ExpertRecord(
@@ -307,7 +308,7 @@ async def test_copy_only_from_my_own_drafts(wired) -> None:
     assert found.body["steps"][0]["rules"][0]["text"] == "合并、母公司都有时问用户。"
     # 别人的准专家不行，与没有的一样
     theirs = await accepted_request(svc, "someone-else")
-    other = await svc.add_draft(str(theirs.id), manifest())
+    other = await platform_draft(svc, str(theirs.id), manifest())
     for draft_id in (str(other.id), str(uuid.uuid4())):
         with pytest.raises(NotFoundError):
             await works.copy_from(OWNER, str(target.id), revision=1, draft_id=draft_id)

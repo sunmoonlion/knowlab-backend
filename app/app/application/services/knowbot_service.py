@@ -57,11 +57,9 @@ from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
     OUTPUTS_KEEP_DAYS,
     KnowbotRequestIn,
-    amendment_refs,
     amendment_status,
     can_move,
     case_question_digest,
-    draft_manifest_problems,
 )
 from app.domain.knowbots.lifecycle import (
     ACTIVE_TESTS,
@@ -422,55 +420,6 @@ class KnowbotCreationService:
                     )
                     await self.repo.set_incubation_mode(rid, "self")
             return record
-
-    # ---------- 管理端：孵化 ----------
-    async def add_draft(
-        self, request_id: str, manifest: object, request_version: int | None = None
-    ) -> DraftRecord:
-        """过渡做法：贴清单建准专家。只能选受理了的版本（不选就是最新受理了的）。
-
-        版本号 x = 已有专家的最大版本号 + 1，修订号 y 在这个名称里递增。
-        """
-        rid = parse_id(request_id, "request")
-        async with self.repo.transaction():
-            request = await self.repo.get_request(rid)
-            if request is None:
-                raise NotFoundError("No such request", code="request_not_found")
-            await self.repo.lock_request(rid)
-            accepted = sorted(
-                a.version for a in await self.repo.list_acceptances([rid]) if a.accepted
-            )
-            if request_version is None:
-                request_version = accepted[-1] if accepted else None
-            if request_version is None or request_version not in accepted:
-                raise _conflict(
-                    "Incubate only from an accepted version", "version_not_accepted"
-                )
-            drafts = await self.repo.list_drafts(request_id=rid)
-            experts = await self.repo.list_experts([rid])
-            version = str(max((e.version for e in experts), default=0) + 1)
-            revision = max((d.revision for d in drafts), default=0) + 1
-            problems = draft_manifest_problems(
-                manifest, runtime=request.runtime, version=version
-            )
-            if not problems:
-                assert isinstance(manifest, dict)
-                # 规则出处只认创意版本里的句子：补充方法已取消（SDD 0037 第三节）
-                cited, broken = amendment_refs(manifest)
-                if cited or broken:
-                    problems = [
-                        "rule sources cite the idea version; amendments are retired"
-                    ]
-            if problems:
-                raise BadRequestError("; ".join(problems), code="manifest_invalid")
-            assert isinstance(manifest, dict)
-            return await self.repo.create_draft(
-                request_id=rid,
-                request_version=request_version,
-                revision=revision,
-                version=version,
-                manifest=manifest,
-            )
 
     async def _locked(self, draft_id: str | uuid.UUID) -> DraftRecord:
         draft = await self.repo.get_draft(parse_id(draft_id), for_update=True)

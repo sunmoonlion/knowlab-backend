@@ -31,6 +31,7 @@ from tests.knowbot_fakes import (
     all_clear,
     manifest,
     own_computer,
+    platform_draft,
     request_body,
     result,
 )
@@ -74,7 +75,7 @@ async def test_the_admin_columns_follow_the_life(parts):
     assert _categories(incubation_items(lives)) == ["todo"]
     assert admin_counts(lives)["incubation"] == 1
 
-    draft = await creation.add_draft(str(request.id), manifest())
+    draft = await platform_draft(creation, str(request.id), manifest())
     await creation.request_user_review(str(draft.id), "admin-1")
     lives = await board.lives()
     assert _categories(incubation_items(lives)) == ["in_progress"]
@@ -115,7 +116,7 @@ async def test_a_rejected_or_failed_name_comes_back_to_incubation(parts):
     creation, _, board, runtime = parts
     request = await _submit(creation)
     await creation.accept(str(request.id), 1, all_clear(), "admin-1")
-    draft = await creation.add_draft(str(request.id), manifest())
+    draft = await platform_draft(creation, str(request.id), manifest())
     await creation.request_user_review(str(draft.id), "admin-1")
     await creation.answer_user_review(
         OWNER, str(draft.id), UserReviewIn(ok=False, note="口径不对")
@@ -124,7 +125,7 @@ async def test_a_rejected_or_failed_name_comes_back_to_incubation(parts):
     assert _categories(incubation_items(lives)) == ["todo", "done"]
     assert lab_test_items(lives) == []
 
-    again = await creation.add_draft(str(request.id), manifest())
+    again = await platform_draft(creation, str(request.id), manifest())
     await creation.review_rules(str(again.id), "admin-1")
     test = await creation.start_test(
         str(again.id), budget_limit="20", timeout_seconds=600
@@ -145,7 +146,7 @@ async def test_the_user_columns_and_the_inbox(parts):
     assert [life.request.id for life in mine] == [request.id]
     assert application_category(mine[0]) == "working"
 
-    draft = await creation.add_draft(str(request.id), manifest())
+    draft = await platform_draft(creation, str(request.id), manifest())
     await creation.request_user_review(str(draft.id), "admin-1")
     mine = await board.lives(OWNER)
     assert [(s, k) for s, k, _, _ in inbox_items(mine, [])] == [("todo", "draft")]
@@ -201,7 +202,7 @@ async def test_the_timeline_reads_in_order_and_hides_actors_from_users(parts):
     creation, experts, board, runtime = parts
     request = await _submit(creation)
     await creation.accept(str(request.id), 1, all_clear(), "admin-1")
-    draft = await creation.add_draft(str(request.id), manifest())
+    draft = await platform_draft(creation, str(request.id), manifest())
     await creation.review_rules(str(draft.id), "admin-1")
     test = await creation.start_test(
         str(draft.id), budget_limit="20", timeout_seconds=600, starter="admin-1"

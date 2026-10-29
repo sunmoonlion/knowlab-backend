@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -61,7 +61,7 @@ async def _rows(c) -> None:  # type: ignore[no-untyped-def]
     )
 
 
-def _grant(kind: str, draft: uuid.UUID | None = None) -> GrantRecord:
+def _grant(kind: str, draft: uuid.UUID | None = None, at: datetime = AT) -> GrantRecord:
     return GrantRecord(
         id=uuid.uuid4(),
         request_id=REQUEST,
@@ -70,7 +70,7 @@ def _grant(kind: str, draft: uuid.UUID | None = None) -> GrantRecord:
         status="pending",
         budget_limit=Decimal("20.00"),
         granted_by=OWNER,
-        granted_at=AT,
+        granted_at=at,
     )
 
 
@@ -113,7 +113,7 @@ async def test_platform_grants_migrate_round_trip_and_hold() -> None:
                     incubate.id, status="revoked", ended_by=OWNER, ended_at=AT
                 )
                 # 撤了以后可以再请
-                await repo.add_grant(_grant("incubate"))
+                await repo.add_grant(_grant("incubate", at=AT + timedelta(minutes=1)))
             grants = await repo.list_grants([REQUEST])
             assert [g.status for g in grants if g.kind == "incubate"] == [
                 "revoked",
@@ -156,5 +156,55 @@ async def test_platform_grants_migrate_round_trip_and_hold() -> None:
             assert "knowbot_platform_grant" not in tables
         async with engine.begin() as c:
             await c.run_sync(lambda conn: _run(conn, [TARGET]))
+    finally:
+        await _drop(engine, schema)
+
+
+async def test_proposals_migrate_round_trip_and_hold() -> None:
+    """迁移 20261029_0020：提议的动作、状态、值、理由都有约束；往返。"""
+    proposals = ROOT / "alembic/versions/20261029_0020_workdraft_proposals.py"
+    engine, schema = await _schema("20261029_0019_platform_grants")
+    try:
+        async with engine.begin() as c:
+            await _rows(c)
+            await c.run_sync(lambda conn: _run(conn, [proposals]))
+        insert = (
+            "INSERT INTO knowbot_workdraft_proposal (id, request_id, path, op, value,"
+            " reason, proposed_by, proposed_at, state) VALUES (gen_random_uuid(), :r,"
+            " 'name', :op, CAST(:v AS jsonb), :why, 'admin-1', now(), :state)"
+        )
+        async with engine.begin() as c:
+            await c.execute(
+                text(insert),
+                {
+                    "r": REQUEST,
+                    "op": "set",
+                    "v": '"新名字"',
+                    "why": "短",
+                    "state": "pending",
+                },
+            )
+        for op, value, why, state in (
+            ("rename", '"x"', "r", "pending"),
+            ("remove", '"x"', "r", "pending"),  # 删不带值
+            ("set", None, "r", "pending"),  # 改要带值
+            ("set", '"x"', "", "pending"),  # 要说理由
+            ("set", '"x"', "r", "maybe"),
+        ):
+            with pytest.raises(DBAPIError):
+                async with engine.begin() as c:
+                    await c.execute(
+                        text(insert),
+                        {
+                            "r": REQUEST,
+                            "op": op,
+                            "v": value,
+                            "why": why,
+                            "state": state,
+                        },
+                    )
+        async with engine.begin() as c:
+            await c.run_sync(lambda conn: _run(conn, [proposals], "downgrade"))
+            await c.run_sync(lambda conn: _run(conn, [proposals]))
     finally:
         await _drop(engine, schema)

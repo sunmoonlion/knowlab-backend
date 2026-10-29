@@ -24,6 +24,7 @@ from tests.knowbot_fakes import (
     all_clear,
     manifest,
     own_computer,
+    platform_draft,
     request_body,
     result,
 )
@@ -45,7 +46,7 @@ async def passed_expert(creation: KnowbotCreationService, runtime: FakeRuntime):
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
     await creation.accept(str(request.id), 1, all_clear(), "admin-1")
-    draft = await creation.add_draft(str(request.id), manifest())
+    draft = await platform_draft(creation, str(request.id), manifest())
     await creation.review_rules(str(draft.id), "admin-1")
     test = await creation.start_test(
         str(draft.id), budget_limit="20", timeout_seconds=600

@@ -1,7 +1,9 @@
 """工作稿：作者直接改、导入、复制自己的专家、预览、出一版（专家孵化方案第五、七、九至
 十一节，decisions ⑮；第十五节第 1 步）。
 
-只有作者本人（web端）：不是自己的名称与没有的一样，都是 404。
+作者本人（web端）：不是自己的名称与没有的一样，都是 404。平台孵化时运营（管理端）
+看得到工作稿、能预览、能「出一版」（准专家记平台，decisions 10-29），改格子只能提议
+（knowbot_proposals）；出处照样只认作者原话与作者接受的。
 
 - 取：还没存过的名称回一份空的（revision 0），第一次存时才建。
 - 存：一次可以改几格，带上读到的 revision，对不上回 409。有字的格子改了的，每格记一条
@@ -35,6 +37,7 @@ from app.application.ports.knowbots import (
     RequestRecord,
     WorkdraftRecord,
 )
+from app.application.services.knowbot_grants import live_incubation
 from app.application.services.knowbot_service import MAX_VERSIONS, parse_id
 from app.domain.knowbots.compile import compile_manifest, decompile, pack_problems
 from app.domain.knowbots.drafts import draft_manifest_problems
@@ -328,6 +331,42 @@ class KnowbotWorkdraftService:
     async def publish(self, owner_subject: str, request_id: str) -> DraftRecord:
         """出一版（第十一节）：把关都过了才出准专家第 n 版（只增），记自助。"""
         request = await self._request(owner_subject, request_id)
+        return await self._publish(request, "self")
+
+    # ---------- 平台孵化（管理端） ----------
+    async def platform_request(self, request_id: str) -> RequestRecord:
+        """孵化授权已生效的名称（受理过、没撤、没过期）；其余与没有的一样，都是 404。"""
+        request = await self.repo.get_request(parse_id(request_id, "request"))
+        grant = (
+            None
+            if request is None
+            else live_incubation(await self.repo.list_grants([request.id]), self.now())
+        )
+        if request is None or grant is None or grant.status != "active":
+            raise NotFoundError("No such request", code="request_not_found")
+        return request
+
+    async def operator_preview(
+        self, request_id: str
+    ) -> tuple[dict[str, Any], list[Problem], str]:
+        request = await self.platform_request(request_id)
+        current = await self.repo.get_workdraft(request.id)
+        version, _ = await self._next(request)
+        manifest, problems = await self._compile(request, current, version)
+        return manifest, problems, version
+
+    async def operator_publish(self, request_id: str) -> DraftRecord:
+        """平台模式出一版：运营点，准专家记平台（decisions 10-29）。最新一版创意要正式
+        受理过（运营孵化受理了的版本）；出处照样只认作者原话与作者接受的。"""
+        request = await self.platform_request(request_id)
+        found = await self.repo.get_acceptance(request.id, request.latest_version)
+        if found is None or found.kind != "formal" or not found.accepted:
+            raise ConcurrencyConflictError(
+                "Incubate only from an accepted version", code="version_not_accepted"
+            )
+        return await self._publish(request, "platform")
+
+    async def _publish(self, request: RequestRecord, mode: str) -> DraftRecord:
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
             current = await self.repo.get_workdraft(request.id, for_update=True)
@@ -347,7 +386,7 @@ class KnowbotWorkdraftService:
                 revision=revision,
                 version=version,
                 manifest=manifest,
-                mode="self",
+                mode=mode,
             )
             await self.repo.update_draft(
                 draft.id,

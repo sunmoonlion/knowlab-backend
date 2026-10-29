@@ -16,6 +16,7 @@ from app.application.ports.knowbots import (
     ExpertRecord,
     GrantRecord,
     IncubationRecord,
+    ProposalRecord,
     QuestionRecord,
     RequestRecord,
     RequestVersionRecord,
@@ -373,6 +374,23 @@ def workdraft_view(
         "origins": origins or {},
         "updated_at": iso(workdraft.updated_at),
     }
+
+
+def proposal_view(found: ProposalRecord, *, admin: bool) -> dict[str, Any]:
+    """运营的一条提议（形状同 AI 的建议）：改哪一格、怎么改、理由、作者怎么处理的。"""
+    view: dict[str, Any] = {
+        "proposal_id": str(found.id),
+        "path": found.path,
+        "op": found.op,
+        "value": found.value,
+        "reason": found.reason,
+        "state": found.state,
+        "proposed_at": iso(found.proposed_at),
+        "decided_at": iso(found.decided_at),
+    }
+    if admin:
+        view["proposed_by"] = found.proposed_by
+    return view
 
 
 def _suggestions(record: IncubationRecord) -> list[dict[str, Any]]:

@@ -10,8 +10,10 @@ import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_platform import KnowbotPlatformService
+from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
 from app.interfaces.endpoints import knowbot_routes
 from app.main import app
@@ -25,6 +27,7 @@ from tests.knowbot_fakes import (
     accepted_request,
     manifest,
     own_computer,
+    platform_draft,
     request_body,
     result,
     waiting,
@@ -71,6 +74,12 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[knowbot_routes.platform_service] = lambda: (
         KnowbotPlatformService(repo)
     )
+    app.dependency_overrides[knowbot_routes.proposal_service] = lambda: (
+        KnowbotProposalService(repo)
+    )
+    app.dependency_overrides[knowbot_routes.workdraft_service] = lambda: (
+        KnowbotWorkdraftService(repo)
+    )
     yield svc, repo, runtime, knowmart
     app.dependency_overrides.clear()
 
@@ -85,7 +94,7 @@ async def _testing(svc: KnowbotCreationService, owner: str = OWNER):
     if owner != OWNER:
         own_computer(svc.repo, owner)  # type: ignore[arg-type]
     request = await accepted_request(svc, owner)
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     await svc.review_rules(str(draft.id), "admin-1")
     test = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     return request, draft, test
@@ -192,7 +201,7 @@ async def test_the_whole_life_through_the_api(wired) -> None:
         # 孵化
         [todo] = (await c.get("/api/admin/v1/knowbot-board/incubation")).json()["items"]
         assert (todo["category"], todo["latest_accepted"]) == ("todo", 1)
-        made = await svc.add_draft(request_id, manifest())
+        made = await platform_draft(svc, request_id, manifest())
         assert (made.version, made.revision) == ("1", 1)
         draft_id = str(made.id)
         base = f"/api/admin/v1/knowbot-drafts/{draft_id}"
@@ -577,7 +586,7 @@ async def test_operators_see_only_the_platform_steps(wired) -> None:
         mode="self",
     )
     await repo.update_draft(mine.id, rules_reviewed_by="program")
-    ours = await svc.add_draft(str(request.id), manifest())  # 平台孵化的，第 2 稿
+    ours = await platform_draft(svc, str(request.id), manifest())  # 平台孵化的，第 2 稿
     test = await svc.start_self_test(
         OWNER,
         str(mine.id),

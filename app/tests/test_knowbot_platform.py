@@ -30,6 +30,7 @@ from tests.knowbot_fakes import (
     all_clear,
     manifest,
     own_computer,
+    platform_draft,
     request_body,
 )
 
@@ -127,7 +128,7 @@ async def test_take_back_revokes_at_once_and_hides_everything(world) -> None:
     svc, platform, board, repo, _ = world
     request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
     await svc.accept(str(request.id), 1, all_clear(), "admin-1")
-    draft = await svc.add_draft(str(request.id), manifest())
+    draft = await platform_draft(svc, str(request.id), manifest())
     await svc.revise(OWNER, str(request.id), _revision())  # v2 等受理
     assert (await board.life(str(request.id), operator=True)).drafts == (draft,)
 
