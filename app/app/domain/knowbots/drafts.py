@@ -101,7 +101,10 @@ class Idea(Strict):
 # 2（SDD 0037）：成稿与各步结果只给本人和做测试的工作人员看，上架或被下一位准专家
 # 取代 90 天后清掉。老创意是在 1 下同意的：不取、不显示产出，用户点一次「同意新
 # 说明」才升到 2（审读 10-19）。
-CONSENT_VERSION = 2
+# 3（10-29，数据第四版与 decisions ⑯）：测试用的是本人在 knowbase 里为测试选定的资料，
+# 在本人的电脑上、用本人的模型 key 跑；结果给本人看，请平台测试或交平台审核时也给做
+# 这件事的平台人员看。在 2 下同意的同样要点一次「同意新说明」。
+CONSENT_VERSION = 3
 OUTPUTS_KEEP_DAYS = 90
 OUTPUTS_EXPIRED = (
     "已按期清除：这位准专家上架或被下一位取代 90 天后，成稿与交回物不再保留"
@@ -113,7 +116,7 @@ class KnowbotRequestIn(Strict):
     idea: Idea
     runtime: str = Field(pattern=r"^[a-z][a-z0-9-]{0,31}$")
     cases: tuple[RunCase, ...] = Field(min_length=1, max_length=50)
-    # 用户同意他上传的数据用于测试（0027 决定 11 ④），不同意不受理
+    # 用户同意他为测试选定的资料用于测试（0027 决定 11 ④，第 3 版说明），不同意不受理
     consent_test_data: Literal[True]
 
     @model_validator(mode="after")
