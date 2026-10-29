@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -19,6 +20,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -64,8 +66,18 @@ class KnowbotRequest(TimestampMixin, Base):
     case_answers: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
+    # 现在的孵化是自助（self）还是平台（platform）（SDD 0046 第四节）
+    incubation_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="self"
+    )
 
-    __table_args__ = (Index("ix_knowbot_request_owner_subject", "owner_subject"),)
+    __table_args__ = (
+        Index("ix_knowbot_request_owner_subject", "owner_subject"),
+        CheckConstraint(
+            "incubation_mode IN ('self', 'platform')",
+            name="ck_knowbot_request_incubation_mode",
+        ),
+    )
 
 
 class KnowbotRequestVersion(Base):
@@ -107,8 +119,15 @@ class KnowbotAcceptance(Base):
         DateTime(timezone=True), nullable=False
     )
     trial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # formal：正式受理；self：「自助（不受理）」（SDD 0046 第二节）
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="formal"
+    )
 
     __table_args__ = (
+        CheckConstraint(
+            "kind IN ('formal', 'self')", name="ck_knowbot_acceptance_kind"
+        ),
         ForeignKeyConstraint(
             ["request_id", "version"],
             ["knowbot_request_version.request_id", "knowbot_request_version.version"],
@@ -624,4 +643,64 @@ class KnowbotIncubation(TimestampMixin, Base):
             postgresql_where=text(f"status IN {ACTIVE_INCUBATIONS}"),
         ),
         Index("ix_knowbot_incubation_owner", "owner_subject"),
+    )
+
+
+class KnowbotPlatformGrant(Base):
+    """作者给平台的授权（迁移 20261029_0019；domain/knowbots/platform_grants.py）。"""
+
+    __tablename__ = "knowbot_platform_grant"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowbot_draft.id", ondelete="RESTRICT")
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    budget_limit: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    granted_by: Mapped[str] = mapped_column(String(512), nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(512))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str | None] = mapped_column(Text)
+    ended_by: Mapped[str | None] = mapped_column(String(512))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('incubate', 'test')", name="ck_knowbot_platform_grant_kind"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'active', 'declined', 'revoked', 'ended',"
+            " 'expired')",
+            name="ck_knowbot_platform_grant_status",
+        ),
+        CheckConstraint(
+            "(kind = 'test') = (draft_id IS NOT NULL)",
+            name="ck_knowbot_platform_grant_draft",
+        ),
+        CheckConstraint("budget_limit > 0", name="ck_knowbot_platform_grant_budget"),
+        Index("ix_knowbot_platform_grant_request", "request_id"),
+        Index(
+            "uq_knowbot_platform_grant_one_incubation",
+            "request_id",
+            unique=True,
+            postgresql_where=text(
+                "kind = 'incubate' AND status IN ('pending', 'active')"
+            ),
+        ),
+        Index(
+            "uq_knowbot_platform_grant_one_test",
+            "draft_id",
+            unique=True,
+            postgresql_where=text("kind = 'test' AND status IN ('pending', 'active')"),
+        ),
     )

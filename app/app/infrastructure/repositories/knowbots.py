@@ -22,6 +22,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    GrantRecord,
     IncubationRecord,
     QuestionRecord,
     RequestRecord,
@@ -39,6 +40,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotDraft,
     KnowbotExpert,
     KnowbotIncubation,
+    KnowbotPlatformGrant,
     KnowbotQuestion,
     KnowbotRequest,
     KnowbotRequestVersion,
@@ -88,6 +90,39 @@ EXPERT_FIELDS = frozenset(
 )
 
 
+GRANT_FIELDS = frozenset(
+    {
+        "status",
+        "budget_limit",
+        "expires_at",
+        "decided_by",
+        "decided_at",
+        "reason",
+        "ended_by",
+        "ended_at",
+    }
+)
+
+
+def _grant(row: KnowbotPlatformGrant) -> GrantRecord:
+    return GrantRecord(
+        id=row.id,
+        request_id=row.request_id,
+        kind=row.kind,
+        status=row.status,
+        budget_limit=row.budget_limit,
+        granted_by=row.granted_by,
+        granted_at=row.granted_at,
+        draft_id=row.draft_id,
+        expires_at=row.expires_at,
+        decided_by=row.decided_by,
+        decided_at=row.decided_at,
+        reason=row.reason,
+        ended_by=row.ended_by,
+        ended_at=row.ended_at,
+    )
+
+
 def _request(row: KnowbotRequest) -> RequestRecord:
     return RequestRecord(
         id=row.id,
@@ -100,6 +135,7 @@ def _request(row: KnowbotRequest) -> RequestRecord:
         consent_version=row.consent_version,
         latest_version=row.latest_version,
         case_answers=row.case_answers or {},
+        incubation_mode=row.incubation_mode,
     )
 
 
@@ -125,6 +161,7 @@ def _acceptance(row: KnowbotAcceptance) -> AcceptanceRecord:
         decided_by=row.decided_by,
         decided_at=row.decided_at,
         trial=row.trial,
+        kind=row.kind,
     )
 
 
@@ -432,6 +469,7 @@ class SqlKnowlabRepository:
                 decided_by=record.decided_by,
                 decided_at=record.decided_at,
                 trial=record.trial,
+                kind=record.kind,
             )
         )
         try:
@@ -491,6 +529,83 @@ class SqlKnowlabRepository:
             )
         ).scalars()
         return [_request(r) for r in rows]
+
+    async def set_incubation_mode(self, request_id: uuid.UUID, mode: str) -> None:
+        await self.session.execute(
+            update(KnowbotRequest)
+            .where(KnowbotRequest.id == request_id)
+            .values(incubation_mode=mode)
+        )
+
+    async def replace_acceptance(self, record: AcceptanceRecord) -> None:
+        await self.session.execute(
+            update(KnowbotAcceptance)
+            .where(
+                KnowbotAcceptance.request_id == record.request_id,
+                KnowbotAcceptance.version == record.version,
+            )
+            .values(
+                accepted=record.accepted,
+                checks=record.checks,
+                reason=record.reason,
+                decided_by=record.decided_by,
+                decided_at=record.decided_at,
+                trial=record.trial,
+                kind=record.kind,
+            )
+        )
+
+    # ---------- 给平台的授权 ----------
+    async def add_grant(self, record: GrantRecord) -> None:
+        self.session.add(
+            KnowbotPlatformGrant(
+                id=record.id,
+                request_id=record.request_id,
+                kind=record.kind,
+                draft_id=record.draft_id,
+                status=record.status,
+                budget_limit=record.budget_limit,
+                granted_by=record.granted_by,
+                granted_at=record.granted_at,
+                expires_at=record.expires_at,
+            )
+        )
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "There is already a live grant", code="grant_exists"
+            ) from exc
+
+    async def get_grant(
+        self, grant_id: uuid.UUID, *, for_update: bool = False
+    ) -> GrantRecord | None:
+        query = select(KnowbotPlatformGrant).where(KnowbotPlatformGrant.id == grant_id)
+        if for_update:
+            query = query.with_for_update()
+        row = (await self.session.execute(query)).scalar_one_or_none()
+        return None if row is None else _grant(row)
+
+    async def list_grants(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[GrantRecord]:
+        query = select(KnowbotPlatformGrant).order_by(
+            KnowbotPlatformGrant.granted_at, KnowbotPlatformGrant.id
+        )
+        if request_ids is not None:
+            query = query.where(KnowbotPlatformGrant.request_id.in_(request_ids))
+        return [_grant(r) for r in (await self.session.execute(query)).scalars()]
+
+    async def update_grant(self, grant_id: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - GRANT_FIELDS
+        if unknown:
+            raise ValueError(f"unknown grant fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotPlatformGrant)
+            .where(KnowbotPlatformGrant.id == grant_id)
+            .values(**changes)
+        )
 
     async def lock_request(self, request_id: uuid.UUID) -> None:
         await self.session.execute(

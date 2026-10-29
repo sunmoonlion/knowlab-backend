@@ -41,12 +41,17 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    GrantRecord,
     KnowlabRepository,
     RequestRecord,
     RequestVersionRecord,
     RuntimeTestClient,
     TestOutputRecord,
     TestRecord,
+)
+from app.application.services.knowbot_grants import (
+    live_incubation,
+    self_acceptance,
 )
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
@@ -66,6 +71,7 @@ from app.domain.knowbots.lifecycle import (
     review_state,
     status_from_run,
 )
+from app.domain.knowbots.platform_grants import expiry as grant_expiry
 from app.domain.knowbots.test_run import (
     CONTRACT,
     RunCase,
@@ -153,7 +159,7 @@ class KnowbotCreationService:
                 "This runtime is not registered", code="runtime_not_registered"
             )
         async with self.repo.transaction():
-            return await self.repo.create_request(
+            created = await self.repo.create_request(
                 owner_subject=owner_subject,
                 title=body.title,
                 runtime=body.runtime,
@@ -161,6 +167,42 @@ class KnowbotCreationService:
                 cases=[c.model_dump(mode="json") for c in body.cases],
                 consent_version=CONSENT_VERSION,
             )
+            # 选了模式（SDD 0046 第四节）：自助的记「自助（不受理）」直接进工作稿；
+            # 请平台的同时记一张孵化授权，等运营正式受理
+            if body.mode == "self":
+                await self.repo.add_acceptance(
+                    self_acceptance(created.id, 1, self.now())
+                )
+            else:
+                assert body.budget_limit is not None
+                await self.repo.add_grant(
+                    GrantRecord(
+                        id=uuid.uuid4(),
+                        request_id=created.id,
+                        kind="incubate",
+                        status="pending",
+                        budget_limit=body.budget_limit,
+                        granted_by=owner_subject,
+                        granted_at=self.now(),
+                    )
+                )
+                await self.repo.set_incubation_mode(created.id, "platform")
+            found = await self.repo.get_request(created.id)
+            assert found is not None
+            return found
+
+    async def default_mode(self, owner_subject: str) -> str:
+        """新申请默认的模式：他上次选的。
+
+        第一次没有默认，让他自己选（SDD 0046 第四节）。
+        """
+        mine = await self.repo.list_requests_for_owner(owner_subject)
+        latest = max(mine, key=lambda r: r.created_at or self.now(), default=None)
+        if latest is None:
+            return ""
+        grants = await self.repo.list_grants([latest.id])
+        asked = any(g.kind == "incubate" for g in grants)
+        return "platform" if asked else "self"
 
     async def revise(
         self, owner_subject: str, request_id: str, body: RevisionIn
@@ -173,7 +215,7 @@ class KnowbotCreationService:
             assert current is not None
             if current.latest_version >= MAX_VERSIONS:
                 raise _conflict(f"At most {MAX_VERSIONS} versions", "too_many_versions")
-            return await self.repo.add_version(
+            added = await self.repo.add_version(
                 request_id=request.id,
                 version=current.latest_version + 1,
                 idea=body.idea.model_dump(mode="json", exclude_none=True),
@@ -181,6 +223,12 @@ class KnowbotCreationService:
                 consent_version=CONSENT_VERSION,
                 created_by=owner_subject,
             )
+            # 自助的新版本照样「自助（不受理）」；平台的新版本等运营正式受理
+            if current.incubation_mode == "self":
+                await self.repo.add_acceptance(
+                    self_acceptance(request.id, added.version, self.now())
+                )
+            return added
 
     async def consent(self, owner_subject: str, request_id: str) -> None:
         """用户同意新一版测试数据说明（SDD 0037）：之后的测试才取、才显示产出。"""
@@ -248,21 +296,59 @@ class KnowbotCreationService:
         return test, request
 
     async def operator_draft(self, draft_id: str) -> DraftRecord:
-        """管理端按编号取准专家：自助的运营看不到，与没有的一样，都是 404（SDD 0046
-        第四节「运营只看得到平台模式的那几步与用户另外授权的」）。"""
+        """管理端按编号取准专家：运营只看得到作者授权给平台的（SDD 0046 第四节）——
+        孵化授权还有效时的平台准专家，或作者交平台测的那一位；其余与没有的一样，
+        都是 404。"""
         found = await self.draft(draft_id)
-        if found.mode != "platform":
+        if not await self._shown_to_operator(found):
             raise NotFoundError("No such draft", code="draft_not_found")
         return found
 
     async def operator_test(self, test_id: str) -> tuple[TestRecord, RequestRecord]:
-        """管理端按编号取测试：自助测的（或测的是自助的准专家）运营看不到，与没有的
-        一样，都是 404（SDD 0046 第四节）。"""
+        """管理端按编号取测试：平台测的、测的是运营看得到的准专家；其余与没有的一样，
+        都是 404（SDD 0046 第四节）。"""
         test, request = await self.test_with_request(test_id)
         draft = await self.repo.get_draft(test.draft_id)
-        if test.mode != "platform" or draft is None or draft.mode != "platform":
+        if (
+            test.mode != "platform"
+            or draft is None
+            or not await self._shown_to_operator(draft)
+        ):
             raise NotFoundError("No such test", code="test_not_found")
         return test, request
+
+    async def _shown_to_operator(self, draft: DraftRecord) -> bool:
+        grants = await self.repo.list_grants([draft.request_id])
+        if draft.mode == "platform" and live_incubation(grants, self.now()):
+            return True
+        return any(
+            g.kind == "test" and g.draft_id == draft.id and g.status != "declined"
+            for g in grants
+        )
+
+    async def platform_budget(self, draft: DraftRecord) -> str:
+        """平台测试的费用上限：作者在授权里设的（decisions ⑯）。平台孵化的准专家用孵化
+        授权的，自助孵化的用这一次测试授权的；授权不在（没生效、撤了、到期）不能发起。"""
+        grants = await self.repo.list_grants([draft.request_id])
+        now = self.now()
+        if draft.mode == "platform":
+            found = live_incubation(grants, now)
+            if found is not None and found.status == "active":
+                return f"{found.budget_limit:.2f}"
+        else:
+            found = next(
+                (
+                    g
+                    for g in grants
+                    if g.kind == "test"
+                    and g.draft_id == draft.id
+                    and g.status == "active"
+                ),
+                None,
+            )
+            if found is not None:
+                return f"{found.budget_limit:.2f}"
+        raise _conflict("The author has not authorised this test", "not_authorised")
 
     async def amendments(
         self, request_id: uuid.UUID, drafts: Sequence[DraftRecord]
@@ -281,7 +367,11 @@ class KnowbotCreationService:
     async def accept(
         self, request_id: str, version: int, body: AcceptanceIn, decider: str
     ) -> AcceptanceRecord:
-        """给创意的某一版写受理单。一个版本一张，写了不改。
+        """给创意的某一版写正式受理单。一个版本一张，写了不改。
+
+        只受理作者请了平台孵化的（还有效的孵化授权）：受理了授权生效（30 天），不受理
+        授权结束、名称转回自助（SDD 0046 第四节，decisions 10-29）。这一版原来是
+        「自助（不受理）」的（作者后来转了平台），换成这张正式的。
 
         先锁这个名称：两个运营同时写同一版，后到的回 409 而不是撞主键（Kimi 评审
         第 6 条）。
@@ -291,7 +381,12 @@ class KnowbotCreationService:
             await self.repo.lock_request(rid)
             if await self.repo.get_version(rid, version) is None:
                 raise NotFoundError("No such version", code="version_not_found")
-            if await self.repo.get_acceptance(rid, version) is not None:
+            now = self.now()
+            grant = live_incubation(list(await self.repo.list_grants([rid])), now)
+            if grant is None:
+                raise NotFoundError("No such request", code="request_not_found")
+            existing = await self.repo.get_acceptance(rid, version)
+            if existing is not None and existing.kind != "self":
                 raise _conflict(
                     "This version already has its acceptance", "already_decided"
                 )
@@ -302,9 +397,30 @@ class KnowbotCreationService:
                 checks={k: v.model_dump(mode="json") for k, v in body.checks.items()},
                 reason=body.reason.strip() or None,
                 decided_by=decider,
-                decided_at=self.now(),
+                decided_at=now,
             )
-            await self.repo.add_acceptance(record)
+            if existing is None:
+                await self.repo.add_acceptance(record)
+            else:
+                await self.repo.replace_acceptance(record)
+            if grant.status == "pending":
+                if body.accepted:
+                    await self.repo.update_grant(
+                        grant.id,
+                        status="active",
+                        decided_by=decider,
+                        decided_at=now,
+                        expires_at=grant_expiry(now),
+                    )
+                else:
+                    await self.repo.update_grant(
+                        grant.id,
+                        status="declined",
+                        decided_by=decider,
+                        decided_at=now,
+                        reason=record.reason,
+                    )
+                    await self.repo.set_incubation_mode(rid, "self")
             return record
 
     # ---------- 管理端：孵化 ----------
@@ -422,8 +538,8 @@ class KnowbotCreationService:
         self,
         draft_id: str,
         *,
-        budget_limit: str,
         timeout_seconds: int,
+        budget_limit: str | None = None,
         starter: str | None = None,
         runner: dict[str, str] | None = None,
     ) -> TestRecord:
@@ -432,11 +548,14 @@ class KnowbotCreationService:
         第三节）；没给是运营发起的平台测试，用作者上次自助测试用过的电脑与目录，测试仍记
         平台模式（谁发起、谁看结果不变）。
 
-        费用上限现在照发起的人传的；按 ⑯ 平台测试的上限应由作者设，等轻受理（0046 块 1）
-        做时补。"""
+        费用上限：自助的是作者这次填的；平台的是作者在授权里设的（`platform_budget`）。"""
         mode = "self" if runner else "platform"
         if runner is None:
+            budget_limit = await self.platform_budget(
+                await self.operator_draft(draft_id)
+            )
             runner = await self._authors_computer(draft_id)
+        assert budget_limit is not None
         async with self.repo.transaction():
             found = await self.repo.get_draft(parse_id(draft_id))
             if found is None:
@@ -767,6 +886,17 @@ class KnowbotCreationService:
                 await self._move(draft, "failed")
             else:
                 await self._move(draft, "pending_test")
+            if test.mode == "platform" and status in ("passed", "failed"):
+                # 交平台测「这一次」测完了：测试授权结束（平台出错的可以再测）
+                for g in await self.repo.list_grants([test.request_id]):
+                    if (
+                        g.kind == "test"
+                        and g.draft_id == draft.id
+                        and g.status == "active"
+                    ):
+                        await self.repo.update_grant(
+                            g.id, status="ended", ended_at=self.now()
+                        )
         await self._wrap_up(test.id)
 
     async def _wrap_up(self, test_id: uuid.UUID) -> None:

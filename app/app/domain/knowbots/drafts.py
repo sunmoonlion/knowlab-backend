@@ -19,6 +19,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -118,12 +119,18 @@ class KnowbotRequestIn(Strict):
     cases: tuple[RunCase, ...] = Field(min_length=1, max_length=50)
     # 用户同意他为测试选定的资料用于测试（0027 决定 11 ④，第 3 版说明），不同意不受理
     consent_test_data: Literal[True]
+    # 孵化自己来还是请平台（SDD 0046 第四节）；请平台的同时授权平台、设平台发起 AI 一轮
+    # 的费用上限（元）
+    mode: Literal["self", "platform"]
+    budget_limit: Decimal | None = Field(default=None, gt=0, le=1000, decimal_places=2)
 
     @model_validator(mode="after")
     def _unique_cases(self) -> KnowbotRequestIn:
         ids = [c.case_id for c in self.cases]
         if len(ids) != len(set(ids)):
             raise ValueError("case ids must be unique")
+        if (self.mode == "platform") != (self.budget_limit is not None):
+            raise ValueError("a budget limit goes with asking the platform, only")
         return self
 
 

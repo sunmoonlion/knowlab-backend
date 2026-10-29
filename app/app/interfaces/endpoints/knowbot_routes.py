@@ -41,6 +41,7 @@ from app.application.services.knowbot_board import (
     inbox_items,
     incubation_items,
     lab_test_items,
+    light_items,
     timeline,
     user_expert_items,
 )
@@ -49,6 +50,7 @@ from app.application.services.knowbot_incubation import (
     DEFAULT_BUDGET,
     KnowbotIncubationService,
 )
+from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
@@ -57,6 +59,7 @@ from app.bootstrap.knowbots import (
     knowbot_board,
     knowbot_expert_service,
     knowbot_incubation_service,
+    knowbot_platform_service,
     knowbot_question_service,
     knowbot_service,
     knowbot_test_data,
@@ -72,6 +75,11 @@ from app.domain.knowbots.lifecycle import (
     StopIn,
     UserReviewIn,
 )
+from app.domain.knowbots.platform_grants import (
+    LightAcceptanceIn,
+    PlatformIncubationIn,
+    PlatformTestIn,
+)
 from app.domain.knowbots.workdraft import STEP_ID
 from app.domain.security import Principal
 from app.infrastructure.storage.postgres import get_db_session
@@ -80,6 +88,7 @@ from app.interfaces.endpoints.knowbot_views import (
     answered_view,
     draft_view,
     expert_view,
+    grant_view,
     incubation_view,
     life_view,
     outputs_view,
@@ -133,6 +142,12 @@ def workdraft_service(
     return knowbot_workdraft_service(session)
 
 
+def platform_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotPlatformService:
+    return knowbot_platform_service(session)
+
+
 def incubation_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotIncubationService:
@@ -140,6 +155,7 @@ def incubation_service(
 
 
 Service = Annotated[KnowbotCreationService, Depends(service)]
+Platform = Annotated[KnowbotPlatformService, Depends(platform_service)]
 Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
@@ -179,7 +195,11 @@ def _brief(life: Life, *, admin: bool) -> dict[str, Any]:
 async def _detail(
     life: Life, svc: KnowbotCreationService, *, admin: bool
 ) -> dict[str, Any]:
+    now = svc.now()
     return life_view(life, admin=admin) | {
+        # 现在的孵化是自助还是平台；作者给平台的授权（SDD 0046 第四节）
+        "incubation_mode": life.request.incubation_mode,
+        "grants": [grant_view(g, now, admin=admin) for g in life.grants],
         "versions": [version_view(v, life, admin=admin) for v in life.versions],
         "drafts": [draft_view(d, life, admin=admin) for d in life.drafts],
         "tests": [test_view(t, life, admin=admin) for t in life.tests],
@@ -210,11 +230,73 @@ async def runtimes(_: User) -> JSONResponse:
     return _ok({"runtimes": sorted(runtime_clients().registered())})
 
 
+@web_router.get("/knowbot-requests/defaults")
+async def request_defaults(principal: User, svc: Service) -> JSONResponse:
+    """新申请默认的模式：上次选的；第一次是空，让他自己选（SDD 0046 第四节）。"""
+    return _ok({"mode": await svc.default_mode(principal.subject) or None})
+
+
 @web_router.post("/knowbot-requests")
 async def submit(principal: User, body: KnowbotRequestIn, svc: Service) -> JSONResponse:
-    """申请：出创意 v1。"""
+    """申请：出创意 v1。选自助的直接进工作稿；请平台的同时授权平台，等运营受理。"""
     request = await svc.submit(principal.subject, body)
-    return _ok({"request_id": str(request.id), "version": 1}, status_code=201)
+    return _ok(
+        {
+            "request_id": str(request.id),
+            "version": 1,
+            "incubation_mode": request.incubation_mode,
+        },
+        status_code=201,
+    )
+
+
+@web_router.post("/knowbot-requests/{request_id}/platform")
+async def ask_platform(
+    principal: User,
+    body: PlatformIncubationIn,
+    platform: Platform,
+    request_id: ItemId,
+) -> JSONResponse:
+    """「请平台孵化」：确认框上点了同意就是本人授权（platform:knowlab:incubate:<编号>），
+    名称转平台，这一版创意受理后平台接着孵化（SDD 0046 第四节）。"""
+    grant = await platform.ask_platform(principal.subject, request_id, body)
+    return _ok({"grant": grant_view(grant, platform.now(), admin=False)}, 201)
+
+
+@web_router.post("/knowbot-requests/{request_id}/take-back", status_code=204)
+async def take_back(
+    principal: User, platform: Platform, request_id: ItemId
+) -> Response:
+    """「我自己来」：平台的授权立即撤销，运营立即看不到。"""
+    await platform.take_back(principal.subject, request_id)
+    return Response(status_code=204, headers=NO_STORE)
+
+
+@web_router.post("/knowbot-requests/{request_id}/platform/renew")
+async def renew_platform(
+    principal: User, platform: Platform, request_id: ItemId
+) -> JSONResponse:
+    """续期：孵化授权续到 30 天后（decisions 10-29）。"""
+    grant = await platform.renew(principal.subject, request_id)
+    return _ok({"grant": grant_view(grant, platform.now(), admin=False)})
+
+
+@web_router.post("/knowbot-drafts/{draft_id}/platform-test")
+async def ask_platform_test(
+    principal: User, body: PlatformTestIn, platform: Platform, draft_id: ItemId
+) -> JSONResponse:
+    """「交平台测」：自助孵化的准专家交平台测这一次（轻受理），上限作者设。"""
+    grant = await platform.ask_platform_test(principal.subject, draft_id, body)
+    return _ok({"grant": grant_view(grant, platform.now(), admin=False)}, 201)
+
+
+@web_router.post("/knowbot-grants/{grant_id}/withdraw", status_code=204)
+async def withdraw_platform_test(
+    principal: User, platform: Platform, grant_id: ItemId
+) -> Response:
+    """还没开测的平台测试，作者收回。"""
+    await platform.withdraw_test(principal.subject, grant_id)
+    return Response(status_code=204, headers=NO_STORE)
 
 
 @web_router.post("/knowbot-requests/{request_id}/versions")
@@ -753,16 +835,10 @@ class TakeBody(BaseModel):
     reason: str = Field(min_length=1, max_length=200)
 
 
-class DraftIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    manifest: dict[str, Any]
-    # 出自创意第几版；不给就是最新受理了的
-    request_version: int | None = Field(default=None, ge=1, le=100000)
-
-
 class StartTestIn(BaseModel):
+    """运营发起平台测试：只给超时；费用上限是作者在授权里设的（decisions ⑯）。"""
+
     model_config = ConfigDict(extra="forbid")
-    budget_limit: str = Field(pattern=r"^[0-9]{1,6}(\.[0-9]{1,2})?$")
     timeout_seconds: int = Field(ge=60, le=86400)
 
 
@@ -785,8 +861,20 @@ async def board_column(_: Admin, board: Board, column: Column) -> JSONResponse:
             found = next(v for v in life.versions if v.version == version)
             items.append(
                 _brief(life, admin=True)
-                | {"category": category}
+                | {"category": category, "acceptance_kind": "formal"}
                 | version_view(found, life, admin=True)
+            )
+        # 轻受理：作者交平台测的准专家（SDD 0046 第四节）
+        now = board.now()
+        for category, life, draft, grant in light_items(lives):
+            items.append(
+                _brief(life, admin=True)
+                | {
+                    "category": category,
+                    "acceptance_kind": "light",
+                    "draft": draft_view(draft, life, admin=True),
+                    "grant": grant_view(grant, now, admin=True),
+                }
             )
     elif column == "incubation":
         for category, life, draft in incubation_items(lives):
@@ -858,21 +946,22 @@ async def accept(
     )
 
 
-@admin_router.post("/knowbot-requests/{request_id}/drafts")
-async def add_draft(
-    _: Releaser, body: DraftIn, svc: Service, request_id: ItemId
+@admin_router.post("/knowbot-grants/{grant_id}/decision")
+async def decide_platform_test(
+    admin: Releaser, body: LightAcceptanceIn, platform: Platform, grant_id: ItemId
 ) -> JSONResponse:
-    """孵化（过渡做法：贴清单）：选受理了的创意版本建准专家。"""
-    draft = await svc.add_draft(request_id, body.manifest, body.request_version)
-    return _ok(
-        {
-            "draft_id": str(draft.id),
-            "version": draft.version,
-            "revision": draft.revision,
-            "request_version": draft.request_version,
-        },
-        status_code=201,
-    )
+    """轻受理：接这一次平台测试（进测试栏待发起）或不接（写理由）。"""
+    grant = await platform.decide_test(grant_id, body, admin.subject)
+    return _ok({"grant": grant_view(grant, platform.now(), admin=True)})
+
+
+@admin_router.post("/knowbot-requests/{request_id}/hand-back", status_code=204)
+async def hand_back(
+    admin: Releaser, platform: Platform, request_id: ItemId
+) -> Response:
+    """平台孵化做完，把草稿交还作者：孵化授权结束，名称转自助。"""
+    await platform.hand_back(request_id, admin.subject)
+    return Response(status_code=204, headers=NO_STORE)
 
 
 @admin_router.post("/knowbot-drafts/{draft_id}/review-request", status_code=204)
@@ -904,11 +993,10 @@ async def start_test(
     admin: Admin, body: StartTestIn, svc: Service, board: Board, draft_id: ItemId
 ) -> JSONResponse:
     """拿这位准专家按用例跑一次：新编号。在作者上次自助测试的电脑与目录、用作者的 key
-    跑（decisions ⑯）；作者没有可用的电脑回 409 author_has_no_computer。"""
-    await svc.operator_draft(draft_id)
+    跑（decisions ⑯），费用上限是作者在授权里设的；作者没有可用的电脑回 409
+    author_has_no_computer，没授权（或授权不在了）回 409 not_authorised。"""
     test = await svc.start_test(
         draft_id,
-        budget_limit=body.budget_limit,
         timeout_seconds=body.timeout_seconds,
         starter=admin.subject,
     )

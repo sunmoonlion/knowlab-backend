@@ -61,11 +61,13 @@ def test_one_linear_canonical_migration_chain() -> None:
         "20261028_0016_drop_manifest_v1.py",
         "20261028_0017_workdrafts.py",
         "20261028_0018_incubations.py",
+        "20261029_0019_platform_grants.py",
     ]
     contents = [path.read_text() for path in revisions]
     assert sum("down_revision = None" in content for content in contents) == 1
     assert 'down_revision = "20260726_0001"' in contents[1]
     assert 'down_revision = "20261024_0012"' in contents[12]
+    assert 'down_revision = "20261028_0018"' in contents[18]
 
 
 def test_runtime_image_context_excludes_credentials_and_tests() -> None:

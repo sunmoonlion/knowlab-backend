@@ -7,18 +7,21 @@
   「新交回」。
 - 详情页：顶上一行每个过程最新的一项，下面按时间排的记录。
 
-运营只看得到平台模式的那几步（SDD 0046 第四节）：管理端的一生只有平台孵化的准专家与
-平台测试（`operator_view`）；自助的准专家、工作稿、自助测试与它的报告运营一律看不到，
-按编号直接取也是 404（服务里的 `operator_draft`、`operator_test`）。用户另外授权的
-（轻受理、交审）随块 1、块 6 再放开。
+运营只看得到作者授权给平台的那几步（SDD 0046 第四节，`operator_view`）：
+- 作者请了平台孵化（还有效的孵化授权）：创意各版本、正式受理单、平台孵化的准专家与
+  平台测试；
+- 作者交平台测某一位准专家（测试授权，含测完的）：只有这一位准专家与平台测的那几次，
+  看不到创意、之前的草稿与问答；
+- 其余（纯自助的名称、作者点了「我自己来」的）运营一律看不到，列表里没有、按编号取是
+  404。交审随块 6 再放开。
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from app.application.errors.exceptions import NotFoundError
@@ -26,6 +29,7 @@ from app.application.ports.knowbots import (
     AcceptanceRecord,
     DraftRecord,
     ExpertRecord,
+    GrantRecord,
     KnowlabRepository,
     QuestionRecord,
     RequestRecord,
@@ -33,6 +37,7 @@ from app.application.ports.knowbots import (
     TestRecord,
 )
 from app.application.services.knowbot_experts import stage_of
+from app.application.services.knowbot_grants import live_incubation
 from app.application.services.knowbot_service import parse_id
 from app.domain.knowbots.lifecycle import (
     ACTIVE_TESTS,
@@ -53,6 +58,7 @@ class Life:
     drafts: tuple[DraftRecord, ...] = ()
     tests: tuple[TestRecord, ...] = ()
     experts: tuple[ExpertRecord, ...] = ()
+    grants: tuple[GrantRecord, ...] = ()
 
     def draft(self, draft_id: uuid.UUID) -> DraftRecord | None:
         return next((d for d in self.drafts if d.id == draft_id), None)
@@ -63,6 +69,15 @@ class Life:
     def latest_accepted(self) -> int | None:
         found = [v for v, a in self.acceptances.items() if a.accepted]
         return max(found) if found else None
+
+    def test_grant(self, draft_id: uuid.UUID) -> GrantRecord | None:
+        """这位准专家最近一张测试授权（不接的不算）。"""
+        found = [
+            g
+            for g in self.grants
+            if g.kind == "test" and g.draft_id == draft_id and g.status != "declined"
+        ]
+        return found[-1] if found else None
 
     def expert_versions(self) -> set[str]:
         return {str(e.version) for e in self.experts}
@@ -90,18 +105,51 @@ class Life:
         return next((t for t in self.tests if t.status in ACTIVE_TESTS), None)
 
 
-def operator_view(life: Life) -> Life:
-    """运营看到的一生（SDD 0046 第四节）：只有平台模式的准专家，与测的是它们的平台测试；
-    自助的准专家、自助测试运营看不到。"""
-    drafts = tuple(d for d in life.drafts if d.mode == "platform")
+def operator_view(life: Life, now: datetime) -> Life | None:
+    """运营看到的一生（SDD 0046 第四节）；运营什么都看不到时是 None。
+
+    孵化授权还有效：创意、正式受理单、平台模式的准专家与它们的平台测试。另外，作者交平台
+    测的准专家（有测试授权的）与平台测它的那几次。自助的准专家、自助测试、自助受理单、
+    请平台孵化之前没交的东西运营都看不到。
+    """
+    incubating = live_incubation(life.grants, now) is not None
+    tested = {
+        g.draft_id
+        for g in life.grants
+        if g.kind == "test" and g.status != "declined" and g.draft_id is not None
+    }
+    drafts = tuple(
+        d
+        for d in life.drafts
+        if (incubating and d.mode == "platform") or d.id in tested
+    )
+    if not incubating and not drafts:
+        return None
     shown = {d.id for d in drafts}
     tests = tuple(t for t in life.tests if t.mode == "platform" and t.draft_id in shown)
-    return replace(life, drafts=drafts, tests=tests)
+    return replace(
+        life,
+        versions=life.versions if incubating else (),
+        acceptances=(
+            {v: a for v, a in life.acceptances.items() if a.kind == "formal"}
+            if incubating
+            else {}
+        ),
+        drafts=drafts,
+        tests=tests,
+        experts=tuple(e for e in life.experts if e.draft_id in shown),
+    )
 
 
 class KnowbotBoard:
-    def __init__(self, repo: KnowlabRepository) -> None:
+    def __init__(
+        self,
+        repo: KnowlabRepository,
+        *,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
         self.repo = repo
+        self.now = now
 
     async def lives(
         self, owner_subject: str | None = None, *, operator: bool = False
@@ -114,7 +162,10 @@ class KnowbotBoard:
             else await self.repo.list_requests_for_owner(owner_subject)
         )
         lives = await self._assemble(requests)
-        return [operator_view(life) for life in lives] if operator else lives
+        if not operator:
+            return lives
+        now = self.now()
+        return [v for life in lives if (v := operator_view(life, now)) is not None]
 
     async def life(
         self,
@@ -131,7 +182,12 @@ class KnowbotBoard:
         ):
             raise NotFoundError("No such request", code="request_not_found")
         life = (await self._assemble([request]))[0]
-        return operator_view(life) if operator else life
+        if not operator:
+            return life
+        shown = operator_view(life, self.now())
+        if shown is None:
+            raise NotFoundError("No such request", code="request_not_found")
+        return shown
 
     async def _assemble(self, requests: Sequence[RequestRecord]) -> list[Life]:
         ids = [r.id for r in requests]
@@ -142,6 +198,7 @@ class KnowbotBoard:
         drafts = await self.repo.list_drafts(request_ids=ids)
         tests = await self.repo.list_tests(request_ids=ids)
         experts = await self.repo.list_experts(ids)
+        grants = await self.repo.list_grants(ids)
         return [
             Life(
                 request=r,
@@ -150,6 +207,7 @@ class KnowbotBoard:
                 drafts=tuple(d for d in drafts if d.request_id == r.id),
                 tests=tuple(t for t in tests if t.request_id == r.id),
                 experts=tuple(e for e in experts if e.request_id == r.id),
+                grants=tuple(g for g in grants if g.request_id == r.id),
             )
             for r in requests
         ]
@@ -157,14 +215,36 @@ class KnowbotBoard:
 
 # ---------- 管理端四栏 ----------
 def acceptance_items(lives: Sequence[Life]) -> list[tuple[str, Life, int]]:
-    """受理栏：待受理（每个名称的最新版本还没受理单）/ 已受理 / 不受理。"""
+    """受理栏的正式受理：待受理（请了平台孵化、最新版本还没正式受理单）/ 已受理 /
+    不受理。lives 是运营看到的（operator_view 已滤掉自助受理单与没请平台的名称）。"""
     out: list[tuple[str, Life, int]] = []
     for life in lives:
+        if not life.versions:
+            continue  # 只交平台测的：没有创意可受理
         latest = life.request.latest_version
         if latest not in life.acceptances:
             out.append(("pending", life, latest))
         for version, found in sorted(life.acceptances.items(), reverse=True):
             out.append(("accepted" if found.accepted else "rejected", life, version))
+    return out
+
+
+def light_items(
+    lives: Sequence[Life],
+) -> list[tuple[str, Life, DraftRecord, GrantRecord]]:
+    """受理栏的轻受理：作者交平台测的准专家（待轻受理 / 已接 / 不接）。"""
+    out: list[tuple[str, Life, DraftRecord, GrantRecord]] = []
+    for life in lives:
+        for grant in reversed(life.grants):
+            if grant.kind != "test" or grant.draft_id is None:
+                continue
+            draft = life.draft(grant.draft_id)
+            if draft is None:
+                continue
+            category = {"pending": "light_pending", "declined": "light_declined"}.get(
+                grant.status, "light_accepted"
+            )
+            out.append((category, life, draft, grant))
     return out
 
 

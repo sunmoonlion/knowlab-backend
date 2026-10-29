@@ -20,6 +20,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    GrantRecord,
     IncubationRecord,
     QuestionRecord,
     RequestRecord,
@@ -84,6 +85,9 @@ def request_body(**overrides: Any) -> dict[str, Any]:
             }
         ],
         "consent_test_data": True,
+        # 老的那批测试走 0037 的平台流程：请平台孵化、运营受理、平台孵化与测试
+        "mode": "platform",
+        "budget_limit": "20",
     }
     body.update(overrides)
     return body
@@ -175,6 +179,7 @@ class MemoryKnowlab:
         self.workdrafts: dict[uuid.UUID, WorkdraftRecord] = {}  # 按名称
         self.entries: dict[uuid.UUID, WorkdraftEntryRecord] = {}
         self.incubations: dict[uuid.UUID, IncubationRecord] = {}
+        self.grants: dict[uuid.UUID, GrantRecord] = {}
         # 作者在别的名称上自助测过的（不在这份假仓里）：用户 → 那一次。平台测试照它定在
         # 哪跑（decisions ⑯），测试里用 own_computer 预置
         self.earlier_self_tests: dict[str, TestRecord] = {}
@@ -201,6 +206,7 @@ class MemoryKnowlab:
             dict(self.workdrafts),
             dict(self.entries),
             dict(self.incubations),
+            dict(self.grants),
         )
         try:
             yield
@@ -219,6 +225,7 @@ class MemoryKnowlab:
                 self.workdrafts,
                 self.entries,
                 self.incubations,
+                self.grants,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -296,6 +303,52 @@ class MemoryKnowlab:
 
     async def get_request(self, request_id: uuid.UUID) -> RequestRecord | None:
         return self.requests.get(request_id)
+
+    async def set_incubation_mode(self, request_id: uuid.UUID, mode: str) -> None:
+        self.requests[request_id] = replace(
+            self.requests[request_id], incubation_mode=mode
+        )
+
+    async def replace_acceptance(self, record: AcceptanceRecord) -> None:
+        key = (record.request_id, record.version)
+        assert key in self.acceptances
+        self.acceptances[key] = record
+
+    # ---------- 给平台的授权 ----------
+    async def add_grant(self, record: GrantRecord) -> None:
+        for g in self.grants.values():
+            if g.status not in ("pending", "active"):
+                continue
+            same = (
+                record.kind == "incubate"
+                and g.kind == "incubate"
+                and g.request_id == record.request_id
+            ) or (
+                record.kind == "test"
+                and g.kind == "test"
+                and g.draft_id == record.draft_id
+            )
+            if same:
+                raise ConcurrencyConflictError("live grant", code="grant_exists")
+        self.grants[record.id] = record
+
+    async def get_grant(
+        self, grant_id: uuid.UUID, *, for_update: bool = False
+    ) -> GrantRecord | None:
+        return self.grants.get(grant_id)
+
+    async def list_grants(self, request_ids: Any = None) -> Sequence[GrantRecord]:
+        return sorted(
+            (
+                g
+                for g in self.grants.values()
+                if request_ids is None or g.request_id in request_ids
+            ),
+            key=lambda g: (g.granted_at, str(g.id)),
+        )
+
+    async def update_grant(self, grant_id: uuid.UUID, **changes: Any) -> None:
+        self.grants[grant_id] = replace(self.grants[grant_id], **changes)
 
     async def list_requests_for_owner(
         self, owner_subject: str

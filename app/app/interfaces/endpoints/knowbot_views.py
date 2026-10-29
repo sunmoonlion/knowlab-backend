@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from app.application.ports.knowbots import (
@@ -13,6 +14,7 @@ from app.application.ports.knowbots import (
     AmendmentRecord,
     DraftRecord,
     ExpertRecord,
+    GrantRecord,
     IncubationRecord,
     QuestionRecord,
     RequestRecord,
@@ -25,6 +27,8 @@ from app.application.services.knowbot_board import Life, start_blocker, summary
 from app.application.services.knowbot_experts import stage_of
 from app.domain.knowbots.drafts import CONSENT_VERSION
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS, draft_label, review_state
+from app.domain.knowbots.platform_grants import basis as grant_basis
+from app.domain.knowbots.platform_grants import state as grant_state
 from app.domain.knowbots.workdraft import empty_body
 
 
@@ -40,9 +44,32 @@ def acceptance_view(found: AcceptanceRecord | None, *, admin: bool) -> Any:
         "reason": found.reason,
         "decided_at": iso(found.decided_at),
         "trial": found.trial,
+        # formal：正式受理；self：「自助（不受理）」（SDD 0046 第二节）
+        "kind": found.kind,
     }
     if admin:
         view |= {"checks": found.checks, "decided_by": found.decided_by}
+    return view
+
+
+def grant_view(found: GrantRecord, now: datetime, *, admin: bool) -> dict[str, Any]:
+    """作者给平台的一张授权（SDD 0046 第四节）：现在的状态（过了期的算到期）、上限、
+    期限、运营的结论。"""
+    view: dict[str, Any] = {
+        "grant_id": str(found.id),
+        "kind": found.kind,
+        "draft_id": None if found.draft_id is None else str(found.draft_id),
+        "state": grant_state(found.status, found.expires_at, now),
+        "budget_limit": f"{found.budget_limit:.2f}",
+        "granted_at": iso(found.granted_at),
+        "expires_at": iso(found.expires_at),
+        "decided_at": iso(found.decided_at),
+        "reason": found.reason,
+        "ended_at": iso(found.ended_at),
+        "basis": grant_basis(found.kind, found.id),
+    }
+    if admin:
+        view |= {"decided_by": found.decided_by, "ended_by": found.ended_by}
     return view
 
 

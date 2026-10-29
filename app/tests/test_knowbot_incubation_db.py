@@ -26,7 +26,7 @@ from tests.knowbot_fakes import (
     FakeRuntime,
     request_body,
 )
-from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema
+from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema, _versions
 
 TARGET = ROOT / "alembic/versions/20261028_0018_incubations.py"
 OWNER = "user-123"
@@ -108,6 +108,10 @@ async def test_incubations_migrate_round_trip_and_run_for_real() -> None:
                 async with engine.begin() as c:
                     await c.execute(text(bad), {"d": DRAFT})
 
+        # 之后的迁移也跑上，仓储读的是最新的表
+        later = [p for p in _versions() if p.stem > TARGET.stem]
+        async with engine.begin() as c:
+            await c.run_sync(lambda conn: _run(conn, later))
         factory = make_session_factory(engine)
         incubator, runtime = FakeIncubator(), FakeRuntime()
 

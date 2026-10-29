@@ -15,9 +15,11 @@ from app.application.errors.exceptions import (
     ConcurrencyConflictError,
     NotFoundError,
 )
+from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import RevisionIn, UserReviewIn
+from app.domain.knowbots.platform_grants import PlatformIncubationIn
 from tests.knowbot_fakes import (
     COMPUTER,
     COMPUTER_ROOT,
@@ -38,6 +40,9 @@ class Clock:
 
     def __call__(self) -> datetime:
         return self.at
+
+
+PLATFORM = PlatformIncubationIn(agree=True, budget_limit="20")
 
 
 @pytest.fixture
@@ -120,9 +125,19 @@ async def test_incubation_needs_an_accepted_version(parts):
     )
     found = await svc.accept(str(request.id), 1, rejected, "admin-1")
     assert found.accepted is False and found.reason == "投资建议类不做（C-L5）"
+    # 不受理：孵化授权结束，名称转回自助，运营不能再写受理单
+    repo = svc.repo
+    [grant] = await repo.list_grants([request.id])
+    assert (grant.status, grant.reason) == ("declined", "投资建议类不做（C-L5）")
+    assert (await repo.get_request(request.id)).incubation_mode == "self"
+    with pytest.raises(NotFoundError):
+        await svc.accept(str(request.id), 1, all_clear(), "admin-1")
+    # 作者再请平台：这一版写过正式受理单，一个版本一张，写了不改
+    platform = KnowbotPlatformService(repo, now=svc.now)
+    await platform.ask_platform(OWNER, str(request.id), PLATFORM)
     with pytest.raises(ConcurrencyConflictError) as raised:
         await svc.accept(str(request.id), 1, all_clear(), "admin-1")
-    assert raised.value.code == "already_decided"  # 一个版本一张，写了不改
+    assert raised.value.code == "already_decided"
     with pytest.raises(ConcurrencyConflictError):
         await svc.add_draft(str(request.id), manifest())
     # 用户改创意出 v2，v2 受理了才能孵化

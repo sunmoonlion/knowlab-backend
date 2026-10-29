@@ -9,6 +9,7 @@ import pytest
 import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_experts import KnowbotExpertService
+from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
@@ -39,7 +40,7 @@ ALL_CLEAR = {
     "checks": {c: {"ok": True, "note": ""} for c in ("C-L5", "C-L2", "C-L1")},
     "accepted": True,
 }
-START = {"budget_limit": "20", "timeout_seconds": 600}
+START = {"timeout_seconds": 600}  # 上限是作者在授权里设的（decisions ⑯）
 
 
 @pytest.fixture
@@ -67,6 +68,9 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[knowbot_routes.expert_service] = lambda: experts
     app.dependency_overrides[knowbot_routes.board_service] = lambda: KnowbotBoard(repo)
     app.dependency_overrides[knowbot_routes.question_service] = lambda: asks
+    app.dependency_overrides[knowbot_routes.platform_service] = lambda: (
+        KnowbotPlatformService(repo)
+    )
     yield svc, repo, runtime, knowmart
     app.dependency_overrides.clear()
 
@@ -141,7 +145,7 @@ async def test_base_scope_cannot_accept_incubate_deliver_or_reset(wired) -> None
         expert = "/api/admin/v1/knowbot-experts/00000000-0000-4000-8000-000000000000"
         for path, body in [
             (f"{req}/versions/1/acceptance", ALL_CLEAR),
-            (f"{req}/drafts", {"manifest": manifest()}),
+            (f"{req}/hand-back", None),
             (f"{drafts}/rules-review", None),
             (f"{drafts}/review-request", None),
             (f"/api/admin/v1/knowbot-tests/{test.id}/reset", None),
@@ -188,14 +192,9 @@ async def test_the_whole_life_through_the_api(wired) -> None:
         # 孵化
         [todo] = (await c.get("/api/admin/v1/knowbot-board/incubation")).json()["items"]
         assert (todo["category"], todo["latest_accepted"]) == ("todo", 1)
-        draft = await c.post(
-            f"/api/admin/v1/knowbot-requests/{request_id}/drafts",
-            json={"manifest": manifest()},
-            headers=ADMIN,
-        )
-        assert draft.status_code == 201
-        assert (draft.json()["version"], draft.json()["revision"]) == ("1", 1)
-        draft_id = draft.json()["draft_id"]
+        made = await svc.add_draft(request_id, manifest())
+        assert (made.version, made.revision) == ("1", 1)
+        draft_id = str(made.id)
         base = f"/api/admin/v1/knowbot-drafts/{draft_id}"
         asked = await c.post(f"{base}/review-request", headers=ADMIN)
         assert asked.status_code == 204
@@ -618,11 +617,7 @@ async def test_operators_see_only_the_platform_steps(wired) -> None:
             ("GET", f"{drafts}/{mine.id}/manifest", None),
             ("POST", f"{drafts}/{mine.id}/rules-review", None),
             ("POST", f"{drafts}/{mine.id}/review-request", None),
-            (
-                "POST",
-                f"{drafts}/{mine.id}/test",
-                {"budget_limit": "20", "timeout_seconds": 600},
-            ),
+            ("POST", f"{drafts}/{mine.id}/test", {"timeout_seconds": 600}),
             ("POST", f"{tests}/{test.id}/refresh", None),
             ("POST", f"{tests}/{test.id}/reset", None),
             ("GET", f"{tests}/{test.id}/outputs", None),

@@ -7,6 +7,7 @@ from collections.abc import Collection, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Protocol
 
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
@@ -32,6 +33,8 @@ class RequestRecord:
     latest_version: int = 1
     # 测试中用户答过的开步前提问：{用例: {键: 答案}}，开跑时并进用例
     case_answers: dict[str, Any] = field(default_factory=dict, repr=False)
+    # 现在的孵化是自助还是平台（SDD 0046 第四节）
+    incubation_mode: str = "self"
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,28 @@ class AcceptanceRecord:
     decided_by: str
     decided_at: datetime
     trial: bool = False
+    # formal：运营照 0037 写的正式受理；self：选自助时自动记的「自助（不受理）」
+    kind: str = "formal"
+
+
+@dataclass(frozen=True)
+class GrantRecord:
+    """作者给平台的一张授权（domain/knowbots/platform_grants.py）。"""
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    kind: str
+    status: str
+    budget_limit: Decimal
+    granted_by: str
+    granted_at: datetime
+    draft_id: uuid.UUID | None = None
+    expires_at: datetime | None = None
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    reason: str | None = None
+    ended_by: str | None = None
+    ended_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -376,6 +401,29 @@ class KnowlabRepository(Protocol):
     ) -> Sequence[DraftRecord]: ...
 
     async def update_draft(self, draft_id: uuid.UUID, **changes: Any) -> None: ...
+
+    async def set_incubation_mode(self, request_id: uuid.UUID, mode: str) -> None:
+        """名称现在的孵化模式（self / platform）。"""
+        ...
+
+    async def replace_acceptance(self, record: AcceptanceRecord) -> None:
+        """自助受理单换成正式受理（作者转平台后运营写的那一张）。"""
+        ...
+
+    async def add_grant(self, record: GrantRecord) -> None:
+        """记一张授权；同一名称已有没结束的孵化授权、同一准专家已有没结束的测试
+        授权时回 409。"""
+        ...
+
+    async def get_grant(
+        self, grant_id: uuid.UUID, *, for_update: bool = False
+    ) -> GrantRecord | None: ...
+
+    async def list_grants(
+        self, request_ids: Collection[uuid.UUID] | None = None
+    ) -> Sequence[GrantRecord]: ...
+
+    async def update_grant(self, grant_id: uuid.UUID, **changes: Any) -> None: ...
 
     async def lock_request(self, request_id: uuid.UUID) -> None:
         """串行化同一个名称的改版、建稿、发起测试、出专家（版本号、编号不重）。"""

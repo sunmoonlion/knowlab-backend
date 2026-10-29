@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_incubation import KnowbotIncubationService
+from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
@@ -94,3 +95,8 @@ def knowbot_incubation_service(session: AsyncSession) -> KnowbotIncubationServic
 def knowbot_board(session: AsyncSession) -> KnowbotBoard:
     """两端的栏、大类、详情页（只读）。"""
     return KnowbotBoard(SqlKnowlabRepository(session))
+
+
+def knowbot_platform_service(session: AsyncSession) -> KnowbotPlatformService:
+    """孵化、测试在自助与平台之间切换（SDD 0046 第四节）。"""
+    return KnowbotPlatformService(SqlKnowlabRepository(session))
