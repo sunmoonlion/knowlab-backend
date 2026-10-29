@@ -157,6 +157,8 @@ def _request(row: KnowbotRequest) -> RequestRecord:
         latest_version=row.latest_version,
         case_answers=row.case_answers or {},
         incubation_mode=row.incubation_mode,
+        origin=row.origin,
+        reference_answer=row.reference_answer,
     )
 
 
@@ -401,6 +403,8 @@ class SqlKnowlabRepository:
         idea: dict[str, Any],
         cases: list[dict[str, Any]],
         consent_version: int = 1,
+        origin: dict[str, Any] | None = None,
+        reference_answer: str | None = None,
     ) -> RequestRecord:
         row = KnowbotRequest(
             id=uuid.uuid4(),
@@ -412,6 +416,8 @@ class SqlKnowlabRepository:
             consent_version=consent_version,
             latest_version=1,
             case_answers={},
+            origin=origin,
+            reference_answer=reference_answer,
         )
         self.session.add(row)
         await self.session.flush()

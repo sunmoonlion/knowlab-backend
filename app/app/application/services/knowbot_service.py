@@ -57,6 +57,7 @@ from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
     OUTPUTS_KEEP_DAYS,
     KnowbotRequestIn,
+    RuntimeIncubationIn,
     amendment_status,
     can_move,
     case_question_digest,
@@ -188,6 +189,46 @@ class KnowbotCreationService:
             found = await self.repo.get_request(created.id)
             assert found is not None
             return found
+
+    async def submit_from_runtime(
+        self,
+        owner_subject: str,
+        body: RuntimeIncubationIn,
+        *,
+        runtime: str,
+    ) -> tuple[RequestRecord, bool]:
+        """knowbench 替用户提的孵化请求（请专家方案设计第 4.9 节第 6 条、
+        专家孵化方案第十三节）：
+        以这个用户的名义建一份种类为「问题」的申请，种子就是那句问题；模式自己来（只有他看得到、
+        建了不花钱），记来源，附他的模型直接答过的回答作参考（只算提议）。先不带用例、未同意测试
+        数据说明，他补用例、点同意才能测。同一个幂等钥匙只建一份：回（申请，是不是这次新建的）。"""
+        if not OWNER.fullmatch(owner_subject or ""):
+            raise BadRequestError("The owner is invalid", code="owner_invalid")
+        for mine in await self.repo.list_requests_for_owner(owner_subject):
+            if (mine.origin or {}).get("key") == body.key:
+                return mine, False
+        question = body.question.strip()
+        title = question.splitlines()[0].strip()[:80] or question[:80]
+        async with self.repo.transaction():
+            created = await self.repo.create_request(
+                owner_subject=owner_subject,
+                title=title,
+                runtime=runtime,
+                idea={"kind": "question", "question": question},
+                cases=[],
+                consent_version=0,
+                origin={
+                    "app": runtime,
+                    "project_id": body.project_id,
+                    "task_id": body.task_id,
+                    "key": body.key,
+                },
+                reference_answer=(body.reference_answer or "").strip() or None,
+            )
+            await self.repo.add_acceptance(self_acceptance(created.id, 1, self.now()))
+        found = await self.repo.get_request(created.id)
+        assert found is not None
+        return found, True
 
     async def default_mode(self, owner_subject: str) -> str:
         """新申请默认的模式：他上次选的。
@@ -542,6 +583,12 @@ class KnowbotCreationService:
                 draft.request_id, draft.request_version
             )
             assert request is not None and version is not None
+            if not version.cases:
+                # 从 knowbench 转来的问题申请先不带用例（第 4.9 节第 6 条）
+                raise _conflict(
+                    "This idea version has no test cases; add them and publish again",
+                    "cases_missing",
+                )
             test_id = uuid.uuid4()
             run = RunRequestV1.model_validate(
                 {

@@ -209,6 +209,9 @@ async def _detail(
     return life_view(life, admin=admin) | {
         # 现在的孵化是自助还是平台；作者给平台的授权（SDD 0046 第四节）
         "incubation_mode": life.request.incubation_mode,
+        # 从 knowbench 转来的：来源与用户的模型直接答过的回答（只算提议）
+        "origin": life.request.origin,
+        "reference_answer": life.request.reference_answer,
         "grants": [grant_view(g, now, admin=admin) for g in life.grants],
         "versions": [version_view(v, life, admin=admin) for v in life.versions],
         "drafts": [draft_view(d, life, admin=admin) for d in life.drafts],

@@ -112,6 +112,19 @@ OUTPUTS_EXPIRED = (
 )
 
 
+class RuntimeIncubationIn(Strict):
+    """knowbench 替用户提的孵化请求（请专家方案设计第 4.9 节第 6 条）：那句问题、
+    从哪个项目哪件
+    委托来、幂等钥匙；用户先让自己的模型直接答过的，附那份回答（只算提议）。"""
+
+    owner_subject: str = Field(min_length=1, max_length=512)
+    question: str = Field(min_length=1, max_length=2000)
+    project_id: str = Field(min_length=1, max_length=64)
+    task_id: str | None = Field(default=None, min_length=1, max_length=64)
+    key: str = Field(min_length=8, max_length=128)
+    reference_answer: str | None = Field(default=None, max_length=20000)
+
+
 class KnowbotRequestIn(Strict):
     title: str = Field(min_length=1, max_length=80)
     idea: Idea

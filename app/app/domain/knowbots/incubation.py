@@ -157,6 +157,12 @@ class IncubationRequestV1(Strict):
         default=None, pattern=STEP_ID, exclude_if=lambda v: v is None
     )
     seed: Seed
+    # 用户先让自己的模型直接答过的回答（从 knowbench 转来的问题申请才有，
+    # 请专家方案设计第
+    # 4.9 节第 6 条）：模型写的，起草时可以参考，进工作稿只能算提议（kind proposal）
+    reference: str | None = Field(
+        default=None, min_length=1, max_length=20000, exclude_if=lambda v: v is None
+    )
     workdraft: Workdraft = Workdraft()
     answers: tuple[AnsweredGap, ...] = Field(default=(), max_length=200)
     data_formats: tuple[DataFormat, ...] = Field(default=(), max_length=200)

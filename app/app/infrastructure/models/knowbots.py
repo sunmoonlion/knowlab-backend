@@ -70,6 +70,9 @@ class KnowbotRequest(TimestampMixin, Base):
     incubation_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="self"
     )
+    # 从 knowbench 转来的来源与参考回答（迁移 20261029_0021）
+    origin: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    reference_answer: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         Index("ix_knowbot_request_owner_subject", "owner_subject"),

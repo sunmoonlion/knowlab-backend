@@ -18,7 +18,7 @@ from app.application.ports.knowbots import GrantRecord
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
 from tests.knowbot_fakes import request_body
-from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema
+from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema, _versions
 
 TARGET = ROOT / "alembic/versions/20261029_0019_platform_grants.py"
 OWNER = "user-123"
@@ -89,6 +89,10 @@ async def test_platform_grants_migrate_round_trip_and_hold() -> None:
             ).scalar_one()
             assert (mode, kind) == ("self", "formal")
 
+        # 之后的迁移也跑上，仓储读的是最新的表
+        later = [p for p in _versions() if p.stem > TARGET.stem]
+        async with engine.begin() as c:
+            await c.run_sync(lambda conn: _run(conn, later))
         factory = make_session_factory(engine)
         incubate = _grant("incubate")
         async with factory() as session:

@@ -35,6 +35,11 @@ class RequestRecord:
     case_answers: dict[str, Any] = field(default_factory=dict, repr=False)
     # 现在的孵化是自助还是平台（SDD 0046 第四节）
     incubation_mode: str = "self"
+    # 从 knowbench 转来的：来源（app、项目、委托、幂等钥匙）
+    # 与用户的模型直接答过的回答（只算
+    # 提议，请专家方案设计第 4.9 节第 6 条）
+    origin: dict[str, Any] | None = field(default=None, repr=False)
+    reference_answer: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -344,6 +349,8 @@ class KnowlabRepository(Protocol):
         idea: dict[str, Any],
         cases: list[dict[str, Any]],
         consent_version: int = 1,
+        origin: dict[str, Any] | None = None,
+        reference_answer: str | None = None,
     ) -> RequestRecord:
         """建创意的名称与它的 v1（同一个事务）。"""
         ...

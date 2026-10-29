@@ -302,6 +302,11 @@ class KnowbotIncubationService:
                         "instruction": instruction,
                         "step_id": step_id,
                         "seed": {"kind": kind, "text": text},
+                        **(
+                            {"reference": fresh.reference_answer}
+                            if fresh.reference_answer
+                            else {}
+                        ),
                         "workdraft": {
                             "body": current.body,
                             "sources": {
