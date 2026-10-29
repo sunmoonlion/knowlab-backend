@@ -141,6 +141,9 @@ class WorkdraftRecord:
     revision: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # 挑的数据的格式（资料编号 → 契约 DataFormat 的形状）：作者挑的时候凭本人令牌向
+    # knowbase 取下记着，平台人员发起的那一轮没有作者令牌也照样交得出去（第 8.2 节）
+    data_formats: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True)
@@ -483,8 +486,9 @@ class KnowlabRepository(Protocol):
         *,
         request_ids: Collection[uuid.UUID] | None = None,
         draft_id: uuid.UUID | None = None,
+        statuses: Collection[str] | None = None,
     ) -> Sequence[TestRecord]:
-        """按创意、编号排。"""
+        """按创意、编号排。statuses：只要这几种状态的（后台刷新取在跑的）。"""
         ...
 
     async def update_test(self, test_id: uuid.UUID, **changes: Any) -> None: ...
@@ -574,7 +578,10 @@ class KnowlabRepository(Protocol):
         body: dict[str, Any],
         sources: dict[str, Any],
         revision: int,
-    ) -> None: ...
+        data_formats: dict[str, Any] | None = None,
+    ) -> None:
+        """data_formats 给了才换（挑数据时记下的格式），不给照旧。"""
+        ...
 
     async def add_workdraft_entry(
         self,
@@ -611,8 +618,9 @@ class KnowlabRepository(Protocol):
         *,
         request_id: uuid.UUID | None = None,
         owner_subject: str | None = None,
+        statuses: Collection[str] | None = None,
     ) -> Sequence[IncubationRecord]:
-        """按第几轮排。"""
+        """按第几轮排。statuses：只要这几种状态的（后台刷新取没结束的）。"""
         ...
 
     async def update_incubation(
@@ -690,6 +698,29 @@ class RuntimeTestClient(Protocol):
 
     async def computers(self, runtime: str, subject: str) -> list[dict[str, Any]]:
         """用户接入过的电脑（SDD 0046 第三节）：名字、系统、在线与否、白名单根目录。"""
+        ...
+
+    async def model_key(self, runtime: str, subject: str) -> bool | None:
+        """用户在运行方填了能用的模型 key 没有（SDD 0046 第三节「没填不能发起」）：
+        True / False；运行方还没有这个接口回 None（说不准，不拦，跑起来照旧会停）。"""
+        ...
+
+
+class KnowbaseLibraryClient(Protocol):
+    """凭作者本人令牌读 knowbase（契约 user-data/v2，SDD 0043、0044）：知识库栏只列
+    作者展示给 knowlab 的资料，挑数据时取它们的格式（描述、读法），不取内容。
+
+    资料不在抛 NotFoundError（material_not_found），别的拒绝抛 BadGatewayError
+    （knowbase_refused），不可达抛 ServiceUnavailableError。"""
+
+    async def column(self, user_token: str) -> list[dict[str, Any]]:
+        """knowlab 栏：作者展示给 knowlab、自己还有使用权的资料（ShelfEntryRead）。"""
+        ...
+
+    async def renditions(
+        self, user_token: str, material_id: str, version_no: int
+    ) -> list[dict[str, Any]]:
+        """一份资料某一版的各种读法与就绪与否（RenditionRead）。"""
         ...
 
 

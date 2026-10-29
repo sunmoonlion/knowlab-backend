@@ -1,10 +1,11 @@
 """创意到专家的接口（SDD 0027、0037）。代码里仍叫 request、draft、knowbot。
 
-web端（用户会话），左边栏「申请 · 审核 · 专家」：申请（出创意 v1）、改创意（出新版本）、
-审核待办箱（转给自己的问题与孵化缺口、请自己审核的准专家、交回等自己定的专家）、专家（交回
-了的各版：要不要、停用）；名称的「孵化」栏里是工作稿（专家孵化方案：存格子、导入专家包
-与 skill、复制自己的、预览、出一版、AI 起草与按指令改的每一轮与接受建议）。不是自己的与
-没有的一样，都是 404。
+web端（用户会话），左边过程「申请 · 孵化 · 测试 · 交付 · 待办」、右边结果
+「专家 · 知识库」（SDD 0046 第六节）：申请（出创意 v1）、改创意（出新版本）、待办（转给
+自己的问题与孵化缺口、请自己审核的准专家、交回等自己定的专家）、专家（交回了的各版：
+要不要、停用）、知识库（凭本人令牌现取 knowbase 里展示给 knowlab 的资料）；名称的
+「孵化」栏里是工作稿（专家孵化方案：存格子、挑数据、导入专家包与 skill、复制自己的、
+预览、出一版、AI 起草与按指令改的每一轮与接受建议）。不是自己的与没有的一样，都是 404。
 
 管理端（管理员会话，我们的运营；admin、operator 现在能做的一样），左边栏
 「受理 · 孵化 · 测试 · 交付」：每栏的大类列表与「等我们」的数；受理（写受理单）、孵化
@@ -50,6 +51,7 @@ from app.application.services.knowbot_incubation import (
     DEFAULT_BUDGET,
     KnowbotIncubationService,
 )
+from app.application.services.knowbot_library import KnowbotLibraryService
 from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
@@ -60,6 +62,7 @@ from app.bootstrap.knowbots import (
     knowbot_board,
     knowbot_expert_service,
     knowbot_incubation_service,
+    knowbot_library_service,
     knowbot_platform_service,
     knowbot_proposal_service,
     knowbot_question_service,
@@ -163,7 +166,14 @@ def incubation_service(
     return knowbot_incubation_service(session)
 
 
+def library_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotLibraryService:
+    return knowbot_library_service(session)
+
+
 Service = Annotated[KnowbotCreationService, Depends(service)]
+Library = Annotated[KnowbotLibraryService, Depends(library_service)]
 Platform = Annotated[KnowbotPlatformService, Depends(platform_service)]
 Proposals = Annotated[KnowbotProposalService, Depends(proposal_service)]
 Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
@@ -328,9 +338,13 @@ async def revise(
 async def my_request(
     principal: User, svc: Service, board: Board, request_id: ItemId
 ) -> JSONResponse:
-    """自己的一个名称的详情页：各版创意与受理、准专家、测试、交回了的专家、记录。"""
+    """自己的一个名称的详情页：各版创意与受理、准专家、测试、交回了的专家、记录；平台在
+    问我什么（平台视图，SDD 0046 第四节）。"""
     life = await board.life(request_id, principal.subject)
-    return _ok(await _detail(life, svc, admin=False))
+    return _ok(
+        await _detail(life, svc, admin=False)
+        | {"platform_asks": await board.platform_asks(life)}
+    )
 
 
 @web_router.post("/knowbot-requests/{request_id}/consent", status_code=204)
@@ -523,6 +537,26 @@ async def refresh_my_test(
     return _ok({"test_id": str(test.id), "status": test.status})
 
 
+# ---------- web端：知识库栏（SDD 0046 第六节） ----------
+@web_router.get("/knowbot-library")
+async def my_library(
+    _: User, library: Library, user_token: KnowbaseToken
+) -> JSONResponse:
+    """知识库栏：我在 knowbase 展示给 knowlab 的资料（凭我本人的令牌现取，knowlab
+    不存）。在 knowbase 管，这里只列。"""
+    return _ok({"materials": await library.shown(user_token)})
+
+
+class DataPicksIn(BaseModel):
+    """工作稿里挑的数据：整份换成这几份（资料编号），空的就是都不要了。"""
+
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    picks: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
+        max_length=50
+    )
+
+
 # ---------- web端：工作稿（专家孵化方案第五至十一节） ----------
 class CellIn(BaseModel):
     """存一格：path 是格子路径（domain/knowbots/workdraft.py），value 为 null 是删。"""
@@ -635,6 +669,29 @@ async def copy_mine(
     return _ok(view | {"notes": notes})
 
 
+@web_router.put("/knowbot-requests/{request_id}/workdraft/data-picks")
+async def pick_data(
+    principal: User,
+    body: DataPicksIn,
+    library: Library,
+    workdrafts: Workdrafts,
+    user_token: KnowbaseToken,
+    request_id: ItemId,
+) -> JSONResponse:
+    """挑数据（专家孵化方案第 7.1 节）：只能从知识库栏里挑；挑的时候取下每份的格式
+    （描述、读法），AI 一轮交给模型的就是它，不给内容（第 8.2 节）。不在栏里的回 400
+    pick_not_shown；工作稿别处改过回 409 workdraft_revision。"""
+    found = await library.pick(
+        principal.subject,
+        request_id,
+        revision=body.revision,
+        picks=body.picks,
+        user_token=user_token,
+    )
+    request, _ = await workdrafts.get(principal.subject, request_id)
+    return _ok(workdraft_view(request, found, await workdrafts.origins(found)))
+
+
 @web_router.get("/knowbot-requests/{request_id}/workdraft/preview")
 async def preview_workdraft(
     principal: User, workdrafts: Workdrafts, request_id: ItemId
@@ -698,6 +755,13 @@ class IncubationIn(BaseModel):
     )
     environment_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     workspace_root: str | None = Field(default=None, min_length=1, max_length=1024)
+    # 带上最近一次测试的报告让 AI 改（只许 revise，专家孵化方案第 8.4 节）
+    with_test: bool = False
+
+
+class AcceptStepIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
 
 
 class DecisionIn(BaseModel):
@@ -743,6 +807,7 @@ async def start_incubation(
         budget_limit=body.budget_limit,
         environment_id=body.environment_id,
         workspace_root=body.workspace_root,
+        with_test=body.with_test,
     )
     return _ok(
         {"incubation": incubation_view(record, await incubations.gaps(record))},
@@ -812,6 +877,41 @@ async def decide_suggestion(
                 request, found, await workdrafts.origins(found)
             ),
             "incubation": incubation_view(record, await incubations.gaps(record)),
+        }
+    )
+
+
+@web_router.post(
+    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}"
+    "/steps/{step_id}/accept-all"
+)
+async def accept_step(
+    principal: User,
+    body: AcceptStepIn,
+    incubations: Incubations,
+    workdrafts: Workdrafts,
+    request_id: ItemId,
+    incubation_id: ItemId,
+    step_id: Annotated[str, Path(pattern=STEP_ID)],
+) -> JSONResponse:
+    """一键接受这一步的全部建议（专家孵化方案第 8.3 节）：出处核不上的、放不上去的跳过，
+    照旧待处理（skipped 里写着为什么）。工作稿别处改过回 409 workdraft_revision。"""
+    _, record, accepted, skipped = await incubations.accept_step(
+        principal.subject,
+        request_id,
+        incubation_id,
+        step_id,
+        revision=body.revision,
+    )
+    request, found = await workdrafts.get(principal.subject, request_id)
+    return _ok(
+        {
+            "workdraft": workdraft_view(
+                request, found, await workdrafts.origins(found)
+            ),
+            "incubation": incubation_view(record, await incubations.gaps(record)),
+            "accepted": accepted,
+            "skipped": skipped,
         }
     )
 

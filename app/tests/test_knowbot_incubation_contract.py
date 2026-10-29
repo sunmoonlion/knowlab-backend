@@ -209,6 +209,74 @@ def test_the_request_carries_only_formats_and_the_authors_own_material() -> None
             IncubationRequestV1.model_validate(wrong)
 
 
+REPORT = {
+    "number": 3,
+    "draft_version": "2.1",
+    "status": "failed",
+    "cases": [
+        {
+            "case_id": "c1",
+            "question": "分析 2025 年报",
+            "status": "failed",
+            "steps": [
+                {
+                    "step_id": "scan",
+                    "accepted": False,
+                    "failed_checks": ["sourced"],
+                    "details": ["毛利率对不上原表"],
+                }
+            ],
+            "expectations": [
+                {
+                    "artifact": "summary",
+                    "path": "gross_margin",
+                    "kind": "approx",
+                    "passed": False,
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_formats_carry_the_description_and_readings_and_revise_a_report() -> None:
+    """数据的格式加了描述与读法；「让 AI 改…」可以带最近一次测试的报告（第 8.4 节）。"""
+    fmt = {
+        "name": "2024 年报.pdf",
+        "media_type": "application/pdf",
+        "description": {"subject": "600519.SH", "doc_type": "annual_report"},
+        "readings": ["text", "pages"],
+    }
+    got = IncubationRequestV1.model_validate(
+        request(data_formats=[fmt], test_report=REPORT)
+    )
+    assert got.data_formats[0].readings == ("text", "pages")
+    assert got.test_report is not None and got.test_report.cases[0].steps[0].details
+    expectation = REPORT["cases"][0]["expectations"][0]
+    for wrong in (
+        request(action="draft", instruction=None, step_id=None, test_report=REPORT),
+        request(data_formats=[fmt | {"readings": ["正文"]}]),
+        request(data_formats=[fmt | {"description": {"content": "营业收入 100"}}]),
+        request(
+            test_report=REPORT
+            | {
+                "cases": [
+                    REPORT["cases"][0]
+                    | {"expectations": [expectation | {"value": 0.52}]}
+                ]
+            }
+        ),  # 期望值不给
+        request(test_report=REPORT | {"status": "running"}),
+    ):
+        with pytest.raises(ValidationError):
+            IncubationRequestV1.model_validate(wrong)
+    _require_contract()
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate(
+        got.model_dump(mode="json"), _schema("incubation-request.schema.json")
+    )
+
+
 def test_a_round_hands_back_only_on_success_and_says_what_it_waits_for() -> None:
     assert IncubationResultV1.model_validate(result()).final
     assert not IncubationResultV1.model_validate(result("queued")).final

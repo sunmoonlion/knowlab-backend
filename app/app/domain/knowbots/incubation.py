@@ -14,7 +14,8 @@ knowlab 定，运行方实现。作者点「AI 起草」或「让 AI 改…」�
 
 交过去的只有契约列死的字段（0029 第 6.4 节）：动作与作者的那句指令、创意原文、
 当前工作稿（含作者改过和确认过的格子与每格出处）、答过的缺口、作者挑的数据的
-**格式**（名字、表名、列标签、行标签，不给内容）、费用上限与在哪台电脑上跑。
+**格式**（名字、文件类型、描述、读法、表名、列标签、行标签，不给内容）、作者勾了才带
+的最近一次测试报告（只有每一步的结果，第 8.4 节）、费用上限与在哪台电脑上跑。
 运行方交给模型的也只有这些，不读作者数据的内容，不看别的用户的任何东西。
 
 交回来的四样（第 8.2 节）：出处表、缺口表、建议、自查。建议**不直接改工作稿**，
@@ -27,6 +28,7 @@ knowlab 定，运行方实现。作者点「AI 起草」或「让 AI 改…」�
 from __future__ import annotations
 
 import json
+import re
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -41,6 +43,8 @@ ANSWER_ID = r"^[A-Za-z0-9._:-]{1,128}$"
 # 缺口、建议在这一轮交回里的编号
 ITEM_ID = r"^[A-Za-z0-9_-]{1,32}$"
 MAX_REQUEST_BYTES = 1_000_000
+# 读法的种类名（knowbase 的 rendition kind：text、pages、tables ……）
+_READING = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 _STEP = STEP_ID[1:-1]
 _CELL = CELL_ID[1:-1]
@@ -112,12 +116,79 @@ class TableFormat(Strict):
         return self
 
 
+class DataDescription(Strict):
+    """一份数据在 knowbase 里的描述（0049 的几维：主体、类型、期间、格式、语言）。是
+    描述，不是内容；作者自己确认过或系统识别的，照 knowbase 给的转过来。"""
+
+    subject: str | None = Field(default=None, max_length=64)
+    doc_type: str | None = Field(default=None, max_length=64)
+    period_start: str | None = Field(default=None, max_length=10)  # ISO 日期
+    period_end: str | None = Field(default=None, max_length=10)
+    data_format: str | None = Field(default=None, max_length=64)
+    language: str | None = Field(default=None, max_length=16)
+
+
 class DataFormat(Strict):
-    """作者挑的一份数据的格式：名字与各表的表名、列标签、行标签，不含内容
-    （0029 第 6.4 节）。"""
+    """作者挑的一份数据的格式（0029 第 6.4 节、专家孵化方案第 8.2 节）：名字、文件类型、
+    描述的几维、有哪几种读法（正文、按页文字、表格……已就绪的），各表的表名、列标签、
+    行标签；不含内容。knowbase 现在不给本人读表头的接口，tables 先空着。"""
 
     name: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="", max_length=128)
+    description: DataDescription = DataDescription()
+    readings: tuple[str, ...] = Field(default=(), max_length=10)
     tables: tuple[TableFormat, ...] = Field(default=(), max_length=50)
+
+    @model_validator(mode="after")
+    def _reading_names(self) -> DataFormat:
+        if any(not _READING.fullmatch(r) for r in self.readings):
+            raise ValueError("a reading is a short lowercase name")
+        return self
+
+
+class LatestTestStep(Strict):
+    """报告里一步的结果：过没过、没过的验收名、一条一句为什么没过（同测试契约）。"""
+
+    step_id: str = Field(min_length=1, max_length=128)
+    accepted: bool
+    failed_checks: tuple[str, ...] = Field(default=(), max_length=64)
+    details: tuple[str, ...] = Field(default=(), max_length=64)
+
+    @model_validator(mode="after")
+    def _short(self) -> LatestTestStep:
+        if any(len(x) > 200 for x in (*self.failed_checks, *self.details)):
+            raise ValueError("each check name and detail is at most 200 characters")
+        return self
+
+
+class LatestTestExpectation(Strict):
+    """作者给这条用例定的一条期望核没核上：哪个交回物的哪一项、怎么比。期望值本身
+    不给：模型照着期望值改方法，等于把答案写进规则。"""
+
+    artifact: str = Field(min_length=1, max_length=128)
+    path: str = Field(min_length=1, max_length=256)
+    kind: Literal["equals", "approx", "contains"]
+    passed: bool
+
+
+class LatestTestCase(Strict):
+    case_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")
+    question: str = Field(min_length=1, max_length=4000)  # 作者写的测试问题
+    status: Literal["passed", "failed", "needs_human", "error"]
+    steps: tuple[LatestTestStep, ...] = Field(default=(), max_length=200)
+    expectations: tuple[LatestTestExpectation, ...] = Field(default=(), max_length=64)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class LatestTest(Strict):
+    """最近一次有结论的测试的报告（专家孵化方案第 8.4 节「带上测试报告让 AI 改」，0029
+    第三节第 5 步）：第几次、测的是准专家第几版、通过没有、每条用例每一步的结果。只有
+    报告：成稿、各步交回物、测试数据都不给（0029 第 6.4 节，模型不看数据的内容）。"""
+
+    number: int = Field(ge=1)
+    draft_version: str = Field(min_length=1, max_length=32)
+    status: Literal["passed", "failed"]
+    cases: tuple[LatestTestCase, ...] = Field(default=(), max_length=50)
 
 
 class Budget(Strict):
@@ -166,6 +237,8 @@ class IncubationRequestV1(Strict):
     workdraft: Workdraft = Workdraft()
     answers: tuple[AnsweredGap, ...] = Field(default=(), max_length=200)
     data_formats: tuple[DataFormat, ...] = Field(default=(), max_length=200)
+    # 作者点「让 AI 改…」时勾了「带上测试报告」才有（专家孵化方案第 8.4 节）
+    test_report: LatestTest | None = Field(default=None, exclude_if=lambda v: v is None)
     budget: Budget
     timeout_seconds: int = Field(ge=60, le=86400)
     runner: Runner
@@ -174,6 +247,8 @@ class IncubationRequestV1(Strict):
     def _instruction_with_revise(self) -> IncubationRequestV1:
         if (self.action == "revise") != (self.instruction is not None):
             raise ValueError("revise needs the author's instruction, draft has none")
+        if self.test_report is not None and self.action != "revise":
+            raise ValueError("only revise carries a test report")
         if self.step_id is not None:
             if self.action != "revise":
                 raise ValueError("only revise names a step")

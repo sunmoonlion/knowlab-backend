@@ -8,20 +8,25 @@
   才发，不自动接着跑（钱是他的）。费用上限作者设（默认 20 元）；电脑与目录不给就用上次的
   （上次自助测试或上次孵化，晚的那次），没有回 409 author_has_no_computer。同一份工作稿
   同时只许一轮没结束（409 incubation_running）。交出去的：创意最新一版拼成的种子、当前
-  工作稿与每格出处、作者答过的孵化缺口（问题、提议、答复）、费用上限与超时、在哪跑。
-  作者挑的数据的格式（data_formats）这一步给空：knowlab 还没有读 knowbase 资料格式的路。
-- 取回：页面轮询时刷新一次（同自助测试）：问运行方，记状态、花费、委托号；成了存交回，
-  核出处（incubation_rounds.review），缺口写进问题表（kind gap，归作者本人，进审核栏）。
+  工作稿与每格出处、作者答过的孵化缺口（问题、提议、答复）、作者挑的数据的格式（挑的时候
+  记在工作稿上，knowbot_library）、作者勾了才带的最近一次测试报告（第 8.4 节）、费用上限
+  与超时、在哪跑。作者在 knowbench 还没填模型 key 的发起前就拦（409 model_key_missing，
+  SDD 0046 第三节）。
+- 取回：页面轮询时刷新一次（同自助测试），后台每分钟也刷一次没结束的（作者不开页面也
+  更新，tasks/knowbot_refresh）：问运行方，记状态、花费、委托号；成了存交回，核出处
+  （incubation_rounds.review），缺口写进问题表（kind gap，归作者本人，进待办）。
 - 取消：没结束的交运行方取消，记它回的状态。
 - 接受建议（第 8.3 节）：接受 / 改了再接受 / 不要。接受照 op 改工作稿，改动到的每一格记
   一条接受记录（suggestion_ref = 孵化号:建议号），出处按引到的那一行：创意原句记
   `user_text`（idea 引用），答过的缺口记 `user_confirmed`（question 引用），提议记
   `user_confirmed`（引接受记录）；改了再接受的每格记一条编辑记录，出处 `user_text`。出处
-  核不上的只能改了再接受。带 revision，对不上 409（同工作稿）。
+  核不上的只能改了再接受。带 revision，对不上 409（同工作稿）。一步的全部建议可以
+  一键接受（accept_step），核不上的、放不上去的跳过。
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -44,10 +49,11 @@ from app.application.ports.knowbots import (
     QuestionRecord,
     RequestRecord,
     RuntimeTestClient,
+    TestRecord,
     WorkdraftRecord,
 )
 from app.application.services.knowbot_grants import live_incubation
-from app.application.services.knowbot_service import parse_id
+from app.application.services.knowbot_service import parse_id, require_model_key
 from app.application.services.knowbot_workdraft import (
     AUTHOR,
     KnowbotWorkdraftService,
@@ -68,9 +74,18 @@ from app.domain.knowbots.incubation_rounds import (
     seed_of,
     source_of,
 )
-from app.domain.knowbots.workdraft import cells, empty_body, idea_ref
+from app.domain.knowbots.lifecycle import draft_label
+from app.domain.knowbots.workdraft import (
+    WorkdraftBody,
+    cells,
+    empty_body,
+    idea_ref,
+)
+
+log = logging.getLogger(__name__)
 
 DEFAULT_BUDGET = "20"  # 元（0029 第 6.5 节的提议，第 8.2 节）
+REFRESH_BATCH = 200  # 后台一次最多刷新几轮（多的下一次再刷）
 DEFAULT_TIMEOUT_SECONDS = 3600  # 同自助测试的默认
 PROPOSAL = "proposal"  # 缺口答「按提议」的选项编号
 AS_PROPOSED = "按提议"
@@ -174,6 +189,8 @@ class KnowbotIncubationService:
         return {
             "computers": await self.runtimes.computers(request.runtime, owner_subject),
             "last": await self._last(owner_subject),
+            # 模型 key 填了没有：没填页面先拦（SDD 0046 第三节），None 是说不准
+            "model_key": await self.runtimes.model_key(request.runtime, owner_subject),
         }
 
     async def _runner(
@@ -234,8 +251,12 @@ class KnowbotIncubationService:
         workspace_root: str | None = None,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
         mode: str = "self",
+        with_test: bool = False,
     ) -> IncubationRecord:
-        """发起一轮：先记下（排队），再交运行方；交不出去的记失败，照样报错。"""
+        """发起一轮：先记下（排队），再交运行方；交不出去的记失败，照样报错。
+
+        with_test：带上最近一次有结论的测试的报告（只许「让 AI 改…」，第 8.4 节）；
+        这个名称还没有测出结论的回 409 test_report_missing。"""
         request = await self._request(owner_subject, request_id)
         if action not in ("draft", "revise"):
             raise BadRequestError("Draft or revise", code="incubation_invalid")
@@ -247,6 +268,10 @@ class KnowbotIncubationService:
         if step_id is not None and action != "revise":
             raise BadRequestError(
                 "Only revise names a step", code="instruction_invalid"
+            )
+        if with_test and action != "revise":
+            raise BadRequestError(
+                "Only revise carries a test report", code="instruction_invalid"
             )
         try:
             if Decimal(budget_limit) <= 0:
@@ -260,7 +285,9 @@ class KnowbotIncubationService:
                 "Incubation on knowbench is not configured",
                 code="incubation_unconfigured",
             )
+        await require_model_key(self.runtimes, request)
         runner = await self._runner(request, environment_id, workspace_root)
+        report = await self._latest_test(request) if with_test else None
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
             current = await self.repo.get_workdraft(request.id, for_update=True)
@@ -324,9 +351,14 @@ class KnowbotIncubationService:
                             }
                             for q in answered
                         ],
-                        # 作者挑的数据的格式：knowlab 还没有读 knowbase 资料格式
-                        # 的路，先空着
-                        "data_formats": [],
+                        # 作者挑的数据的格式：挑的时候凭本人令牌取下记在工作稿上
+                        # （knowbot_library.pick），只给格式不给内容
+                        "data_formats": [
+                            current.data_formats[pick]
+                            for pick in body.data_picks
+                            if isinstance(current.data_formats.get(pick), dict)
+                        ],
+                        **({"test_report": report} if report is not None else {}),
                         "budget": {"limit": budget_limit},
                         "timeout_seconds": timeout_seconds,
                         "runner": {"kind": "user", **runner},
@@ -373,6 +405,88 @@ class KnowbotIncubationService:
         found = await self.repo.get_incubation(record.id)
         assert found is not None
         return found
+
+    async def _latest_test(self, request: RequestRecord) -> dict[str, Any]:
+        """最近一次有结论（通过或没通过）的测试的报告（契约 LatestTest）：每条用例的
+        测试问题、每一步过没过与为什么、期望核没核上（不带期望值）。"""
+        finished: list[TestRecord] = [
+            t
+            for t in await self.repo.list_tests(request_ids=[request.id])
+            if t.status in ("passed", "failed") and t.report
+        ]
+        if not finished:
+            raise _conflict(
+                "This knowbot has no finished test yet", "test_report_missing"
+            )
+        test = max(finished, key=lambda t: t.number)
+        draft = await self.repo.get_draft(test.draft_id)
+        version = (
+            None
+            if draft is None
+            else await self.repo.get_version(request.id, draft.request_version)
+        )
+        given = {str(c.get("case_id")): c for c in (version.cases if version else [])}
+        cases = []
+        for case in (test.report or {}).get("cases") or []:
+            asked = given.get(str(case.get("case_id"))) or {}
+            question = str((asked.get("input") or {}).get("question") or "")
+            wanted = list(asked.get("expectations") or [])
+            cases.append(
+                {
+                    "case_id": case.get("case_id"),
+                    "question": question or "—",
+                    "status": case.get("status"),
+                    "steps": [
+                        {
+                            "step_id": step.get("step_id"),
+                            "accepted": step.get("accepted"),
+                            "failed_checks": list(step.get("failed_checks") or []),
+                            "details": list(step.get("details") or []),
+                        }
+                        for step in case.get("steps") or []
+                    ],
+                    "expectations": [
+                        {
+                            "artifact": e.get("artifact"),
+                            "path": e.get("path"),
+                            "kind": e.get("kind"),
+                            "passed": bool(passed),
+                        }
+                        for e, passed in zip(
+                            wanted, case.get("expectations") or [], strict=False
+                        )
+                        if isinstance(e, dict)
+                    ],
+                    "note": case.get("note"),
+                }
+            )
+        return {
+            "number": test.number,
+            "draft_version": draft_label(draft.version, draft.revision)
+            if draft
+            else "—",
+            "status": test.status,
+            "cases": cases,
+        }
+
+    async def refresh_active(self) -> int:
+        """后台定时刷新（第 8.2 节第 5 条「同测试的轮询」，作者不开页面也更新）：没结束
+        的每一轮问一次运行方，成了的存交回、核出处、缺口进待办。一轮出错记一条日志，
+        不挡别的。回刷新了几轮。"""
+        done = 0
+        rounds = await self.repo.list_incubations(statuses=ACTIVE_ROUNDS)
+        for record in rounds[:REFRESH_BATCH]:
+            try:
+                await self._take(record.id, await self.incubator.status(record.run_id))
+            except AppException as exc:
+                log.warning(
+                    "incubation round not refreshed incubation=%s code=%s",
+                    record.id,
+                    exc.code,
+                )
+                continue
+            done += 1
+        return done
 
     async def operator_start(
         self,
@@ -559,6 +673,29 @@ class KnowbotIncubationService:
         revision: int,
         value: Any,
     ) -> tuple[WorkdraftRecord, list[str]]:
+        current = await self.workdrafts.locked(request, revision)
+        body, sources, made = await self._apply_to(
+            current,
+            parse_body(current.body),
+            dict(current.sources),
+            record,
+            suggestion,
+            action,
+            value,
+        )
+        return await self.workdrafts.store(current, body, sources), made
+
+    async def _apply_to(
+        self,
+        current: WorkdraftRecord,
+        start: WorkdraftBody,
+        start_sources: dict[str, Any],
+        record: IncubationRecord,
+        suggestion: Suggestion,
+        action: str,
+        value: Any,
+    ) -> tuple[WorkdraftBody, dict[str, Any], list[str]]:
+        """把一条建议放到 start 这一份上（还没存）：回改后的格子、出处与记下的记录。"""
         checked = (record.review or {}).get(suggestion.id) or {}
         if action == "accept" and not checked.get("verified"):
             raise _conflict(
@@ -576,17 +713,18 @@ class KnowbotIncubationService:
                 value = suggestion.value
         else:
             value = suggestion.value
-        current = await self.workdrafts.locked(request, revision)
         try:
-            doc = apply_suggestion(current.body, suggestion.path, suggestion.op, value)
+            doc = apply_suggestion(
+                start.model_dump(mode="json"), suggestion.path, suggestion.op, value
+            )
         except ValueError as exc:
             raise BadRequestError(
                 f"Cannot apply it to the workdraft: {exc}"[:500],
                 code="suggestion_not_applicable",
             ) from None
         body = parse_body(doc)
-        before, after = cells(parse_body(current.body)), cells(body)
-        sources = {p: s for p, s in current.sources.items() if p in after}
+        before, after = cells(start), cells(body)
+        sources = {p: s for p, s in start_sources.items() if p in after}
         handback = Handback.model_validate(record.handback or {})
         rows = related(handback.sources, suggestion.path)
         made: list[str] = []
@@ -632,4 +770,63 @@ class KnowbotIncubationService:
                 sources[path] = {"kind": "user_confirmed", "ref": f"question:{row.ref}"}
             else:
                 sources[path] = {"kind": "user_confirmed", "ref": f"record:{entry.id}"}
-        return await self.workdrafts.store(current, body, sources), made
+        return body, sources, made
+
+    async def accept_step(
+        self,
+        owner_subject: str,
+        request_id: str,
+        incubation_id: str,
+        step_id: str,
+        *,
+        revision: int,
+    ) -> tuple[WorkdraftRecord, IncubationRecord, list[str], list[dict[str, str]]]:
+        """一键接受一步的全部建议（第 8.3 节）：这一轮里落在这一步上（整步、它的格子，
+        含加这一步）、还没处理的建议，按交回的次序逐条原样接受，出处同逐条接受。出处
+        核不上的（只能改了再接受）、放不上去的跳过、照旧待处理；一条都没接受上不改工作稿。
+        回（工作稿，这一轮，接受了的，跳过的 {id, code}）。"""
+        request, record = await self.mine(owner_subject, request_id, incubation_id)
+        if record.status != "succeeded":
+            raise _conflict("This round handed nothing back", "incubation_state")
+        here = f"steps/{step_id}"
+        accepted: list[str] = []
+        skipped: list[dict[str, str]] = []
+        async with self.repo.transaction():
+            await self.repo.lock_request(request.id)
+            fresh = await self.repo.get_incubation(record.id, for_update=True)
+            assert fresh is not None
+            current = await self.workdrafts.locked(request, revision)
+            body = parse_body(current.body)
+            sources: dict[str, Any] = dict(current.sources)
+            decisions = dict(fresh.decisions)
+            handback = Handback.model_validate(fresh.handback or {})
+            for suggestion in handback.suggestions:
+                if suggestion.id in decisions or not (
+                    suggestion.path == here or suggestion.path.startswith(here + "/")
+                ):
+                    continue
+                if not ((fresh.review or {}).get(suggestion.id) or {}).get("verified"):
+                    skipped.append(
+                        {"id": suggestion.id, "code": "suggestion_unverified"}
+                    )
+                    continue
+                try:
+                    body, sources, made = await self._apply_to(
+                        current, body, sources, fresh, suggestion, "accept", None
+                    )
+                except AppException as exc:
+                    skipped.append({"id": suggestion.id, "code": exc.code})
+                    continue
+                decisions[suggestion.id] = {
+                    "state": "accepted",
+                    "at": self.now().isoformat(),
+                    "records": made,
+                }
+                accepted.append(suggestion.id)
+            stored = current
+            if accepted:
+                stored = await self.workdrafts.store(current, body, sources)
+                await self.repo.update_incubation(fresh.id, decisions=decisions)
+        found = await self.repo.get_incubation(record.id)
+        assert found is not None
+        return stored, found, accepted, skipped

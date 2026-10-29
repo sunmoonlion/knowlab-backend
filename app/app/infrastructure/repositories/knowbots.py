@@ -215,6 +215,7 @@ def _workdraft(row: KnowbotWorkdraft) -> WorkdraftRecord:
         revision=row.revision,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        data_formats=row.data_formats or {},
     )
 
 
@@ -801,12 +802,15 @@ class SqlKnowlabRepository:
         *,
         request_ids: Collection[uuid.UUID] | None = None,
         draft_id: uuid.UUID | None = None,
+        statuses: Collection[str] | None = None,
     ) -> Sequence[TestRecord]:
         query = select(KnowbotTest).order_by(KnowbotTest.request_id, KnowbotTest.number)
         if request_ids is not None:
             query = query.where(KnowbotTest.request_id.in_(request_ids))
         if draft_id is not None:
             query = query.where(KnowbotTest.draft_id == draft_id)
+        if statuses is not None:
+            query = query.where(KnowbotTest.status.in_(list(statuses)))
         rows = (
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalars()
@@ -1179,6 +1183,7 @@ class SqlKnowlabRepository:
         *,
         request_id: uuid.UUID | None = None,
         owner_subject: str | None = None,
+        statuses: Collection[str] | None = None,
     ) -> Sequence[IncubationRecord]:
         query = select(KnowbotIncubation).order_by(
             KnowbotIncubation.request_id, KnowbotIncubation.round
@@ -1187,6 +1192,8 @@ class SqlKnowlabRepository:
             query = query.where(KnowbotIncubation.request_id == request_id)
         if owner_subject is not None:
             query = query.where(KnowbotIncubation.owner_subject == owner_subject)
+        if statuses is not None:
+            query = query.where(KnowbotIncubation.status.in_(list(statuses)))
         rows = (
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalars()
@@ -1311,11 +1318,19 @@ class SqlKnowlabRepository:
         body: dict[str, Any],
         sources: dict[str, Any],
         revision: int,
+        data_formats: dict[str, Any] | None = None,
     ) -> None:
+        values: dict[str, Any] = {
+            "body": body,
+            "sources": sources,
+            "revision": revision,
+        }
+        if data_formats is not None:
+            values["data_formats"] = data_formats
         await self.session.execute(
             update(KnowbotWorkdraft)
             .where(KnowbotWorkdraft.id == workdraft_id)
-            .values(body=body, sources=sources, revision=revision)
+            .values(**values)
         )
 
     async def add_workdraft_entry(

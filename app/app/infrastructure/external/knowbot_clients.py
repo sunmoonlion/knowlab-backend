@@ -32,7 +32,7 @@ from app.infrastructure.external.service_client import ServiceClient, service_re
 
 RUNTIME = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 TEST_RUNS = "/test-runs"  # 接在运行方入口 /api/internal/v1/knowbot-runtime 后面
-USERS = "/users"  # 同上：用户接入过的电脑
+USERS = "/users"  # 同上：用户接入过的电脑、模型 key 填了没有
 INCUBATIONS = "/incubations"  # 同上：孵化的一轮
 INCUBATOR = "knowbench"
 
@@ -117,6 +117,23 @@ class RuntimeTestClients:
         )
         found = body.get("computers") if isinstance(body, dict) else None
         return [c for c in found or [] if isinstance(c, dict)]
+
+    async def model_key(self, runtime: str, subject: str) -> bool | None:
+        """用户填了能用的模型 key 没有（SDD 0046 第三节「没填不能发起」）：运行方的
+        `GET /users/{subject}/readiness` 回 `{"model_key": true|false}`。运行方还没有
+        这个接口（404）回 None：说不准就不拦，跑起来照旧会停在「没有沙箱」。"""
+        status, body = await self._client(runtime).request(
+            "GET", f"{USERS}/{quote(subject, safe='')}/readiness", accept=(404,)
+        )
+        if status == 404:
+            return None
+        found = body.get("model_key") if isinstance(body, dict) else None
+        if not isinstance(found, bool):
+            raise BadGatewayError(
+                "The runtime answered readiness without model_key",
+                code="runtime_readiness_invalid",
+            )
+        return found
 
     async def outputs(
         self, runtime: str, run_id: str, case_id: str

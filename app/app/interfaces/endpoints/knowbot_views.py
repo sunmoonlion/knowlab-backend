@@ -244,6 +244,8 @@ def life_view(life: Life, *, admin: bool) -> dict[str, Any]:
         # 同意的是第几版测试数据说明；低于现行版的，产出不取不显示（SDD 0037）
         "consent_version": request.consent_version,
         "consent_current": CONSENT_VERSION,
+        # 现在的孵化是自助还是平台（web端孵化栏按它分，SDD 0046 第六节）
+        "incubation_mode": request.incubation_mode,
     }
     if admin:
         view["owner_subject"] = request.owner_subject
@@ -363,6 +365,7 @@ def workdraft_view(
             "body": empty_body(),
             "sources": {},
             "origins": {},
+            "data_formats": {},
             "updated_at": None,
         }
     return {
@@ -372,6 +375,12 @@ def workdraft_view(
         "body": workdraft.body,
         "sources": workdraft.sources,
         "origins": origins or {},
+        # 挑的数据的格式（挑的时候记下的，页面显示名字与描述；只是格式，不是内容）
+        "data_formats": {
+            pick: workdraft.data_formats[pick]
+            for pick in (workdraft.body.get("data_picks") or [])
+            if pick in workdraft.data_formats
+        },
         "updated_at": iso(workdraft.updated_at),
     }
 

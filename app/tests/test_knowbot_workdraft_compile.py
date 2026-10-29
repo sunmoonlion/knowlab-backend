@@ -510,6 +510,21 @@ def test_a_foreign_pack_keeps_its_method_text_as_what_the_step_does() -> None:
     assert pack_problems(again["pack"]) == []
 
 
+def test_missing_data_is_neither_compiled_checked_in_nor_imported() -> None:
+    """「缺数据的需求」随 knowbench 那一套删了（decisions 10-29「发版前补齐」①）：
+    编出的清单不带 missing_data，草稿检查当不认识的字段，导入也不收（⑰）。"""
+    doc, problems = build()
+    assert problems == []
+    assert all("missing_data" not in step for step in doc["pack"]["workflow"])
+    doc["pack"]["workflow"][0]["missing_data"] = "ask"
+    assert any(
+        p.path.endswith(".missing_data") and p.message == "unknown field"
+        for p in pack_problems(doc["pack"])
+    )
+    with pytest.raises(ValueError, match="missing_data"):
+        decompile(doc)
+
+
 def test_a_method_text_that_does_not_parse_back_stays_whole() -> None:
     manifest, _ = build()
     text = manifest["pack"]["workflow"][0]["method_text"]

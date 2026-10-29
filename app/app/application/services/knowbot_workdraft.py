@@ -160,6 +160,12 @@ class KnowbotWorkdraftService:
             raise BadRequestError(
                 f"Save 1 to {MAX_EDITS} cells at a time", code="workdraft_invalid"
             )
+        if any(path == "data_picks" for path, _ in edits):
+            # 挑数据走 knowbot_library.pick：要核每一份都在知识库栏里，并记下格式
+            raise BadRequestError(
+                "Pick data from the knowledge column, not as a cell",
+                code="workdraft_path_invalid",
+            )
         request = await self._request(owner_subject, request_id)
         async with self.repo.transaction():
             current = await self.locked(request, revision)

@@ -106,6 +106,7 @@ if os.environ.get("CELERY_BROKER_URL"):
 
 import app.tasks.durable_delivery  # noqa: E402, F401 — shared durable transport
 import app.tasks.knowbot_outputs  # noqa: E402, F401 — 测试产出到期清理（SDD 0037）
+import app.tasks.knowbot_refresh  # noqa: E402, F401 — 孵化一轮与测试的后台刷新（0046）
 import app.tasks.knowbot_unlisted  # noqa: E402, F401 — 空号结局补发（SDD 0037）
 import app.tasks.ping  # noqa: E402, F401 — register tasks
 
@@ -120,4 +121,5 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.knowbot_unlisted.resend",
         "schedule": 300.0,
     },
+    "knowbot-refresh": {"task": "app.tasks.knowbot_refresh.sweep", "schedule": 60.0},
 }

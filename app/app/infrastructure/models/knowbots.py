@@ -506,6 +506,10 @@ class KnowbotWorkdraft(TimestampMixin, Base):
         JSONB, nullable=False, server_default="{}"
     )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # 挑的数据的格式：资料编号 → 契约 DataFormat（挑的时候凭作者本人令牌取下）
+    data_formats: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
 
     __table_args__ = (
         UniqueConstraint("request_id", name="uq_knowbot_workdraft_request"),

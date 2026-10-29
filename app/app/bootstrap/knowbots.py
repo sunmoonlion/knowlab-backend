@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_incubation import KnowbotIncubationService
+from app.application.services.knowbot_library import KnowbotLibraryService
 from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import KnowbotQuestionService
@@ -17,6 +18,7 @@ from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.external.knowbase_data_v2 import KnowbaseDataV2
+from app.infrastructure.external.knowbase_library import KnowbaseLibrary
 from app.infrastructure.external.knowbot_clients import (
     KnowbenchIncubationClient,
     KnowmartDeliveryClient,
@@ -91,6 +93,18 @@ def knowbot_incubation_service(session: AsyncSession) -> KnowbotIncubationServic
     return KnowbotIncubationService(
         SqlKnowlabRepository(session), incubation_client(), runtime_clients()
     )
+
+
+@lru_cache(maxsize=1)
+def knowbase_library() -> KnowbaseLibrary:
+    """凭作者本人令牌读 knowbase 的知识库栏与读法（没配 KNOWBASE_INTERNAL_URL 时调用回
+    503 knowbase_unconfigured）。"""
+    return KnowbaseLibrary()
+
+
+def knowbot_library_service(session: AsyncSession) -> KnowbotLibraryService:
+    """知识库栏、工作稿里挑数据（SDD 0046 第六节，专家孵化方案第 7.1、8.2 节）。"""
+    return KnowbotLibraryService(SqlKnowlabRepository(session), knowbase_library())
 
 
 def knowbot_board(session: AsyncSession) -> KnowbotBoard:

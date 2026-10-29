@@ -98,8 +98,22 @@ class Settings(BaseSettings):
     web_frontend_base_url: str = "http://localhost:3000"
     web_frontend_allowed_origins: str | None = None
     web_auth_default_return_to: str = "/zh-CN/dashboard"
-    web_auth_allowed_return_paths: str = (
-        "/zh-CN/dashboard,/en/dashboard,/zh-CN/login,/en/login"
+    # 登录完能回到的页：首页、登录页与 web端各栏（SDD 0046 第六节）、名称页
+    web_auth_allowed_return_paths: str = ",".join(
+        f"/{locale}/{page}"
+        for page in (
+            "dashboard",
+            "login",
+            "applications",
+            "incubation",
+            "tests",
+            "delivery",
+            "review",
+            "experts",
+            "knowledge",
+            "names",
+        )
+        for locale in ("zh-CN", "en")
     )
     web_frontend_default_locale: str = "zh-CN"
 

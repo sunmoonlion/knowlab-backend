@@ -570,7 +570,6 @@ STEP_KEYS = frozenset(
         "mode",
         "reserve",
         "input_max_chars",
-        "missing_data",
         "tool_policy",
         "ask_before",
         "output_file",
@@ -861,7 +860,6 @@ def _check_of(
 
 
 DROPPED_STEP_KEYS = (
-    "missing_data",
     "tool_policy",
     "max_backs",
     "mode",
@@ -895,6 +893,12 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         sid = raw.get("step_id")
         if not isinstance(sid, str) or not _STEP.match(sid):
             raise ValueError(f"step {index + 1} has no usable step_id")
+        unknown = sorted(set(raw) - STEP_KEYS)
+        if unknown:
+            # 收下的清单同编出的一样只认清单 v2 的步骤字段；`missing_data`（缺数据
+            # 的需求）随 knowbench 那一套删了（decisions 10-29「发版前补齐」①），
+            # 不留兼容（⑰）
+            raise ValueError(f"step {sid} has unknown fields: {', '.join(unknown[:5])}")
         text = str(raw.get("method_text") or "")
         uses = [artifacts[a] for a in raw.get("input_refs") or [] if a in artifacts]
         if len(uses) != len(raw.get("input_refs") or []):

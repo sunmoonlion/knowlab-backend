@@ -19,9 +19,7 @@ def production_settings(**overrides: object) -> Settings:
         "admin_frontend_allowed_origins": "https://admin.example.test",
         "web_casdoor_client_id": "knowlab-web-client",
         "web_casdoor_client_secret": "web-test-secret",
-        "web_casdoor_redirect_uri": (
-            "https://web.example.test/api/auth/web/callback"
-        ),
+        "web_casdoor_redirect_uri": ("https://web.example.test/api/auth/web/callback"),
         "web_frontend_base_url": "https://web.example.test",
         "web_frontend_allowed_origins": "https://web.example.test",
         "allowed_hosts": "admin.example.test,web.example.test",
@@ -109,11 +107,21 @@ def test_redirect_paths_and_origins_are_exact() -> None:
 def test_web_return_to_allowlist_and_admin_root_policy_are_explicit() -> None:
     settings = production_settings()
     assert settings.browser_profile("admin").allowed_return_paths == ("/",)
-    assert settings.browser_profile("web").allowed_return_paths == (
-        "/zh-CN/dashboard",
-        "/en/dashboard",
-        "/zh-CN/login",
-        "/en/login",
+    # 首页、登录页与 web端各栏、名称页（SDD 0046 第六节），两种语言
+    pages = (
+        "dashboard",
+        "login",
+        "applications",
+        "incubation",
+        "tests",
+        "delivery",
+        "review",
+        "experts",
+        "knowledge",
+        "names",
+    )
+    assert settings.browser_profile("web").allowed_return_paths == tuple(
+        f"/{locale}/{page}" for page in pages for locale in ("zh-CN", "en")
     )
     with pytest.raises(ValueError, match="must match"):
         production_settings(

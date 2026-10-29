@@ -15,6 +15,7 @@
   编号。通过即出专家，版本号就是准专家的 x；x 已经出过专家的准专家不许再测（再孵化）。
 
 发起测试先建测试、把准专家标成测试中并提交，再调运行方；运行方按 run_id 幂等，重试安全。
+页面轮询时刷新，后台每分钟也刷一次在跑的（作者不开页面也更新，tasks/knowbot_refresh）。
 刷新时，跑完了的用例各取一次产出——成稿与各步交回物（SDD 0037）：运营看来验证这一稿，用户
 只看自己的。取不到的下次刷新再取；运行方说没有的记一句原因，不再取。
 """
@@ -94,10 +95,24 @@ GRANT_MAX_SECONDS = 14 * 24 * 3600
 # 一个问题最多等多久（所有者定 3 天）；过了运行方把那条用例记 needs_human
 MAX_WAIT_SECONDS = 3 * 24 * 3600
 MAX_VERSIONS = 200  # 一个创意最多改这么多版
+REFRESH_BATCH = 200  # 后台一次最多刷新几个测试（多的下一次再刷）
 
 
 def _conflict(message: str, code: str) -> ConcurrencyConflictError:
     return ConcurrencyConflictError(message, code=code)
+
+
+async def require_model_key(
+    runtimes: RuntimeTestClient, request: RequestRecord
+) -> None:
+    """作者在 knowbench 还没填模型 key：发起前就拦（SDD 0046 第三节「模型 key 用他在
+    knowbench 填的，没填不能发起」）。测试与孵化一轮都在作者的账号下、用他的 key 跑
+    （decisions ⑯），平台发起的也一样拦。运行方说不准（还没有这个接口）不拦，跑起来
+    照旧会停。"""
+    if await runtimes.model_key(request.runtime, request.owner_subject) is False:
+        raise _conflict(
+            "The author has no model key in knowbench yet", "model_key_missing"
+        )
 
 
 def parse_id(value: str | uuid.UUID, kind: str = "draft") -> uuid.UUID:
@@ -540,6 +555,7 @@ class KnowbotCreationService:
 
         费用上限：自助的是作者这次填的；平台的是作者在授权里设的（`platform_budget`）。"""
         mode = "self" if runner else "platform"
+        await self._key_ready(draft_id)
         if runner is None:
             budget_limit = await self.platform_budget(
                 await self.operator_draft(draft_id)
@@ -681,6 +697,15 @@ class KnowbotCreationService:
             runner={"environment_id": environment_id, "workspace_root": workspace_root},
         )
 
+    async def _key_ready(self, draft_id: str) -> None:
+        found = await self.repo.get_draft(parse_id(draft_id))
+        request = (
+            None if found is None else await self.repo.get_request(found.request_id)
+        )
+        if found is None or request is None:
+            raise NotFoundError("No such draft", code="draft_not_found")
+        await require_model_key(self.runtimes, request)
+
     async def _authors_computer(self, draft_id: str) -> dict[str, str]:
         """平台测试在哪跑（decisions ⑯）：作者上次自助测试用过的电脑与目录，先向运行方
         列他的电脑，确认那台还在、目录还在白名单里（不要求此刻在线：不在线的测试停在
@@ -733,6 +758,8 @@ class KnowbotCreationService:
             }
             if last
             else None,
+            # 模型 key 填了没有：没填页面先拦（SDD 0046 第三节），None 是说不准
+            "model_key": await self.runtimes.model_key(request.runtime, owner_subject),
         }
 
     async def refresh_mine(self, owner_subject: str, test_id: str) -> TestRecord:
@@ -765,6 +792,22 @@ class KnowbotCreationService:
         found = await self.repo.get_test(test.id)
         assert found is not None
         return found
+
+    async def refresh_active(self) -> int:
+        """后台定时刷新（作者不开页面也更新）：在跑的测试每个刷新一次，同页面轮询
+        （refresh）。一个出错记一条日志，不挡别的。回刷新了几个。"""
+        done = 0
+        tests = await self.repo.list_tests(statuses=ACTIVE_TESTS)
+        for test in tests[:REFRESH_BATCH]:
+            try:
+                await self.refresh(str(test.id))
+            except AppException as exc:
+                log.warning(
+                    "knowbot test not refreshed test=%s code=%s", test.id, exc.code
+                )
+                continue
+            done += 1
+        return done
 
     async def _collect_outputs(
         self, test: TestRecord, request: RequestRecord, result: RunResultV1

@@ -189,6 +189,74 @@ class KnowbotBoard:
             raise NotFoundError("No such request", code="request_not_found")
         return shown
 
+    async def platform_asks(self, life: Life) -> list[dict[str, Any]]:
+        """平台在问作者什么（SDD 0046 第四节「平台视图：进度、在等你什么、运营问了
+        什么」）：只列平台那一头来的，作者自助的不在里面。每条：种类、还在等作者（open）还是作者
+        处理过了（done）、说了什么、什么时候、去哪处理要的编号；按时间先后。
+
+        - review：平台人员请作者审核的准专家（作者说行 / 不行）；
+        - expert：平台交回、等作者确认要不要的专家（先用户、后运营，0046 第五节）；
+        - proposal：平台人员对工作稿一格的提议（作者接受了才算，专家孵化方案第十二节）；
+        - gap：平台模式的 AI 一轮列出的缺口；
+        - question：平台测试里转给作者答的问题（运营看过后转给作者，0046 第三节）。"""
+        asks: list[dict[str, Any]] = []
+        for draft in life.drafts:
+            review = draft.user_review or {}
+            state = review_state(draft.user_review)
+            if state is None:
+                continue
+            asks.append(
+                {
+                    "kind": "review",
+                    "state": "open" if state == "pending" else "done",
+                    "at": _iso(review.get("requested_at")),
+                    "draft_id": str(draft.id),
+                    "label": draft_label(draft.version, draft.revision),
+                    "answer": None if state == "pending" else state,
+                }
+            )
+        for expert in life.experts:
+            if expert.returned_at is None:
+                continue
+            asks.append(
+                {
+                    "kind": "expert",
+                    "state": "open" if stage_of(expert) == "awaiting_user" else "done",
+                    "at": _iso(expert.returned_at),
+                    "expert_id": str(expert.id),
+                    "label": str(expert.version),
+                    "answer": None
+                    if expert.user_accepted is None
+                    else ("accepted" if expert.user_accepted else "declined"),
+                }
+            )
+        for proposal in await self.repo.list_proposals(life.request.id):
+            asks.append(
+                {
+                    "kind": "proposal",
+                    "state": "open" if proposal.state == "pending" else "done",
+                    "at": _iso(proposal.proposed_at),
+                    "text": proposal.reason,
+                    "path": proposal.path,
+                    "answer": None if proposal.state == "pending" else proposal.state,
+                }
+            )
+        platform_rounds = {
+            r.id
+            for r in await self.repo.list_incubations(request_id=life.request.id)
+            if r.mode == "platform"
+        }
+        for gap in await self.repo.list_gaps(request_ids=[life.request.id]):
+            if gap.incubation_id not in platform_rounds:
+                continue
+            asks.append(_question_ask("gap", gap))
+        platform_runs = {t.run_id for t in life.tests if t.mode == "platform"}
+        for draft in life.drafts:
+            for question in await self.repo.list_questions(draft_id=draft.id):
+                if question.run_id in platform_runs and question.route == "user":
+                    asks.append(_question_ask("question", question))
+        return sorted(asks, key=lambda a: a.get("at") or "")
+
     async def _assemble(self, requests: Sequence[RequestRecord]) -> list[Life]:
         ids = [r.id for r in requests]
         if not ids:
@@ -378,6 +446,38 @@ def user_expert_items(lives: Sequence[Life]) -> list[tuple[str, Life, ExpertReco
             if category is not None:
                 out.append((category, life, expert))
     return out
+
+
+def _iso(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value if isinstance(value, str) and value else None
+
+
+def _question_ask(kind: str, question: QuestionRecord) -> dict[str, Any]:
+    """平台在问作者的一个问题：问了什么、作者答了什么（选项的字、自己写的）。"""
+    said: str | None = None
+    if question.answer is not None:
+        answer = question.answer
+        option = answer.get("option_id")
+        label = next(
+            (str(o.get("label")) for o in question.options if o.get("id") == option),
+            "按提议" if option == "proposal" else str(option or ""),
+        )
+        parts = [
+            label,
+            str(answer.get("decision") or ""),
+            str(answer.get("text") or ""),
+        ]
+        said = "；".join(x for x in parts if x) or None
+    return {
+        "kind": kind,
+        "state": "open" if question.answer is None else "done",
+        "at": question.asked_at or _iso(question.answered_at),
+        "question_id": str(question.id),
+        "text": question.text,
+        "answer": said,
+    }
 
 
 # ---------- 详情页 ----------

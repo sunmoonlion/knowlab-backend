@@ -458,7 +458,11 @@ class MemoryKnowlab:
         return max(found, key=lambda t: t.started_at, default=None)
 
     async def list_tests(
-        self, *, request_ids: Any = None, draft_id: uuid.UUID | None = None
+        self,
+        *,
+        request_ids: Any = None,
+        draft_id: uuid.UUID | None = None,
+        statuses: Any = None,
     ) -> Sequence[TestRecord]:
         return sorted(
             (
@@ -466,6 +470,7 @@ class MemoryKnowlab:
                 for t in self.tests.values()
                 if (request_ids is None or t.request_id in request_ids)
                 and (draft_id is None or t.draft_id == draft_id)
+                and (statuses is None or t.status in statuses)
             ),
             key=lambda t: (str(t.request_id), t.number),
         )
@@ -617,6 +622,7 @@ class MemoryKnowlab:
         *,
         request_id: uuid.UUID | None = None,
         owner_subject: str | None = None,
+        statuses: Any = None,
     ) -> Sequence[IncubationRecord]:
         return sorted(
             (
@@ -624,6 +630,7 @@ class MemoryKnowlab:
                 for r in self.incubations.values()
                 if (request_id is None or r.request_id == request_id)
                 and (owner_subject is None or r.owner_subject == owner_subject)
+                and (statuses is None or r.status in statuses)
             ),
             key=lambda r: (str(r.request_id), r.round),
         )
@@ -751,6 +758,7 @@ class MemoryKnowlab:
         body: dict[str, Any],
         sources: dict[str, Any],
         revision: int,
+        data_formats: dict[str, Any] | None = None,
     ) -> None:
         for key, found in self.workdrafts.items():
             if found.id == workdraft_id:
@@ -760,6 +768,9 @@ class MemoryKnowlab:
                     sources=copy.deepcopy(sources),
                     revision=revision,
                     updated_at=self._now(),
+                    data_formats=found.data_formats
+                    if data_formats is None
+                    else copy.deepcopy(data_formats),
                 )
 
     async def add_workdraft_entry(self, **fields: Any) -> WorkdraftEntryRecord:
@@ -826,6 +837,9 @@ class FakeRuntime:
         self.outputs_asked: list[tuple[str, str]] = []
         self.fail_outputs = False
         self.bad_outputs = False  # 回包不合契约
+        # 用户在 knowbench 填了模型 key 没有：None 是运行方还没有这个接口
+        self.key_ready: bool | None = True
+        self.key_asked: list[str] = []
 
     def registered(self) -> frozenset[str]:
         return self.names
@@ -858,6 +872,10 @@ class FakeRuntime:
                 "roots": [COMPUTER_ROOT],
             }
         ]
+
+    async def model_key(self, runtime: str, subject: str) -> bool | None:
+        self.key_asked.append(subject)
+        return self.key_ready
 
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1
@@ -907,6 +925,72 @@ class FakeIncubator:
         found = self._result(incubation_id, "cancelled")
         self.results[incubation_id] = found
         return found
+
+
+MATERIAL = "m-annual-2024"
+
+
+def shelf_entry(
+    material_id: str = MATERIAL, name: str = "2024 年报.pdf", **description: Any
+) -> dict[str, Any]:
+    """knowbase 知识库栏里的一份（ShelfEntryRead 的形状，只留用得上的几项）。"""
+    return {
+        "category": "upload",
+        "material": {
+            "material_id": material_id,
+            "name": name,
+            "mine": True,
+            "content_origin": "upload",
+            "license": "private",
+            "description": {
+                "subject": "600519.SH",
+                "doc_type": "annual_report",
+                "period_start": "2024-01-01",
+                "period_end": "2024-12-31",
+                "data_format": "pdf",
+                "language": "zh",
+                "status": "confirmed",
+                **description,
+            },
+            "current_version": 1,
+        },
+        "holding": {"basis": "upload", "license": "private", "version_no": None},
+        "version": {
+            "version_no": 1,
+            "sha256": "a" * 64,
+            "size_bytes": 2048,
+            "media_type": "application/pdf",
+            "created_at": "2026-10-20T00:00:00Z",
+        },
+    }
+
+
+class FakeLibrary:
+    """假的 knowbase 本人接口：知识库栏与读法。记下用的令牌，好核是作者本人的。"""
+
+    def __init__(self, entries: list[dict[str, Any]] | None = None) -> None:
+        self.entries = [shelf_entry()] if entries is None else entries
+        self.readings: dict[str, list[dict[str, Any]]] = {
+            MATERIAL: [
+                {"kind": "text", "status": "ready"},
+                {"kind": "pages", "status": "ready"},
+                {"kind": "tables", "status": "failed"},
+            ]
+        }
+        self.tokens: list[str] = []
+        self.fail = False
+
+    async def column(self, user_token: str) -> list[dict[str, Any]]:
+        if self.fail:
+            raise ServiceUnavailableError("down", code="knowbase_unavailable")
+        self.tokens.append(user_token)
+        return copy.deepcopy(self.entries)
+
+    async def renditions(
+        self, user_token: str, material_id: str, version_no: int
+    ) -> list[dict[str, Any]]:
+        self.tokens.append(user_token)
+        return copy.deepcopy(self.readings.get(material_id, []))
 
 
 class FakeKnowmart:
