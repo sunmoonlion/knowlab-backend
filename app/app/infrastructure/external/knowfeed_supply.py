@@ -2,9 +2,11 @@
 提单、按单号查进度、取消（SDD 0046 第三节）。
 
 服务身份走关系 `knowfeed:supply-demand`（环境变量 `KNOWFEED_INTERNAL_URL`、
-`KNOWFEED_SUPPLY_DEMAND_SERVICE_*`，见 service_client.py）；knowfeed 按部署配的
-`SUPPLY_SERVICE_APPS_JSON` 认这是 knowlab。没配就抛 ServiceUnavailableError（code
-`knowfeed_unconfigured`），调用方据此说「暂不能补采」。
+`KNOWFEED_SUPPLY_DEMAND_SERVICE_*`，见 service_client.py）；knowfeed 按关系校验认出这是
+knowlab。`KNOWFEED_INTERNAL_URL` 已经带着内部前缀
+（`…/api/internal/v1/supply`，部署机制的约定），后面直接接 `/demands`。
+没配就抛 ServiceUnavailableError（code `knowfeed_unconfigured`），调用方据此说
+「暂不能补采」。
 """
 
 from __future__ import annotations
@@ -18,8 +20,6 @@ import httpx
 
 from app.application.errors.exceptions import ServiceUnavailableError
 from app.infrastructure.external.service_client import ServiceClient, service_relation
-
-BASE = "/api/internal/v1/supply"
 
 
 class KnowfeedRefused(Exception):
@@ -102,7 +102,7 @@ class KnowfeedSupply:
             ) as client:
                 response = await client.request(
                     method,
-                    relation.internal_url.rstrip("/") + BASE + path,
+                    relation.internal_url.rstrip("/") + path,
                     json=json,
                     params=params,
                     headers={
