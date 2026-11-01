@@ -24,16 +24,18 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.ports.knowbots import TestRecord
+from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
-from app.domain.knowbots.lifecycle import ExpertDecisionIn, RevisionIn
+from app.domain.knowbots.lifecycle import RevisionIn
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
 from tests.knowbot_fakes import (
     COMPUTER,
     COMPUTER_ROOT,
     OWNER,
+    FakeKnowbaseDelivery,
     FakeKnowmart,
     FakeRuntime,
     accepted_request,
@@ -104,7 +106,7 @@ async def db():
         await _drop(engine, schema)
 
 
-RUNTIME, KNOWMART = FakeRuntime(), FakeKnowmart()
+RUNTIME, KNOWMART, KNOWBASE = FakeRuntime(), FakeKnowmart(), FakeKnowbaseDelivery()
 
 
 def service(session) -> KnowbotCreationService:
@@ -113,6 +115,18 @@ def service(session) -> KnowbotCreationService:
 
 def experts(session) -> KnowbotExpertService:
     return KnowbotExpertService(SqlKnowlabRepository(session), KNOWMART)
+
+
+def deliveries(session) -> KnowbotDeliveryService:
+    """交付（SDD 0046 第五节）：knowbase 用假的，库是真的。"""
+    repo = SqlKnowlabRepository(session)
+    return KnowbotDeliveryService(
+        repo,
+        KNOWMART,
+        KNOWBASE,
+        KnowbotCreationService(repo, RUNTIME, knowbase=KNOWBASE),
+        KnowbotExpertService(repo, KNOWMART),
+    )
 
 
 async def _own_computer(db, owner: str = OWNER) -> None:
@@ -193,7 +207,7 @@ async def test_the_whole_life_round_trips(db) -> None:
             "to_return",
         )
     async with db() as session:
-        listed = await list_expert(experts(session), expert.id)
+        listed = await list_expert(deliveries(session), expert.id)
     assert stage_of(listed) == "listed"
     async with db() as session:
         repo = SqlKnowlabRepository(session)
@@ -225,9 +239,7 @@ async def test_declined_outcomes_wait_until_knowmart_has_them(db) -> None:
     KNOWMART.fail = True
     try:
         async with db() as session:
-            await experts(session).decide(
-                OWNER, str(expert.id), ExpertDecisionIn(accept=False)
-            )
+            await experts(session).decline(OWNER, str(expert.id))
         async with db() as session:
             unsent = await SqlKnowlabRepository(session).experts_unlisted_unsent()
             assert [e.id for e in unsent] == [expert.id]

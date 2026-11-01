@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from app.application.errors.exceptions import NotFoundError
+from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_service import (
     NO_OUTPUTS,
@@ -17,6 +18,7 @@ from app.domain.knowbots.drafts import CONSENT_VERSION
 from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
 from tests.knowbot_fakes import (
     OWNER,
+    FakeKnowbaseDelivery,
     FakeKnowmart,
     FakeRuntime,
     MemoryKnowlab,
@@ -237,7 +239,17 @@ async def test_outputs_are_cleared_90_days_after_listing_or_a_newer_draft(parts)
     runtime.results[run_id] = result(run_id, "passed")
     await svc.refresh(str(test.id))
     [expert] = repo.experts.values()
-    listed = await list_expert(KnowbotExpertService(repo, FakeKnowmart()), expert.id)
+    knowmart, knowbase = FakeKnowmart(), FakeKnowbaseDelivery()
+    listed = await list_expert(
+        KnowbotDeliveryService(
+            repo,
+            knowmart,
+            knowbase,
+            KnowbotCreationService(repo, runtime, knowbase=knowbase),
+            KnowbotExpertService(repo, knowmart),
+        ),
+        expert.id,
+    )
     assert await svc.expire_test_outputs() == 0  # 刚上架：留着
     at = listed.listed_at
     assert at is not None

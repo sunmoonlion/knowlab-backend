@@ -20,6 +20,7 @@ from app.application.errors.exceptions import ConcurrencyConflictError
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
+    DeliveryRecord,
     DraftRecord,
     ExpertRecord,
     GrantRecord,
@@ -38,6 +39,7 @@ from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
     KnowbotAcceptance,
     KnowbotAmendment,
+    KnowbotDelivery,
     KnowbotDraft,
     KnowbotExpert,
     KnowbotIncubation,
@@ -65,6 +67,7 @@ TEST_FIELDS = frozenset(
         "error",
         "test_set_version",
         "case_grants",
+        "evidence",
     }
 )
 EXPERT_FIELDS = frozenset(
@@ -90,6 +93,47 @@ EXPERT_FIELDS = frozenset(
         "unlisted_sent_at",
     }
 )
+
+
+DELIVERY_FIELDS = frozenset(
+    {
+        "status",
+        "binding_check",
+        "auto_check",
+        "consents",
+        "rerun_test_id",
+        "rerun_attempts",
+        "rerun_spent",
+        "decided_by",
+        "decided_at",
+        "reason",
+        "category",
+        "delivered_at",
+        "delivery_error",
+        "receipt",
+        "consent_ended_at",
+        "withdrawn_by",
+        "withdrawn_at",
+        "withdraw_reason",
+    }
+)
+
+
+def _delivery(row: KnowbotDelivery) -> DeliveryRecord:
+    return DeliveryRecord(
+        id=row.id,
+        expert_id=row.expert_id,
+        request_id=row.request_id,
+        listing=row.listing,
+        test_mode=row.test_mode,
+        needs_rerun=row.needs_rerun,
+        submitted_by=row.submitted_by,
+        submitted_at=row.submitted_at,
+        conversion=row.conversion,
+        budget_limit=row.budget_limit,
+        bindings=list(row.bindings or []),
+        **{name: getattr(row, name) for name in DELIVERY_FIELDS},
+    )
 
 
 GRANT_FIELDS = frozenset(
@@ -159,6 +203,7 @@ def _request(row: KnowbotRequest) -> RequestRecord:
         incubation_mode=row.incubation_mode,
         origin=row.origin,
         reference_answer=row.reference_answer,
+        directory_sent=row.directory_sent,
     )
 
 
@@ -253,6 +298,7 @@ def _test(row: KnowbotTest) -> TestRecord:
         mode=row.mode,
         environment_id=row.environment_id,
         workspace_root=row.workspace_root,
+        evidence=row.evidence,
     )
 
 
@@ -266,6 +312,7 @@ def _expert(row: KnowbotExpert) -> ExpertRecord:
         test_id=row.test_id,
         **{name: getattr(row, name) for name in EXPERT_FIELDS},
         trial=row.trial,
+        needs_return=row.needs_return,
     )
 
 
@@ -862,6 +909,7 @@ class SqlKnowlabRepository:
             test_id=record.test_id,
             created_at=record.created_at,
             trial=record.trial,
+            needs_return=record.needs_return,
         )
         self.session.add(row)
         try:
@@ -923,6 +971,184 @@ class SqlKnowlabRepository:
         await self.session.execute(
             update(KnowbotExpert).where(KnowbotExpert.id == expert_id).values(**changes)
         )
+
+    # ---------- 交付过程 ----------
+    async def create_delivery(self, record: DeliveryRecord) -> DeliveryRecord:
+        row = KnowbotDelivery(
+            id=record.id,
+            expert_id=record.expert_id,
+            request_id=record.request_id,
+            listing=record.listing,
+            conversion=record.conversion,
+            test_mode=record.test_mode,
+            needs_rerun=record.needs_rerun,
+            budget_limit=record.budget_limit,
+            submitted_by=record.submitted_by,
+            submitted_at=record.submitted_at,
+            bindings=list(record.bindings),
+            **{name: getattr(record, name) for name in DELIVERY_FIELDS},
+        )
+        self.session.add(row)
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "This expert is already being reviewed", code="delivery_open"
+            ) from exc
+        await self.session.refresh(row)
+        return _delivery(row)
+
+    async def get_delivery(
+        self, delivery_id: uuid.UUID, *, for_update: bool = False
+    ) -> DeliveryRecord | None:
+        query = select(KnowbotDelivery).where(KnowbotDelivery.id == delivery_id)
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _delivery(row)
+
+    async def list_deliveries(
+        self,
+        request_ids: Collection[uuid.UUID] | None = None,
+        *,
+        expert_id: uuid.UUID | None = None,
+        status: str | None = None,
+    ) -> Sequence[DeliveryRecord]:
+        query = select(KnowbotDelivery).order_by(
+            KnowbotDelivery.submitted_at, KnowbotDelivery.id
+        )
+        if status is not None:
+            query = query.where(KnowbotDelivery.status == status)
+        if request_ids is not None:
+            query = query.where(KnowbotDelivery.request_id.in_(request_ids))
+        if expert_id is not None:
+            query = query.where(KnowbotDelivery.expert_id == expert_id)
+        rows = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalars()
+        return [_delivery(r) for r in rows]
+
+    async def update_delivery(self, delivery_id: uuid.UUID, **changes: Any) -> None:
+        unknown = set(changes) - DELIVERY_FIELDS
+        if unknown:
+            raise ValueError(f"unknown delivery fields: {sorted(unknown)}")
+        await self.session.execute(
+            update(KnowbotDelivery)
+            .where(KnowbotDelivery.id == delivery_id)
+            .values(**changes)
+        )
+
+    async def deliveries_to_close(self, limit: int = 100) -> Sequence[DeliveryRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotDelivery)
+                .where(
+                    KnowbotDelivery.status != "reviewing",
+                    KnowbotDelivery.consent_ended_at.is_(None),
+                )
+                .order_by(KnowbotDelivery.decided_at, KnowbotDelivery.id)
+                .limit(limit)
+            )
+        ).scalars()
+        return [_delivery(r) for r in rows]
+
+    async def get_test_set(
+        self,
+        request_id: uuid.UUID,
+        *,
+        version: int | None = None,
+        from_test_id: uuid.UUID | None = None,
+    ) -> TestSetRecord | None:
+        query = select(KnowbotTestSet).where(KnowbotTestSet.request_id == request_id)
+        if version is not None:
+            query = query.where(KnowbotTestSet.version == version)
+        if from_test_id is not None:
+            query = query.where(KnowbotTestSet.from_test_id == from_test_id)
+        row = (
+            await self.session.execute(
+                query.order_by(KnowbotTestSet.version.desc()).limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return TestSetRecord(
+            id=row.id,
+            request_id=row.request_id,
+            version=row.version,
+            cases=dict(row.cases),
+            created_at=row.created_at,
+            from_test_id=row.from_test_id,
+        )
+
+    async def directory_rows(self) -> Sequence[dict[str, Any]]:
+        """名录要的几样：每个有准专家的名称（编号、作者、名称、推过的那份）与最新那位准专家
+        的版本号、修订号。只取这几栏，不读创意、清单的大栏位。"""
+        latest = (
+            select(
+                KnowbotDraft.request_id,
+                KnowbotDraft.version,
+                KnowbotDraft.revision,
+            )
+            .distinct(KnowbotDraft.request_id)
+            .order_by(KnowbotDraft.request_id, KnowbotDraft.revision.desc())
+            .subquery()
+        )
+        rows = (
+            await self.session.execute(
+                select(
+                    KnowbotRequest.id,
+                    KnowbotRequest.owner_subject,
+                    KnowbotRequest.title,
+                    KnowbotRequest.directory_sent,
+                    latest.c.version,
+                    latest.c.revision,
+                )
+                .join(latest, latest.c.request_id == KnowbotRequest.id)
+                .order_by(KnowbotRequest.created_at, KnowbotRequest.id)
+            )
+        ).all()
+        return [
+            {
+                "request_id": r[0],
+                "owner_subject": r[1],
+                "title": r[2],
+                "directory_sent": r[3],
+                "version": r[4],
+                "revision": r[5],
+            }
+            for r in rows
+        ]
+
+    async def set_directory_sent(
+        self, request_id: uuid.UUID, sent: dict[str, Any]
+    ) -> None:
+        await self.session.execute(
+            update(KnowbotRequest)
+            .where(KnowbotRequest.id == request_id)
+            .values(directory_sent=sent)
+        )
+
+    async def tests_without_evidence(
+        self, now: datetime, limit: int = 100
+    ) -> Sequence[TestRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotTest)
+                .where(
+                    KnowbotTest.status.in_(("passed", "failed")),
+                    or_(
+                        KnowbotTest.evidence.is_(None),
+                        KnowbotTest.evidence["retry_after"].astext <= now.isoformat(),
+                    ),
+                )
+                .order_by(KnowbotTest.finished_at, KnowbotTest.id)
+                .limit(limit)
+            )
+        ).scalars()
+        return [_test(r) for r in rows]
 
     async def set_consent_version(self, request_id: uuid.UUID, version: int) -> None:
         await self.session.execute(

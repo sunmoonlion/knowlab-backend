@@ -73,6 +73,8 @@ class KnowbotRequest(TimestampMixin, Base):
     # 从 knowbench 转来的来源与参考回答（迁移 20261029_0021）
     origin: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     reference_answer: Mapped[str | None] = mapped_column(Text)
+    # 推给 knowbase 名录的最近一份 {name, latest_version}（迁移 20261030_0023）
+    directory_sent: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     __table_args__ = (
         Index("ix_knowbot_request_owner_subject", "owner_subject"),
@@ -230,6 +232,8 @@ class KnowbotTest(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)
+    # 测试证据写进作者产出区的那一份 {material_id, version_no}（0043 第 4.2 节）
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     __table_args__ = (
         UniqueConstraint("request_id", "number", name="uq_knowbot_test_number"),
@@ -292,6 +296,11 @@ class KnowbotExpert(Base):
     trial: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # 没上架的结局送到 knowmart 的时刻；空着就是还要送（定时补发，Astra 评审 F08）
     unlisted_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 平台孵化、平台测的这一版要平台先交回（先用户、后运营）；其余作者「提交交付」即过
+    # 同意门（SDD 0046 第五节，迁移 20261030_0023）
+    needs_return: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
 
     __table_args__ = (
         UniqueConstraint("request_id", "version", name="uq_knowbot_expert_version"),
@@ -316,6 +325,101 @@ class KnowbotExpert(Base):
             name="ck_knowbot_expert_stopped",
         ),
         Index("ix_knowbot_expert_knowmart", "knowmart_knowbot_id", "version"),
+    )
+
+
+class KnowbotDelivery(Base):
+    """一次交付过程（SDD 0046 第五节）：作者提交交付时建，审完撤销给审核员的授权。
+
+    依据 `platform:knowlab:review:<编号>`（审核员看这次交付）与
+    `platform:knowlab:rerun:<编号>`（公开、自助测的平台重跑），编号就是这一条的 id。
+    """
+
+    __tablename__ = "knowbot_delivery"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    expert_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_expert.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    listing: Mapped[str] = mapped_column(String(8), nullable=False)
+    conversion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    test_mode: Mapped[str] = mapped_column(String(8), nullable=False)
+    needs_rerun: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    budget_limit: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    submitted_by: Mapped[str] = mapped_column(String(512), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    bindings: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
+    binding_check: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    auto_check: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    consents: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    # 重跑发起过几次、之前几次已花多少（上限按一次交付累计，decisions 10-30）
+    rerun_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    rerun_spent: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6), nullable=False, server_default="0"
+    )
+    rerun_test_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("knowbot_test.id", ondelete="RESTRICT")
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(512))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(64))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_error: Mapped[str | None] = mapped_column(Text)
+    receipt: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    consent_ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    withdrawn_by: Mapped[str | None] = mapped_column(String(512))
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    withdraw_reason: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            "listing IN ('self', 'public')", name="ck_knowbot_delivery_listing"
+        ),
+        CheckConstraint(
+            "test_mode IN ('self', 'platform')", name="ck_knowbot_delivery_test_mode"
+        ),
+        CheckConstraint(
+            "status IN ('reviewing', 'approved', 'rejected', 'withdrawn')",
+            name="ck_knowbot_delivery_status",
+        ),
+        CheckConstraint(
+            "(status = 'withdrawn') = (withdrawn_at IS NOT NULL)",
+            name="ck_knowbot_delivery_withdrawn",
+        ),
+        CheckConstraint(
+            "status <> 'rejected' OR (reason IS NOT NULL AND char_length(reason) > 0)",
+            name="ck_knowbot_delivery_rejected_reason",
+        ),
+        CheckConstraint(
+            "NOT needs_rerun OR budget_limit IS NOT NULL",
+            name="ck_knowbot_delivery_rerun_budget",
+        ),
+        Index("ix_knowbot_delivery_request", "request_id"),
+        Index(
+            "uq_knowbot_delivery_one_open",
+            "expert_id",
+            unique=True,
+            postgresql_where=text("status = 'reviewing'"),
+        ),
     )
 
 

@@ -10,7 +10,9 @@ from pathlib import Path
 import pytest
 
 from app.domain.knowbots.data_request import DataRequest
+from app.domain.knowbots.delivery import CATEGORY_CODES
 from app.domain.knowbots.drafts import draft_manifest_problems
+from app.domain.knowbots.supply_status import DemandStatusEventV1
 from tests.knowbot_fakes import manifest
 
 PARENT = Path(__file__).resolve().parents[3]
@@ -73,3 +75,63 @@ def test_a_v2_draft_knowlab_accepts_satisfies_the_knowmart_v2_schema() -> None:
     doc = manifest()
     assert draft_manifest_problems(doc, runtime="knowbench", version="1") == []
     jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))
+
+
+# —— 交付请求 knowbot-delivery/v1（带类目，knowmart 0032 待定第一项）——
+
+LOCK_DELIVERY = PARENT / "contracts/knowmart-delivery-v1-lock.json"
+
+
+def test_delivery_lock_matches_knowmart_and_our_categories() -> None:
+    lock = _read_lock(LOCK_DELIVERY)
+    assert (lock["provider"], lock["contract"], lock["major_version"]) == (
+        "knowmart-app",
+        "knowbot-delivery",
+        1,
+    )
+    schema = _sibling("knowmart-app", lock)
+    assert hashlib.sha256(schema.read_bytes()).hexdigest() == lock["sha256"]
+    provider = json.loads(schema.read_text(encoding="utf-8"))
+    [codes] = [
+        a["enum"] for a in provider["properties"]["category"]["anyOf"] if "enum" in a
+    ]
+    assert tuple(codes) == CATEGORY_CODES
+    # 我们交过去的几样都在契约里，必填的都给
+    sent = {
+        "delivery_id",
+        "owner_subject",
+        "knowbot_ref",
+        "manifest",
+        "request_public",
+        "category",
+    }
+    assert sent == set(provider["properties"])
+    assert set(provider["required"]) <= sent
+
+
+# —— knowfeed 推需求状态 knowfeed-supply-status/v1（SDD 0045 第 2.5 节）——
+
+LOCK_SUPPLY_STATUS = PARENT / "contracts/knowfeed-supply-status-lock.json"
+
+
+def test_supply_status_lock_matches_knowfeed_and_our_receiver() -> None:
+    lock = _read_lock(LOCK_SUPPLY_STATUS)
+    assert (lock["provider"], lock["contract"]) == (
+        "knowfeed-app",
+        "knowfeed-supply-status/v1",
+    )
+    schema = _sibling("knowfeed-app", lock)
+    assert hashlib.sha256(schema.read_bytes()).hexdigest() == lock["sha256"]
+    provider = json.loads(schema.read_text(encoding="utf-8"))
+    ours = DemandStatusEventV1.model_json_schema(ref_template="#/$defs/{model}")
+    defs = ours.pop("$defs", {})
+    for key in ("$schema", "$id", "title"):
+        provider.pop(key, None)
+        ours.pop(key, None)
+    assert _structure(defs) == _structure(provider.pop("$defs"))
+    assert _structure(ours) == _structure(provider)
+    release = json.loads(
+        (schema.parent / "contract-manifest.json").read_text(encoding="utf-8")
+    )
+    assert release["receiver_path"] == "/api/internal/v1/knowfeed/demand-status"
+    assert release["relation"] == "supply-status"

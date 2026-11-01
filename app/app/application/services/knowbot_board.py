@@ -12,8 +12,10 @@
   平台测试；
 - 作者交平台测某一位准专家（测试授权，含测完的）：只有这一位准专家与平台测的那几次，
   看不到创意、之前的草稿与问答；
+- 作者交审了的那一版（本人授权审核员看这次交付，SDD 0046 第五节）：这一版专家、它的
+  准专家（清单）与测试（自助测的只有结论没有报告；平台重跑的有结论）；
 - 其余（纯自助的名称、作者点了「我自己来」的）运营一律看不到，列表里没有、按编号取是
-  404。交审随块 6 再放开。
+  404。
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from typing import Any
 from app.application.errors.exceptions import NotFoundError
 from app.application.ports.knowbots import (
     AcceptanceRecord,
+    DeliveryRecord,
     DraftRecord,
     ExpertRecord,
     GrantRecord,
@@ -36,13 +39,12 @@ from app.application.ports.knowbots import (
     RequestVersionRecord,
     TestRecord,
 )
-from app.application.services.knowbot_experts import stage_of
-from app.application.services.knowbot_grants import live_incubation
+from app.application.services.knowbot_experts import shown_to_author, stage_of
+from app.application.services.knowbot_grants import live_incubation, reviewing
 from app.application.services.knowbot_service import parse_id
 from app.domain.knowbots.lifecycle import (
     ACTIVE_TESTS,
     DELIVERY_CATEGORIES,
-    OUR_EXPERT_STAGES,
     USER_EXPERT_CATEGORIES,
     category_of,
     draft_label,
@@ -59,6 +61,23 @@ class Life:
     tests: tuple[TestRecord, ...] = ()
     experts: tuple[ExpertRecord, ...] = ()
     grants: tuple[GrantRecord, ...] = ()
+    deliveries: tuple[DeliveryRecord, ...] = ()
+
+    def deliveries_of(self, expert_id: uuid.UUID) -> tuple[DeliveryRecord, ...]:
+        """这一版专家的交付过程，按提交先后。"""
+        return tuple(d for d in self.deliveries if d.expert_id == expert_id)
+
+    def open_delivery(self, expert_id: uuid.UUID) -> DeliveryRecord | None:
+        """还没走完的那一次（在审，或审过了还没交成）。"""
+        return next(
+            (
+                d
+                for d in self.deliveries_of(expert_id)
+                if d.status == "reviewing"
+                or (d.status == "approved" and d.delivered_at is None)
+            ),
+            None,
+        )
 
     def draft(self, draft_id: uuid.UUID) -> DraftRecord | None:
         return next((d for d in self.drafts if d.id == draft_id), None)
@@ -118,17 +137,39 @@ def operator_view(life: Life, now: datetime) -> Life | None:
         for g in life.grants
         if g.kind == "test" and g.status != "declined" and g.draft_id is not None
     }
+    # 作者交审了、还在审、给审核员的授权还在的那几版：这一版的准专家（审核员要看
+    # 清单）与测试、重跑（SDD 0046 第五节）。审完（过、不过、撤回）授权撤了，运营只留
+    # 上架与停用要的那一行摘要，不再给清单与测试
+    submitted = {
+        e.draft_id
+        for e in life.experts
+        if any(reviewing(d) for d in life.deliveries_of(e.id))
+    }
     drafts = tuple(
         d
         for d in life.drafts
-        if (incubating and d.mode == "platform") or d.id in tested
+        if (incubating and d.mode == "platform") or d.id in tested or d.id in submitted
     )
-    if not incubating and not drafts:
+    delivered = any(
+        e.listed_at is not None or life.open_delivery(e.id) is not None
+        for e in life.experts
+        if life.deliveries_of(e.id)
+    )
+    if not incubating and not drafts and not delivered:
         return None
     shown = {d.id for d in drafts}
-    tests = tuple(t for t in life.tests if t.mode == "platform" and t.draft_id in shown)
+    reviewed = {e.test_id for e in life.experts if e.draft_id in submitted}
+    tests = tuple(
+        t
+        for t in life.tests
+        if t.draft_id in shown and (t.mode in ("platform", "rerun") or t.id in reviewed)
+    )
     return replace(
         life,
+        # 来源、参考回答只给孵化授权在效的平台孵化（纯自助的作者的内容运营看不到）
+        request=life.request
+        if incubating
+        else replace(life.request, origin=None, reference_answer=None),
         versions=life.versions if incubating else (),
         acceptances=(
             {v: a for v, a in life.acceptances.items() if a.kind == "formal"}
@@ -137,7 +178,22 @@ def operator_view(life: Life, now: datetime) -> Life | None:
         ),
         drafts=drafts,
         tests=tests,
-        experts=tuple(e for e in life.experts if e.draft_id in shown),
+        # 交付审完了的只留在审、审过待交、已上架的那几版（运营要审、重试、作废、停用）；
+        # 不过、撤回而没上架的不再给
+        experts=tuple(
+            e
+            for e in life.experts
+            if e.draft_id in shown
+            or e.listed_at is not None
+            or life.open_delivery(e.id) is not None
+        ),
+        # 审完的交付只留结论那几样：绑了哪几份、许可预查、自动查都不再给
+        deliveries=tuple(
+            d
+            if reviewing(d)
+            else replace(d, bindings=[], binding_check=None, auto_check=None)
+            for d in life.deliveries
+        ),
     )
 
 
@@ -216,8 +272,8 @@ class KnowbotBoard:
                 }
             )
         for expert in life.experts:
-            if expert.returned_at is None:
-                continue
+            if not expert.needs_return or expert.returned_at is None:
+                continue  # 只有平台交回的才是平台在问
             asks.append(
                 {
                     "kind": "expert",
@@ -267,6 +323,7 @@ class KnowbotBoard:
         tests = await self.repo.list_tests(request_ids=ids)
         experts = await self.repo.list_experts(ids)
         grants = await self.repo.list_grants(ids)
+        deliveries = await self.repo.list_deliveries(ids)
         return [
             Life(
                 request=r,
@@ -276,6 +333,7 @@ class KnowbotBoard:
                 tests=tuple(t for t in tests if t.request_id == r.id),
                 experts=tuple(e for e in experts if e.request_id == r.id),
                 grants=tuple(g for g in grants if g.request_id == r.id),
+                deliveries=tuple(d for d in deliveries if d.request_id == r.id),
             )
             for r in requests
         ]
@@ -358,15 +416,30 @@ def lab_test_items(
     return out
 
 
+def delivery_category(life: Life, expert: ExpertRecord) -> str:
+    """交付栏的大类：有没走完的交付（含自用转公开）的算待审核；其余按阶段。"""
+    if life.open_delivery(expert.id) is not None:
+        return "to_review"
+    stage = stage_of(expert)
+    return category_of(stage, DELIVERY_CATEGORIES) or stage
+
+
 def delivery_items(lives: Sequence[Life]) -> list[tuple[str, Life, ExpertRecord]]:
-    """交付栏：待交回 / 等用户同意 / 待运营审核（含交付失败待重试）/ 已上架 / 没上架；
-    停用了的只在「全部专家」里。全部专家就是这里的每一项。"""
+    """交付栏：待交回 / 等用户提交 / 待运营审核（含自动查不过、等重跑、交付失败待重试、
+    自用转公开）/ 已上架 / 没上架；停用了的只在「全部专家」里。全部专家就是这里的每一
+    项。lives 是运营看到的（作者没交审的自助版本不在里面）。"""
     out: list[tuple[str, Life, ExpertRecord]] = []
     for life in lives:
         for expert in reversed(life.experts):
-            stage = stage_of(expert)
-            out.append((category_of(stage, DELIVERY_CATEGORIES) or stage, life, expert))
+            out.append((delivery_category(life, expert), life, expert))
     return out
+
+
+def _ours(life: Life, expert: ExpertRecord) -> bool:
+    """交付栏「等我们」：待交回、在审（含自用转公开）、审过了还没交成（含转公开的）。"""
+    return stage_of(expert) in ("to_return", "to_deliver") or (
+        life.open_delivery(expert.id) is not None
+    )
 
 
 def admin_counts(lives: Sequence[Life]) -> dict[str, int]:
@@ -380,9 +453,7 @@ def admin_counts(lives: Sequence[Life]) -> dict[str, int]:
             and start_blocker(life, item) != "version_taken"
             for c, life, item in lab_test_items(lives)
         ),
-        "delivery": sum(
-            stage_of(e) in OUR_EXPERT_STAGES for life in lives for e in life.experts
-        ),
+        "delivery": sum(_ours(life, e) for life in lives for e in life.experts),
     }
 
 
@@ -392,7 +463,7 @@ def application_category(life: Life) -> str:
     latest = life.acceptances.get(life.request.latest_version)
     if latest is not None and not latest.accepted:
         return "rejected"
-    if any(e.returned_at is not None for e in life.experts):
+    if any(shown_to_author(e) for e in life.experts):
         return "has_expert"
     return "working"
 
@@ -426,7 +497,7 @@ def inbox_items(
             elif state is not None:
                 out.append(("done", "draft", life, draft))
         for expert in reversed(life.experts):
-            if expert.returned_at is None:
+            if not shown_to_author(expert):
                 continue
             if stage_of(expert) == "awaiting_user":
                 out.append(("todo", "expert", life, expert))
@@ -436,11 +507,12 @@ def inbox_items(
 
 
 def user_expert_items(lives: Sequence[Life]) -> list[tuple[str, Life, ExpertRecord]]:
-    """专家栏：只看交回了的。新交回 / 你已同意等我们审核 / 能用 / 停用了 / 没上架。"""
+    """专家栏：只看看得到的（要交回的交回了才算）。待你提交 / 在审 / 能用 / 停用了 /
+    没上架。"""
     out: list[tuple[str, Life, ExpertRecord]] = []
     for life in lives:
         for expert in reversed(life.experts):
-            if expert.returned_at is None:
+            if not shown_to_author(expert):
                 continue
             category = category_of(stage_of(expert), USER_EXPERT_CATEGORIES)
             if category is not None:
@@ -550,7 +622,7 @@ def timeline(life: Life, *, for_user: bool) -> list[dict[str, Any]]:
         add(t.started_at, "test_started", t.started_by, **refs)
         add(t.finished_at, "test_finished", None, status=t.status, **refs)
     for e in life.experts:
-        if for_user and e.returned_at is None:
+        if for_user and not shown_to_author(e):
             continue
         test = life.test(e.test_id)
         refs = {"expert_id": str(e.id), "version": e.version}
@@ -581,6 +653,16 @@ def timeline(life: Life, *, for_user: bool) -> list[dict[str, Any]]:
         )
         add(e.listed_at, "listed", None, **refs)
         add(e.stopped_at, "stopped", e.stopped_by, **refs)
+        for d in life.deliveries_of(e.id):
+            dref = {**refs, "delivery_id": str(d.id), "listing": d.listing}
+            add(d.submitted_at, "delivery_submitted", d.submitted_by, **dref)
+            add(
+                d.decided_at,
+                "delivery_decided",
+                d.decided_by,
+                approved=d.status == "approved",
+                **dref,
+            )
     events.sort(key=lambda event: event["at"])
     for event in events:
         event["at"] = event["at"].isoformat()
@@ -593,7 +675,7 @@ def summary(life: Life, *, for_user: bool) -> dict[str, Any]:
     acceptance = life.acceptances.get(latest)
     draft = life.drafts[-1] if life.drafts else None
     test = life.tests[-1] if life.tests else None
-    experts = [e for e in life.experts if not for_user or e.returned_at is not None]
+    experts = [e for e in life.experts if not for_user or shown_to_author(e)]
     expert = experts[-1] if experts else None
     return {
         "version": latest,

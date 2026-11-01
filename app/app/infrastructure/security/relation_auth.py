@@ -1,7 +1,8 @@
 """按关系校验其他应用的服务令牌（做法同 knowbase、knowbench、knowmart、
 knowfeed 的 relation_auth）。
 
-knowlab 收一种关系：knowbench 替用户提孵化请求（incubation-request，
+knowlab 收两种关系：knowfeed 推需求状态（supply-status，契约 knowfeed-supply-status/v1，
+只认 knowfeed）；knowbench 替用户提孵化请求（incubation-request，
 请专家方案设计第 4.9 节第 6
 条、专家孵化方案第十三节）——用户在 knowbench 找不到合适的专家、点了「孵化一个专家」，
 knowlab 以
@@ -37,10 +38,11 @@ from app.domain.security import Principal
 from app.infrastructure.security.oidc import OidcProviderClient
 from core.config import Settings, get_settings
 
-Relation = Literal["incubation-request"]
+Relation = Literal["incubation-request", "supply-status"]
 # 每种关系只认这些调用方
 RELATION_CALLERS: dict[str, frozenset[str]] = {
-    "incubation-request": frozenset({"knowbench"})
+    "incubation-request": frozenset({"knowbench"}),
+    "supply-status": frozenset({"knowfeed"}),
 }
 
 
@@ -227,3 +229,10 @@ async def require_incubation_request_service(
 ) -> ServiceCaller:
     """knowbench 替用户提孵化请求（请专家方案设计第 4.9 节第 6 条）。"""
     return await _verify("incubation-request", authorization)
+
+
+async def require_supply_status_service(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+) -> ServiceCaller:
+    """knowfeed 推需求状态（SDD 0045 第 2.5 节；契约 knowfeed-supply-status/v1）。"""
+    return await _verify("supply-status", authorization)

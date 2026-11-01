@@ -6,7 +6,11 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
-from app.application.ports.knowbots import AcceptanceRecord, GrantRecord
+from app.application.ports.knowbots import (
+    AcceptanceRecord,
+    DeliveryRecord,
+    GrantRecord,
+)
 from app.domain.knowbots.platform_grants import live
 
 SELF_ACCEPTOR = "system:self-service"
@@ -38,3 +42,9 @@ def self_acceptance(
         decided_at=now,
         kind="self",
     )
+
+
+def reviewing(delivery: DeliveryRecord) -> bool:
+    """这次交付还在审、作者给审核员的授权还在：运营看得到这一版的清单与测试（SDD 0046
+    第五节「交审时本人授权审核员看这次交付，审完撤销」）。"""
+    return delivery.status == "reviewing" and delivery.consent_ended_at is None

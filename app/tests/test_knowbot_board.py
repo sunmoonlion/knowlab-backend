@@ -22,7 +22,7 @@ from app.application.services.knowbot_board import (
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.domain.knowbots.drafts import KnowbotRequestIn
-from app.domain.knowbots.lifecycle import ExpertDecisionIn, UserReviewIn
+from app.domain.knowbots.lifecycle import UserReviewIn
 from tests.knowbot_fakes import (
     OWNER,
     FakeKnowmart,
@@ -174,7 +174,9 @@ async def test_the_user_columns_and_the_inbox(parts):
     assert _categories(user_expert_items(mine)) == ["new"]
     assert ("todo", "expert") in [(s, k) for s, k, _, _ in inbox_items(mine, [])]
     assert application_category(mine[0]) == "has_expert"
-    await experts.decide(OWNER, str(expert.id), ExpertDecisionIn(accept=True))
+    await creation.repo.update_expert(  # 作者提交交付（交付服务另有测试）
+        expert.id, user_accepted=True, user_decided_by=OWNER, user_decided_at=NOW
+    )
     mine = await board.lives(OWNER)
     assert _categories(user_expert_items(mine)) == ["accepted"]
 

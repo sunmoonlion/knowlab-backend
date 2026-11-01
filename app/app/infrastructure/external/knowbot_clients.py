@@ -95,6 +95,13 @@ class RuntimeTestClients:
         )
         return _result(body)
 
+    async def cancel(self, runtime: str, run_id: str) -> RunResultV1:
+        """停下这次测试（作者撤回交付、审成不过时停平台重跑）。"""
+        _, body = await self._client(runtime).request(
+            "POST", f"{TEST_RUNS}/{quote(run_id, safe='')}/cancel"
+        )
+        return _result(body)
+
     async def answer(
         self, runtime: str, run_id: str, answers: AnswersV1
     ) -> RunResultV1:
@@ -255,7 +262,10 @@ class KnowmartDeliveryClient:
         knowbot_ref: str,
         manifest: dict[str, Any],
         request_public: bool = False,
+        category: str | None = None,
     ) -> dict[str, Any]:
+        """请求体照契约 `knowbot-delivery/v1`
+        （锁 contracts/knowmart-delivery-v1-lock.json）。"""
         body_out: dict[str, Any] = {
             "delivery_id": delivery_id,
             "owner_subject": owner_subject,
@@ -264,6 +274,8 @@ class KnowmartDeliveryClient:
         }
         if request_public:
             body_out["request_public"] = True
+        if category is not None:
+            body_out["category"] = category
         _, body = await self._service().request("POST", "/deliveries", json=body_out)
         if not isinstance(body, dict) or not body.get("knowbot_id"):
             raise BadGatewayError(
@@ -284,6 +296,31 @@ class KnowmartDeliveryClient:
         await self._service().request(
             "POST", f"/owners/{owner}/knowbots/{knowbot}/versions/{number}/stop"
         )
+
+    async def withdraw_public(
+        self, *, owner_subject: str, knowbot_id: str, version: str
+    ) -> None:
+        owner, knowbot = quote(owner_subject, safe=""), quote(knowbot_id, safe="")
+        number = quote(version, safe="")
+        await self._service().request(
+            "POST",
+            f"/owners/{owner}/knowbots/{knowbot}/versions/{number}/withdraw-public",
+        )
+
+    async def versions(
+        self, *, owner_subject: str, knowbot_ref: str
+    ) -> list[dict[str, Any]]:
+        """knowmart 里这个引用各版现在怎样（在售、待处理与原因、停用）。"""
+        owner, ref = quote(owner_subject, safe=""), quote(knowbot_ref, safe="")
+        _, body = await self._service().request(
+            "GET", f"/owners/{owner}/sources/{ref}/versions"
+        )
+        found = body.get("versions") if isinstance(body, dict) else None
+        if not isinstance(found, list):
+            raise BadGatewayError(
+                "knowmart answered without versions", code="knowmart_contract_invalid"
+            )
+        return [v for v in found if isinstance(v, dict)]
 
     async def set_unlisted(
         self, *, owner_subject: str, knowbot_ref: str, version: str, outcome: str

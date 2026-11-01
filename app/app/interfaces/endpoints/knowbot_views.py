@@ -12,6 +12,7 @@ from typing import Any
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
+    DeliveryRecord,
     DraftRecord,
     ExpertRecord,
     GrantRecord,
@@ -26,6 +27,7 @@ from app.application.ports.knowbots import (
 )
 from app.application.services.knowbot_board import Life, start_blocker, summary
 from app.application.services.knowbot_experts import stage_of
+from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import CONSENT_VERSION
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS, draft_label, review_state
 from app.domain.knowbots.platform_grants import basis as grant_basis
@@ -169,6 +171,8 @@ def test_view(test: TestRecord, life: Life, *, admin: bool) -> dict[str, Any]:
         # （SDD 0046 第三节）
         "mode": test.mode,
         "test_set_version": test.test_set_version,
+        # 测试证据进了作者产出区的那一份（0043 第 4.2 节）
+        "evidence": test.evidence if (test.evidence or {}).get("material_id") else None,
     }
     if admin and test.mode == "self":
         # 自助测的：平台的人看不到测试集、用例、报告（SDD 0046 第三节）
@@ -215,10 +219,22 @@ def expert_view(expert: ExpertRecord, life: Life, *, admin: bool) -> dict[str, A
         "listed_at": iso(expert.listed_at),
         "knowbot_id": expert.knowmart_knowbot_id,
         "listing_status": (expert.delivery or {}).get("listing_status"),
+        # knowmart 那头这一版现在怎样：在售 active、待处理 held（所绑数据失效，别人请
+        # 不了）与原因、停用 stopped（0043 第 4.3 节；后台每分钟取回）
+        "market_status": (expert.delivery or {}).get("version_status"),
+        "held_reason": (expert.delivery or {}).get("held_reason"),
         "stopped_at": iso(expert.stopped_at),
         "stop_reason": expert.stop_reason,
         # 试行期上架：两道门之前交付
         "trial": expert.trial,
+        # 平台孵化、平台测的要平台先交回；测试通过的那一次是自助还是平台测的
+        "needs_return": expert.needs_return,
+        "test_mode": None if test is None else test.mode,
+        # 交付过程（SDD 0046 第五节）：新的在前
+        "deliveries": [
+            delivery_view(d, life, admin=admin)
+            for d in reversed(life.deliveries_of(expert.id))
+        ],
     }
     if admin:
         view |= {
@@ -228,6 +244,64 @@ def expert_view(expert: ExpertRecord, life: Life, *, admin: bool) -> dict[str, A
             "stopped_by": expert.stopped_by,
             "digest": expert.digest,
             "delivery_error": expert.delivery_error,
+            "owner_subject": life.request.owner_subject,
+        }
+    return view
+
+
+def delivery_view(found: DeliveryRecord, life: Life, *, admin: bool) -> dict[str, Any]:
+    """一次交付（SDD 0046 第五节）：作者与审核员都看得到进度——自动查的结果（哪条用例、
+    哪个词，不带原文）、许可预查、重跑的结论（审核员看结果、不看原始数据）、审核结论、
+    进没进 knowmart 小店。"""
+    rerun = life.test(found.rerun_test_id)
+    check = found.binding_check or {}
+    view: dict[str, Any] = {
+        "delivery_id": str(found.id),
+        "listing": found.listing,
+        "conversion": found.conversion,
+        "test_mode": found.test_mode,
+        "needs_rerun": found.needs_rerun,
+        "budget_limit": None
+        if found.budget_limit is None
+        else f"{found.budget_limit:.2f}",
+        "status": found.status,
+        "submitted_at": iso(found.submitted_at),
+        "auto_check": found.auto_check,
+        "binding_problem": check.get("problem"),
+        "bindings": [
+            {
+                "material_id": b.get("material_id"),
+                "version_no": b.get("version_no"),
+                "license": b.get("license"),
+            }
+            for b in found.bindings
+        ],
+        "rerun": None
+        if rerun is None
+        else {
+            "test_id": str(rerun.id),
+            "number": rerun.number,
+            "status": rerun.status,
+            "report": _report(rerun),
+        },
+        "decided_at": iso(found.decided_at),
+        "reason": found.reason,
+        "category": found.category,
+        "delivered_at": iso(found.delivered_at),
+        "listing_status": (found.receipt or {}).get("listing_status"),
+        "withdrawn_at": iso(found.withdrawn_at),
+        "withdraw_reason": found.withdraw_reason,
+        # 作者授权审核员看这次交付的依据；审完撤销（consent_ended_at）
+        "basis": delivery_basis("review", found.id),
+        "consent_ended_at": iso(found.consent_ended_at),
+    }
+    if admin:
+        view |= {
+            "submitted_by": found.submitted_by,
+            "decided_by": found.decided_by,
+            "withdrawn_by": found.withdrawn_by,
+            "delivery_error": found.delivery_error,
+            "binding_check": found.binding_check,
         }
     return view
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+import httpx
 import pytest
 
 from app.application.errors.exceptions import BadRequestError, NotFoundError
@@ -363,3 +364,87 @@ async def test_the_author_tests_on_his_own_computer() -> None:
     with pytest.raises(NotFoundError):
         await svc.refresh_mine("someone-else", str(test.id))
     assert (await svc.refresh_mine(OWNER, str(test.id))).id == test.id
+
+
+# —— knowfeed 推需求状态（契约 knowfeed-supply-status/v1，SDD 0045 第 2.5 节）——
+
+
+def status_event(demand_id: str = "d-1", **over: Any) -> dict[str, Any]:
+    return {
+        "contract": "knowfeed-supply-status/v1",
+        "event_id": "e-1",
+        "demand_id": demand_id,
+        "app": "knowlab",
+        "owner": OWNER,
+        "status": "ready",
+        "items": [
+            {
+                "item_id": "i-1",
+                "confirmation_item": "c1",
+                "status": "ready",
+                "updated_at": "2026-10-29T00:00:00Z",
+            }
+        ],
+        "occurred_at": "2026-10-29T00:00:00Z",
+    } | over
+
+
+async def test_a_pushed_demand_status_moves_the_waiting_test_at_once(world) -> None:
+    svc, data, repo, runtime, kb, supply, draft, test = world
+    [shown] = await data.pending(OWNER, str(test.id), token)
+    await data.confirm(OWNER, shown["question_id"], token)
+    # 别人的单、别的单号：不动
+    assert await data.on_demand_status("d-1", "someone-else") == 0
+    assert await data.on_demand_status("d-other", OWNER) == 0
+    supply.status = "ready"
+    assert await data.on_demand_status("d-1", OWNER) == 1
+    [(run_id, _)] = runtime.answers  # 不等页面刷新，马上重解析、回答运行方
+    assert run_id == test.run_id
+    assert await data.on_demand_status("d-1", OWNER) == 0  # 重发无害
+
+
+async def test_the_receiver_takes_only_knowfeed_and_answers_204(world) -> None:
+    from app.infrastructure.security.relation_auth import (
+        ServiceCaller,
+        relation_bindings,
+        require_supply_status_service,
+    )
+    from app.interfaces.http.internal import supply_status
+    from app.main import app
+
+    svc, data, repo, runtime, kb, supply, draft, test = world
+    env = {
+        "SERVICE_AUTH_SUPPLY_STATUS_CALLERS": "knowfeed,knowbench",
+        "SERVICE_AUTH_SUPPLY_STATUS_KNOWFEED_AUDIENCE": "feed",
+        "SERVICE_AUTH_SUPPLY_STATUS_KNOWFEED_SUBJECT_ALLOWLIST": "admin/f",
+        "SERVICE_AUTH_SUPPLY_STATUS_KNOWFEED_REQUIRED_SCOPE": "knowlab:supply-status",
+        "SERVICE_AUTH_SUPPLY_STATUS_KNOWBENCH_AUDIENCE": "bench",
+        "SERVICE_AUTH_SUPPLY_STATUS_KNOWBENCH_SUBJECT_ALLOWLIST": "admin/b",
+        "SERVICE_AUTH_SUPPLY_STATUS_KNOWBENCH_REQUIRED_SCOPE": "knowlab:supply-status",
+    }
+    assert [b.caller for b in relation_bindings("supply-status", env)] == ["knowfeed"]
+    [shown] = await data.pending(OWNER, str(test.id), token)
+    await data.confirm(OWNER, shown["question_id"], token)
+    supply.status = "ready"
+    app.dependency_overrides[supply_status.test_data] = lambda: data
+    app.dependency_overrides[require_supply_status_service] = lambda: ServiceCaller(
+        caller="knowfeed", principal=None
+    )  # type: ignore[arg-type]
+    url = "/api/internal/v1/knowfeed/demand-status"
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as c:
+            other = await c.post(url, json=status_event(app="knowbench"))
+            assert other.status_code == 204 and runtime.answers == []
+            bad = await c.post(url, json=status_event(extra="x"))
+            assert bad.status_code == 422
+            done = await c.post(url, json=status_event())
+            assert done.status_code == 204
+            assert len(runtime.answers) == 1
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as c:
+            assert (await c.post(url, json=status_event())).status_code == 404
+    finally:
+        app.dependency_overrides.clear()

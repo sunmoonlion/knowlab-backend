@@ -18,6 +18,7 @@ from app.application.errors.exceptions import (
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
+    DeliveryRecord,
     DraftRecord,
     ExpertRecord,
     GrantRecord,
@@ -32,6 +33,7 @@ from app.application.ports.knowbots import (
     WorkdraftEntryRecord,
     WorkdraftRecord,
 )
+from app.domain.knowbots.delivery import DeliveryReviewIn, DeliverySubmitIn
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.incubation import (
     IncubationRequestV1,
@@ -41,8 +43,6 @@ from app.domain.knowbots.incubation_rounds import ACTIVE_ROUNDS
 from app.domain.knowbots.lifecycle import (
     ACTIVE_TESTS,
     AcceptanceIn,
-    ExpertDecisionIn,
-    ExpertReviewIn,
 )
 from app.domain.knowbots.test_run import (
     CONTRACT,
@@ -154,15 +154,34 @@ async def accepted_request(svc: Any, owner: str = OWNER, **body: Any) -> Request
     return request
 
 
+async def user_token() -> str:
+    return "user-token-for-knowbase"
+
+
 async def list_expert(
-    experts: Any, expert_id: Any, listing: str = "self", owner: str = OWNER
+    deliveries: Any, expert_id: Any, listing: str = "self", owner: str = OWNER
 ) -> ExpertRecord:
-    """交回 → 用户要了 → 运营审过：上架。"""
-    await experts.return_to_user(str(expert_id), "admin-1")
-    await experts.decide(owner, str(expert_id), ExpertDecisionIn(accept=True))
-    return await experts.review(
-        str(expert_id), ExpertReviewIn(approved=True, listing=listing), "admin-1"
+    """（要交回的先交回）→ 作者提交交付 → 自用自动审过，或运营审过：上架。"""
+    found = await deliveries.repo.get_expert(uuid.UUID(str(expert_id)))
+    if found.needs_return and found.returned_at is None:
+        await deliveries.experts.return_to_user(str(expert_id), "admin-1")
+    delivery = await deliveries.submit(
+        owner,
+        str(expert_id),
+        DeliverySubmitIn(
+            listing=listing,  # type: ignore[arg-type]
+            authorize_reviewer=True,
+            budget_limit="5" if listing == "public" else None,  # type: ignore[arg-type]
+        ),
+        user_token,
     )
+    if delivery.status == "reviewing":
+        await deliveries.review(
+            str(delivery.id),
+            DeliveryReviewIn(approved=True, category="tools.lookup"),
+            "admin-1",
+        )
+    return await deliveries.repo.get_expert(found.id)
 
 
 class MemoryKnowlab:
@@ -182,6 +201,7 @@ class MemoryKnowlab:
         self.incubations: dict[uuid.UUID, IncubationRecord] = {}
         self.grants: dict[uuid.UUID, GrantRecord] = {}
         self.proposals: dict[uuid.UUID, ProposalRecord] = {}
+        self.deliveries: dict[uuid.UUID, DeliveryRecord] = {}
         # 作者在别的名称上自助测过的（不在这份假仓里）：用户 → 那一次。平台测试照它定在
         # 哪跑（decisions ⑯），测试里用 own_computer 预置
         self.earlier_self_tests: dict[str, TestRecord] = {}
@@ -210,6 +230,7 @@ class MemoryKnowlab:
             dict(self.incubations),
             dict(self.grants),
             dict(self.proposals),
+            dict(self.deliveries),
         )
         try:
             yield
@@ -230,6 +251,7 @@ class MemoryKnowlab:
                 self.incubations,
                 self.grants,
                 self.proposals,
+                self.deliveries,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -508,6 +530,104 @@ class MemoryKnowlab:
 
     async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None:
         self.experts[expert_id] = replace(self.experts[expert_id], **changes)
+
+    # ---------- 交付过程 ----------
+    async def create_delivery(self, record: DeliveryRecord) -> DeliveryRecord:
+        if record.status == "reviewing" and any(
+            d.expert_id == record.expert_id and d.status == "reviewing"
+            for d in self.deliveries.values()
+        ):
+            raise ConcurrencyConflictError("open", code="delivery_open")
+        self.deliveries[record.id] = record
+        return record
+
+    async def get_delivery(
+        self, delivery_id: uuid.UUID, *, for_update: bool = False
+    ) -> DeliveryRecord | None:
+        return self.deliveries.get(delivery_id)
+
+    async def list_deliveries(
+        self,
+        request_ids: Any = None,
+        *,
+        expert_id: uuid.UUID | None = None,
+        status: str | None = None,
+    ) -> Sequence[DeliveryRecord]:
+        return sorted(
+            (
+                d
+                for d in self.deliveries.values()
+                if (request_ids is None or d.request_id in request_ids)
+                and (expert_id is None or d.expert_id == expert_id)
+                and (status is None or d.status == status)
+            ),
+            key=lambda d: (d.submitted_at, str(d.id)),
+        )
+
+    async def update_delivery(self, delivery_id: uuid.UUID, **changes: Any) -> None:
+        self.deliveries[delivery_id] = replace(self.deliveries[delivery_id], **changes)
+
+    async def deliveries_to_close(self, limit: int = 100) -> Sequence[DeliveryRecord]:
+        return [
+            d
+            for d in self.deliveries.values()
+            if d.status != "reviewing" and d.consent_ended_at is None
+        ][:limit]
+
+    async def get_test_set(
+        self,
+        request_id: uuid.UUID,
+        *,
+        version: int | None = None,
+        from_test_id: uuid.UUID | None = None,
+    ) -> TestSetRecord | None:
+        mine = [
+            t
+            for t in self.test_sets
+            if t.request_id == request_id
+            and (version is None or t.version == version)
+            and (from_test_id is None or t.from_test_id == from_test_id)
+        ]
+        return max(mine, key=lambda t: t.version) if mine else None
+
+    async def directory_rows(self) -> Sequence[dict[str, Any]]:
+        out = []
+        for request in sorted(self.requests.values(), key=lambda r: r.created_at):
+            drafts = [d for d in self.drafts.values() if d.request_id == request.id]
+            if not drafts:
+                continue
+            latest = max(drafts, key=lambda d: d.revision)
+            out.append(
+                {
+                    "request_id": request.id,
+                    "owner_subject": request.owner_subject,
+                    "title": request.title,
+                    "directory_sent": request.directory_sent,
+                    "version": latest.version,
+                    "revision": latest.revision,
+                }
+            )
+        return out
+
+    async def set_directory_sent(
+        self, request_id: uuid.UUID, sent: dict[str, Any]
+    ) -> None:
+        self.requests[request_id] = replace(
+            self.requests[request_id], directory_sent=copy.deepcopy(sent)
+        )
+
+    async def tests_without_evidence(
+        self, now: datetime, limit: int = 100
+    ) -> Sequence[TestRecord]:
+        return [
+            t
+            for t in sorted(self.tests.values(), key=lambda t: t.number)
+            if t.status in ("passed", "failed")
+            and (
+                t.evidence is None
+                or str(t.evidence.get("retry_after") or "~") <= now.isoformat()
+            )
+        ][:limit]
 
     async def experts_unlisted_unsent(self, limit: int = 100) -> Sequence[ExpertRecord]:
         """同 SQL：没上架、用户不要或审核没过、还没送。"""
@@ -840,6 +960,9 @@ class FakeRuntime:
         # 用户在 knowbench 填了模型 key 没有：None 是运行方还没有这个接口
         self.key_ready: bool | None = True
         self.key_asked: list[str] = []
+        self.cancelled: list[str] = []
+        self.can_cancel = True
+        self.on_start: Any = None
 
     def registered(self) -> frozenset[str]:
         return self.names
@@ -848,10 +971,19 @@ class FakeRuntime:
         if self.fail_start:
             raise ServiceUnavailableError("down", code="knowbench_unavailable")
         self.started.append((runtime, request))
+        if self.on_start is not None:  # 插桩：开跑的同时别处做点什么
+            await self.on_start()
         return self.results.get(request.run_id, result(request.run_id, "accepted"))
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1:
         return self.results.get(run_id, result(run_id, "running"))
+
+    async def cancel(self, runtime: str, run_id: str) -> RunResultV1:
+        self.cancelled.append(run_id)
+        if not self.can_cancel:  # 运行方还没有停的接口
+            raise BadGatewayError("not found", code="not_found")
+        self.results[run_id] = result(run_id, "cancelled")
+        return self.results[run_id]
 
     async def outputs(
         self, runtime: str, run_id: str, case_id: str
@@ -993,16 +1125,230 @@ class FakeLibrary:
         return copy.deepcopy(self.readings.get(material_id, []))
 
 
+class FakeKnowbaseDelivery:
+    """假的 knowbase 交付接口：名录、冻结、许可预查、平台过程依据、机器授权、产出区。
+
+    照 knowbase 的规矩做（真规则另在 knowbase 的测试里核，这里跟它一致）：
+    - 冻结只一次：同一版再冻回第一次的那几份（版本、许可、摘要照第一次）；preview 不写；
+    - 许可预查带了 basis_ref 的回冻结时的许可，能不能给别人用要冻结的那一档也够；
+    - 机器重跑授权：依据只认 platform、reference、public、frozen_binding，平台过程恰好
+      一个（platform 项的 basis_ref 与 platform_use 合起来）。
+
+    bound：作者绑给专家的几份（冻结时取）；states：（资料）→ 现在的状态与许可。"""
+
+    BASES = {"platform", "reference", "public", "frozen_binding"}
+    RANK = {"self": 0, "via_expert": 1, "sale": 2}
+
+    def __init__(self) -> None:
+        self.bound: list[dict[str, Any]] = []
+        self.states: dict[str, dict[str, Any]] = {}
+        self.directory: dict[str, dict[str, Any]] = {}
+        self.frozen: list[tuple[str, str, str]] = []
+        self.frozen_sets: dict[str, list[dict[str, Any]]] = {}
+        self.consents: list[dict[str, Any]] = []
+        self.ended: list[dict[str, Any]] = []
+        self.grants: list[dict[str, Any]] = []
+        self.outputs: list[dict[str, Any]] = []
+        self.fail = False
+        self.fail_consent_kind: str | None = None
+        self.withdrawn_in_knowbase: set[str] = set()
+        self.voided: list[str] = []
+        self.revoked: list[str] = []
+        self.fail_grant_after: int | None = None
+        self.raised: list[tuple[str, str, str]] = []
+        self.fail_outputs = False
+
+    def _check(self) -> None:
+        if self.fail:
+            raise ServiceUnavailableError("down", code="knowbase_unavailable")
+
+    async def push_expert(
+        self, expert_id: str, *, owner: str, name: str, latest_version: str | None
+    ) -> None:
+        self._check()
+        self.directory[expert_id] = {
+            "owner": owner,
+            "name": name,
+            "latest_version": latest_version,
+        }
+
+    async def freeze(
+        self, expert_id: str, version: str, *, author: str, preview: bool = False
+    ) -> list[dict[str, Any]]:
+        self._check()
+        if expert_id not in self.directory:
+            raise BadGatewayError("not pushed", code="expert_not_found")
+        ref = f"expert:{expert_id}@{version}"
+        if ref in self.frozen_sets:
+            return copy.deepcopy(self.frozen_sets[ref])
+        made = [{**b, "basis_ref": ref} for b in copy.deepcopy(self.bound)]
+        for b in made:  # 冻结的是现在的许可
+            current = self.states.get(b["material_id"])
+            if current and current.get("license"):
+                b["license"] = current["license"]
+        if not preview:
+            self.frozen.append((expert_id, version, author))
+            self.frozen_sets[ref] = copy.deepcopy(made)
+        return made
+
+    async def binding_states(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        self._check()
+        out = []
+        for i in items:
+            state = dict(
+                self.states.get(
+                    i["material_id"],
+                    {"state": "live", "license": "via_expert", "shareable": True},
+                )
+            )
+            state.setdefault(
+                "shareable",
+                state.get("state") == "live"
+                and self.RANK.get(state.get("license") or "self", 0) >= 1,
+            )
+            ref = i.get("basis_ref")
+            if ref is not None:
+                frozen = next(
+                    (
+                        b
+                        for b in self.frozen_sets.get(ref, [])
+                        if b["material_id"] == i["material_id"]
+                        and b["version_no"] == i["version_no"]
+                    ),
+                    None,
+                )
+                if frozen is None:
+                    state = {"state": "gone", "license": None, "shareable": False}
+                else:
+                    state["frozen_license"] = frozen.get("license") or "self"
+                    state["shareable"] = (
+                        bool(state["shareable"])
+                        and self.RANK.get(state["frozen_license"], 0) >= 1
+                    )
+            out.append(state)
+        return out
+
+    async def consent_platform(
+        self, user_token: str, *, kind: str, ref: str, items: list[dict[str, Any]]
+    ) -> int:
+        self._check()
+        if kind == self.fail_consent_kind:
+            raise BadGatewayError("refused", code="not_found")
+        self.consents.append(
+            {"token": user_token, "kind": kind, "ref": ref, "items": items}
+        )
+        return max(len(items), 1)  # 没资料也记一条（账号级）
+
+    async def end_platform(
+        self, *, subject: str, kind: str, ref: str, reason: str
+    ) -> None:
+        self._check()
+        self.ended.append(
+            {"subject": subject, "kind": kind, "ref": ref, "reason": reason}
+        )
+
+    async def void_frozen(self, expert_id: str, version: str, *, author: str) -> int:
+        self._check()
+        ref = f"expert:{expert_id}@{version}"
+        self.voided.append(ref)
+        return len(self.frozen_sets.pop(ref, []))
+
+    async def raise_frozen_license(
+        self,
+        expert_id: str,
+        version: str,
+        material_id: str,
+        *,
+        author: str,
+        license_: str,
+    ) -> dict[str, Any]:
+        self._check()
+        ref = f"expert:{expert_id}@{version}"
+        current = self.states.get(material_id, {}).get("license", "via_expert")
+        if self.RANK.get(current, 0) < self.RANK[license_]:
+            raise BadGatewayError("too low", code="license_too_low")
+        for b in self.frozen_sets.get(ref, []):
+            if b["material_id"] == material_id:
+                if self.RANK.get(b.get("license") or "self", 0) >= self.RANK[license_]:
+                    raise BadGatewayError("not higher", code="license_not_higher")
+                b["license"] = license_
+                self.raised.append((ref, material_id, license_))
+                return dict(b)
+        raise BadGatewayError("no binding", code="binding_not_found")
+
+    async def platform_consent_live(self, *, subject: str, kind: str, ref: str) -> int:
+        self._check()
+        if ref in self.withdrawn_in_knowbase:  # 作者在 knowbase 总栏撤了
+            return 0
+        return sum(
+            len(c["items"])
+            for c in self.consents
+            if (c["kind"], c["ref"]) == (kind, ref)
+        )
+
+    async def machine_grant(
+        self,
+        *,
+        owner: str,
+        ref: str,
+        items: list[dict[str, Any]],
+        ttl_seconds: int,
+        platform_use: str,
+    ) -> str:
+        self._check()
+        if any(i["basis"] not in self.BASES for i in items):
+            raise BadGatewayError("basis", code="basis_not_allowed")
+        uses = {i["basis_ref"] for i in items if i["basis"] == "platform"}
+        uses.add(platform_use)
+        if len(uses) != 1:
+            raise BadGatewayError("process", code="basis_ref_invalid")
+        _, _, kind, ref = platform_use.split(":")
+        consented = any((c["kind"], c["ref"]) == (kind, ref) for c in self.consents)
+        ended = any((e["kind"], e["ref"]) == (kind, ref) for e in self.ended)
+        if not consented or ended:  # 这次过程本人的同意要在
+            raise BadGatewayError("consent", code="outside_consent")
+        if (
+            self.fail_grant_after is not None
+            and len(self.grants) >= self.fail_grant_after
+        ):
+            raise BadGatewayError("refused", code="not_shown")
+        self.grants.append(
+            {"owner": owner, "ref": ref, "items": items, "platform_use": platform_use}
+        )
+        return f"grant-{len(self.grants)}"
+
+    async def revoke_grant(self, grant_id: str) -> None:
+        self._check()
+        self.revoked.append(grant_id)
+
+    async def write_output(self, **body: Any) -> dict[str, Any]:
+        self._check()
+        if self.fail_outputs:
+            raise BadGatewayError("refused", code="quota_exceeded")
+        self.outputs.append(body)
+        return {"material_id": f"out-{len(self.outputs)}", "version_no": 1}
+
+
 class FakeKnowmart:
     def __init__(self) -> None:
         self.delivered: list[dict[str, Any]] = []
         self.stopped: list[dict[str, Any]] = []
+        self.public_withdrawn: list[dict[str, Any]] = []
         self.unlisted: list[dict[str, Any]] = []
+        # knowmart 那头各版现在怎样（{version, status, held_reason, public_allowed}）
+        self.version_states: list[dict[str, Any]] = []
+        self.on_deliver: Any = None
         self.fail = False
+        self.fail_stop = False
+        self.fail_withdraw_public = False
 
     async def deliver(self, **body: Any) -> dict[str, Any]:
         if self.fail:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
+        if self.on_deliver is not None:  # 插桩：交的同时别处做点什么
+            await self.on_deliver()
+        if body.get("category") is None:
+            body.pop("category", None)
         self.delivered.append(body)
         found = {
             "knowbot_id": "kb-1",
@@ -1014,14 +1360,24 @@ class FakeKnowmart:
         return found
 
     async def stop(self, **body: Any) -> None:
-        if self.fail:
+        if self.fail or self.fail_stop:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
         self.stopped.append(body)
+
+    async def withdraw_public(self, **body: Any) -> None:
+        if self.fail or self.fail_withdraw_public:
+            raise ServiceUnavailableError("down", code="knowmart_unavailable")
+        self.public_withdrawn.append(body)
 
     async def set_unlisted(self, **body: Any) -> None:
         if self.fail:
             raise ServiceUnavailableError("down", code="knowmart_unavailable")
         self.unlisted.append(body)
+
+    async def versions(self, **body: Any) -> list[dict[str, Any]]:
+        if self.fail:
+            raise ServiceUnavailableError("down", code="knowmart_unavailable")
+        return copy.deepcopy(self.version_states)
 
 
 def waiting(run_id: str) -> RunResultV1:

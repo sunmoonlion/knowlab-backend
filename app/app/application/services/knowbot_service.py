@@ -23,11 +23,13 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from app.application.errors.exceptions import (
@@ -40,9 +42,11 @@ from app.application.errors.exceptions import (
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
+    DeliveryRecord,
     DraftRecord,
     ExpertRecord,
     GrantRecord,
+    KnowbaseDeliveryClient,
     KnowlabRepository,
     RequestRecord,
     RequestVersionRecord,
@@ -52,8 +56,10 @@ from app.application.ports.knowbots import (
 )
 from app.application.services.knowbot_grants import (
     live_incubation,
+    reviewing,
     self_acceptance,
 )
+from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
     OUTPUTS_KEEP_DAYS,
@@ -155,6 +161,7 @@ class KnowbotCreationService:
         on_refresh: Callable[[TestRecord, RequestRecord], Awaitable[None]]
         | None = None,
         test_data: KnowbotTestData | None = None,
+        knowbase: KnowbaseDeliveryClient | None = None,
     ) -> None:
         self.repo = repo
         self.runtimes = runtimes
@@ -162,6 +169,8 @@ class KnowbotCreationService:
         self.on_refresh = on_refresh
         # 配了 knowbase：测试集与测试里专家提出的数据（SDD 0046 第三节）
         self.test_data = test_data
+        # 配了 knowbase：测试证据进产出区、平台重跑的机器授权（0043 第 2.6、2.7 节）
+        self.knowbase = knowbase
 
     # ---------- 用户：申请与修改 ----------
     async def submit(self, owner_subject: str, body: KnowbotRequestIn) -> RequestRecord:
@@ -364,7 +373,7 @@ class KnowbotCreationService:
         test, request = await self.test_with_request(test_id)
         draft = await self.repo.get_draft(test.draft_id)
         if (
-            test.mode != "platform"
+            test.mode not in ("platform", "rerun")
             or draft is None
             or not await self._shown_to_operator(draft)
         ):
@@ -375,9 +384,21 @@ class KnowbotCreationService:
         grants = await self.repo.list_grants([draft.request_id])
         if draft.mode == "platform" and live_incubation(grants, self.now()):
             return True
-        return any(
+        if any(
             g.kind == "test" and g.draft_id == draft.id and g.status != "declined"
             for g in grants
+        ):
+            return True
+        # 作者交审了这一版、授权还在（在审、没撤）：审完运营就看不到清单与测试了
+        # （SDD 0046 第五节「审完撤销」）
+        experts = {
+            e.id
+            for e in await self.repo.list_experts([draft.request_id])
+            if e.draft_id == draft.id
+        }
+        return any(
+            d.expert_id in experts and reviewing(d)
+            for d in await self.repo.list_deliveries([draft.request_id])
         )
 
     async def platform_budget(self, draft: DraftRecord) -> str:
@@ -908,8 +929,12 @@ class KnowbotCreationService:
                 if status == "platform_error"
                 else None,
             )
-            draft = await self._locked(test.draft_id)
-            if status == "passed":
+            if test.mode == "rerun":
+                # 公开交付的平台重跑：只记结果给审核员看，不出专家、不动准专家
+                # （SDD 0046 第五节）
+                pass
+            elif status == "passed":
+                draft = await self._locked(test.draft_id)
                 await self._move(draft, "passed")
                 await self.repo.create_expert(
                     ExpertRecord(
@@ -919,34 +944,331 @@ class KnowbotCreationService:
                         draft_id=draft.id,
                         test_id=test.id,
                         created_at=self.now(),
+                        # 平台孵化、平台测的平台先交回；其余作者「提交交付」即过
+                        # 同意门（SDD 0046 第五节）
+                        needs_return=test.mode == "platform"
+                        and draft.mode == "platform",
                     )
                 )
             elif status == "failed":
-                await self._move(draft, "failed")
+                await self._move(await self._locked(test.draft_id), "failed")
             else:
-                await self._move(draft, "pending_test")
+                await self._move(await self._locked(test.draft_id), "pending_test")
             if test.mode == "platform" and status in ("passed", "failed"):
                 # 交平台测「这一次」测完了：测试授权结束（平台出错的可以再测）
                 for g in await self.repo.list_grants([test.request_id]):
                     if (
                         g.kind == "test"
-                        and g.draft_id == draft.id
+                        and g.draft_id == test.draft_id
                         and g.status == "active"
                     ):
                         await self.repo.update_grant(
                             g.id, status="ended", ended_at=self.now()
                         )
         await self._wrap_up(test.id)
+        await self._evidence(test.id)
 
     async def _wrap_up(self, test_id: uuid.UUID) -> None:
-        """测试结束（清单 v2）：每条用例签的授权撤掉，作者确认过的记成测试集新一版。"""
-        if self.test_data is None:
-            return
+        """测试结束（清单 v2）：每条用例签的授权撤掉，作者确认过的记成测试集新一版
+        （平台重跑的不记：测试集钉住不变）。"""
         test = await self.repo.get_test(test_id)
         if test is None:
             return
+        if test.mode == "rerun":
+            await self._revoke_machine_grants(test.case_grants)
+            return
+        if self.test_data is None:
+            return
         await self.test_data.revoke(test.case_grants)
         await self.test_data.finish(test)
+
+    async def _revoke_machine_grants(self, grants: Sequence[str]) -> None:
+        """重跑签的机器授权：撤（与测试授权同一个撤的接口）；撤不成到期自己失效。"""
+        if self.knowbase is None:
+            return
+        for grant_id in grants:
+            try:
+                await self.knowbase.revoke_grant(grant_id)
+            except AppException:
+                pass  # 到期自己失效
+
+    async def stop_rerun(self, test_id: uuid.UUID, reason: str) -> None:
+        """停下在跑的平台重跑（作者撤回交付、审成不过）：叫运行方停，停不成（运行方还没
+        有停的接口、连不上）照样撤这次签的机器授权、把测试记成平台出错——读不到数据，
+        运行方那头也会停在读数据那一步。"""
+        test = await self.repo.get_test(test_id)
+        if test is None or test.status not in ACTIVE_TESTS or test.mode != "rerun":
+            return
+        request = await self.repo.get_request(test.request_id)
+        assert request is not None
+        try:
+            await self.runtimes.cancel(request.runtime, test.run_id)
+        except AppException as exc:
+            log.warning("rerun not cancelled test=%s code=%s", test.id, exc.code)
+        await self._end_on_platform(test.id, f"stopped: {reason}"[:200])
+        await self._wrap_up(test.id)
+
+    # ---------- 测试证据进产出区（0043 第 2.6、4.2 节） ----------
+    async def _evidence(self, test_id: uuid.UUID) -> None:
+        """测完了（通过、没通过）：结论、数值、判定理由经服务写入路进作者的产出区；
+        写不成下一轮后台再写（write_pending_evidence）。"""
+        test = await self.repo.get_test(test_id)
+        if test is None or self.knowbase is None:
+            return
+        try:
+            await self.write_evidence(test)
+        except AppException as exc:
+            log.warning("test evidence not written test=%s code=%s", test.id, exc.code)
+
+    async def write_evidence(self, test: TestRecord) -> bool:
+        """写一次测试的证据（按（测试, 运行编号）幂等，knowbase 重放回原来那份）。
+        没有报告的记一笔「没有可写的」出队；写不成的记次数，按次数往后排（后台补写）。"""
+        if (
+            self.knowbase is None
+            or (test.evidence or {}).get("material_id")
+            or test.status not in ("passed", "failed")
+        ):
+            return False
+        if test.report is None:
+            async with self.repo.transaction():
+                await self.repo.update_test(test.id, evidence={"skipped": "no_report"})
+            return False
+        request = await self.repo.get_request(test.request_id)
+        draft = await self.repo.get_draft(test.draft_id)
+        assert request is not None and draft is not None
+        body = json.dumps(
+            evidence_document(test, draft),
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8")
+        try:
+            written = await self.knowbase.write_output(
+                beneficiary=request.owner_subject,
+                task_ref=f"knowlab-test:{test.id}",
+                run_ref=test.run_id,
+                name=f"{request.title[:60]} 第 {test.number} 次测试证据.json",
+                content=body,
+                expert_id=str(request.id),
+                expert_version=draft.version,
+            )
+        except AppException as exc:
+            failures = int((test.evidence or {}).get("failures") or 0) + 1
+            wait = timedelta(minutes=min(2**failures, 24 * 60))
+            async with self.repo.transaction():
+                await self.repo.update_test(
+                    test.id,
+                    evidence={
+                        "failures": failures,
+                        "code": exc.code[:64],
+                        "retry_after": (self.now() + wait).isoformat(),
+                    },
+                )
+            raise
+        async with self.repo.transaction():
+            await self.repo.update_test(test.id, evidence=written)
+        return True
+
+    async def write_pending_evidence(self, limit: int = 50) -> int:
+        """后台补写：测完了、证据还没进产出区的。一个出错不挡别的。"""
+        if self.knowbase is None:
+            return 0
+        done = 0
+        for test in await self.repo.tests_without_evidence(self.now(), limit):
+            try:
+                done += await self.write_evidence(test)
+            except AppException as exc:
+                log.warning(
+                    "test evidence not written test=%s code=%s", test.id, exc.code
+                )
+        return done
+
+    # ---------- 公开交付的平台重跑（SDD 0046 第五节；decisions ⑯） ----------
+    async def start_rerun(
+        self,
+        delivery: DeliveryRecord,
+        *,
+        starter: str,
+        timeout_seconds: int,
+        budget: Decimal | None = None,
+    ) -> TestRecord:
+        """平台发起重跑：在作者的账号下、作者那次自助测试用的电脑与目录、用作者的 key
+        跑（decisions ⑯），费用上限是作者交审时设的。测的是这一版专家的准专家、这一版
+        创意的用例，带那次自助测试确认过的测试集（钉住不变）；凭作者交审时留的
+        `platform:knowlab:rerun:<交付过程>` 另签机器授权，不复活旧授权
+        （0043 第 2.7 节）。全程事件记在运行方 knowbench，作者改不了。"""
+        expert = await self.repo.get_expert(delivery.expert_id)
+        assert expert is not None and expert.test_id is not None
+        reviewed = await self.repo.get_test(expert.test_id)
+        draft = await self.repo.get_draft(expert.draft_id)
+        request = await self.repo.get_request(delivery.request_id)
+        assert reviewed is not None and draft is not None and request is not None
+        if reviewed.environment_id is None or reviewed.workspace_root is None:
+            raise _conflict(
+                "The reviewed test has no computer to run on", "author_has_no_computer"
+            )
+        if delivery.budget_limit is None:
+            raise _conflict("The author set no budget for the rerun", "not_authorised")
+        # 这一次能花的：作者设的上限减去之前几次已花的（按一次交付累计）
+        limit = delivery.budget_limit if budget is None else budget
+        await require_model_key(self.runtimes, request)
+        version = await self.repo.get_version(draft.request_id, draft.request_version)
+        assert version is not None
+        test_set = await self.repo.get_test_set(
+            request.id, from_test_id=reviewed.id
+        ) or (
+            await self.repo.get_test_set(request.id, version=reviewed.test_set_version)
+            if reviewed.test_set_version is not None
+            else None
+        )
+        async with self.repo.transaction():
+            await self.repo.lock_request(request.id)
+            tests = await self.repo.list_tests(request_ids=[request.id])
+            if any(t.status in ACTIVE_TESTS for t in tests):
+                raise _conflict(
+                    "Another test of this knowbot is running", "test_running"
+                )
+            test_id = uuid.uuid4()
+            run = RunRequestV1.model_validate(
+                {
+                    "contract": CONTRACT,
+                    "run_id": f"knowlab-test-{test_id}",
+                    "owner_subject": request.owner_subject,
+                    "manifest": draft.manifest,
+                    "cases": cases_for_test(version.cases, request.case_answers),
+                    "budget": {"limit": f"{limit:.2f}"},
+                    "timeout_seconds": timeout_seconds,
+                    "max_wait_seconds": MAX_WAIT_SECONDS,
+                    "runner": {
+                        "kind": "user",
+                        "environment_id": reviewed.environment_id,
+                        "workspace_root": reviewed.workspace_root,
+                    },
+                }
+            )
+            test = await self.repo.create_test(
+                TestRecord(
+                    id=test_id,
+                    request_id=request.id,
+                    number=max((t.number for t in tests), default=0) + 1,
+                    draft_id=draft.id,
+                    status="queued",
+                    run_id=run.run_id,
+                    started_at=self.now(),
+                    budget_limit=f"{limit:.2f}",
+                    timeout_seconds=timeout_seconds,
+                    started_by=starter,
+                    mode="rerun",
+                    environment_id=reviewed.environment_id,
+                    workspace_root=reviewed.workspace_root,
+                    test_set_version=None if test_set is None else test_set.version,
+                )
+            )
+        grants: list[str] = []
+        if test_set is not None:
+            try:
+                cases = await self._rerun_cases(
+                    request,
+                    delivery,
+                    [c.model_dump(mode="json") for c in run.cases],
+                    test_set.cases,
+                    grants,
+                    run_id=run.run_id,
+                    ttl_seconds=min(
+                        GRANT_MAX_SECONDS,
+                        timeout_seconds + MAX_WAIT_SECONDS + GRANT_MARGIN_SECONDS,
+                    ),
+                )
+            except AppException as exc:
+                await self._end_on_platform(test.id, f"rerun grant refused: {exc.code}")
+                await self._revoke_machine_grants(grants)
+                raise
+            run = run.model_copy(
+                update={"cases": tuple(RunCase.model_validate(c) for c in cases)}
+            )
+            async with self.repo.transaction():
+                await self.repo.update_test(test.id, case_grants=grants)
+        try:
+            result = await self.runtimes.start(request.runtime, run)
+        except AppException as exc:
+            await self._end_on_platform(test.id, f"start failed: {exc.code}")
+            await self._revoke_machine_grants(grants)
+            raise
+        if result.final:
+            await self._finish(test.id, result)
+        else:
+            await self._progress(test.id, result)
+        started = await self.repo.get_test(test.id)
+        assert started is not None
+        return started
+
+    async def _rerun_cases(
+        self,
+        request: RequestRecord,
+        delivery: DeliveryRecord,
+        cases: list[dict[str, Any]],
+        pinned: dict[str, Any],
+        grants: list[str],
+        *,
+        run_id: str,
+        ttl_seconds: int,
+    ) -> list[dict[str, Any]]:
+        """测试集里有的用例，每条签一张机器授权：作者展示给 knowlab 的那几份改凭
+        交审时留的重跑依据，公开原件、引用照旧凭它们自己（knowbase 的机器重跑授权
+        认这三种）。"""
+        if self.knowbase is None:
+            raise ServiceUnavailableError(
+                "knowbase is not configured", code="knowbase_unconfigured"
+            )
+        from app.application.services.knowbot_test_data import case_data
+
+        rerun = delivery_basis("rerun", delivery.id)
+        out: list[dict[str, Any]] = []
+        # 每签一张记进 grants（调用方的那一份）：中途出错，已签的由调用方一起撤
+        for case in cases:
+            items = list(
+                (pinned.get(str(case.get("case_id"))) or {}).get("items") or []
+            )
+            if not items:
+                out.append(case)
+                continue
+            pins = [
+                {**item, "basis": "platform", "basis_ref": rerun}
+                if item.get("basis", "display") == "display"
+                else item
+                for item in items
+            ]
+            asked = [
+                {
+                    k: pin[k]
+                    for k in (
+                        "material_id",
+                        "version_no",
+                        "sha256",
+                        "rendition_kind",
+                        "rendition_no",
+                        "rendition_sha256",
+                        "basis",
+                        "basis_ref",
+                    )
+                    if pin.get(k) is not None
+                }
+                for pin in pins
+            ]
+            grant_id = await self.knowbase.machine_grant(
+                owner=request.owner_subject,
+                ref=f"{run_id}:{case.get('case_id')}"[:255],
+                items=asked,
+                ttl_seconds=ttl_seconds,
+                # 一条用例可能全是公开原件、引用（「财务分析与预测」就是），没有凭平台
+                # 同意的项：过程照这里记，撤过程时一并撤
+                platform_use=rerun,
+            )
+            grants.append(grant_id)
+            # 交给运行方的照旧是测试集里那几份（契约 knowbot-test-run/v1 的 PinnedInput
+            # 不认 platform 依据）；读的时候凭的是这张机器授权
+            out.append({**case, "data": case_data(items, grant_id)})
+        return out
 
     async def _end_on_platform(self, test_id: uuid.UUID, error: str) -> None:
         """平台出错结束这一次：测试记平台出错，准专家回到待测（再测是新编号）。"""
@@ -957,6 +1279,8 @@ class KnowbotCreationService:
             await self.repo.update_test(
                 test.id, status="platform_error", error=error, finished_at=self.now()
             )
+            if test.mode == "rerun":
+                return  # 重跑不动准专家
             draft = await self._locked(test.draft_id)
             if draft.status == "testing":
                 await self._move(draft, "pending_test")
@@ -980,3 +1304,49 @@ class KnowbotCreationService:
             raise _conflict("The test is still within its time", "not_stuck")
         await self._end_on_platform(test.id, "timed out")
         await self._wrap_up(test.id)
+
+
+def evidence_document(test: TestRecord, draft: DraftRecord) -> dict[str, Any]:
+    """测试证据（0043 第 2.6、4.2 节）：结论、数值、判定理由，只增不改。
+
+    数值是各条验收判到的对错与没过的那几条的说明（「哪一格、说了多少、实际多少」，
+    契约 knowbot-test-run/v1 的 details），不带成稿与原始产出（原始产出留在作者本地）。
+    自助测的是自报，过门时平台重跑核（0043 第 2.6 节）。
+    """
+    report = test.report or {}
+    return {
+        "kind": "knowlab-test-evidence",
+        "test": {
+            "number": test.number,
+            "mode": test.mode,
+            "status": test.status,
+            "run_id": test.run_id,
+            "started_at": test.started_at.isoformat(),
+            "finished_at": None
+            if test.finished_at is None
+            else test.finished_at.isoformat(),
+            "test_set_version": test.test_set_version,
+        },
+        "draft": {"version": draft.version, "revision": draft.revision},
+        "cost": report.get("cost"),
+        "cases": [
+            {
+                "case_id": c.get("case_id"),
+                "verdict": c.get("status"),
+                "expectations": list(c.get("expectations") or []),
+                "steps": [
+                    {
+                        "step_id": st.get("step_id"),
+                        "accepted": st.get("accepted"),
+                        "failed_checks": list(st.get("failed_checks") or []),
+                        "details": list(st.get("details") or []),
+                    }
+                    for st in c.get("steps") or []
+                    if isinstance(st, dict)
+                ],
+                "note": c.get("note"),
+            }
+            for c in report.get("cases") or []
+            if isinstance(c, dict)
+        ],
+    }

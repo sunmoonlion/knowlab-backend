@@ -8,6 +8,7 @@ import pytest
 
 import app.interfaces.http.middleware.auth as auth_middleware
 from app.application.services.knowbot_board import KnowbotBoard
+from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_proposals import KnowbotProposalService
@@ -21,6 +22,7 @@ from tests.knowbot_fakes import (
     COMPUTER,
     COMPUTER_ROOT,
     OWNER,
+    FakeKnowbaseDelivery,
     FakeKnowmart,
     FakeRuntime,
     MemoryKnowlab,
@@ -30,6 +32,7 @@ from tests.knowbot_fakes import (
     platform_draft,
     request_body,
     result,
+    user_token,
     waiting,
 )
 from tests.test_auth_routes_security import FakeAuthService, session
@@ -53,6 +56,14 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     asks = KnowbotQuestionService(repo, runtime)
     svc = KnowbotCreationService(repo, runtime, on_refresh=asks.resend)
     experts = KnowbotExpertService(repo, knowmart)
+    knowbase = FakeKnowbaseDelivery()
+    deliveries = KnowbotDeliveryService(
+        repo,
+        knowmart,
+        knowbase,
+        KnowbotCreationService(repo, runtime, knowbase=knowbase),
+        experts,
+    )
     web = FakeAuthService({"member": session("web", "profile:read")})
     admin = FakeAuthService(
         {
@@ -69,6 +80,10 @@ def wired(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(knowbot_routes, "runtime_clients", lambda: runtime)
     app.dependency_overrides[knowbot_routes.service] = lambda: svc
     app.dependency_overrides[knowbot_routes.expert_service] = lambda: experts
+    app.dependency_overrides[knowbot_routes.delivery_service] = lambda: deliveries
+    app.dependency_overrides[knowbot_routes.get_web_knowbase_token_provider] = lambda: (
+        user_token
+    )
     app.dependency_overrides[knowbot_routes.board_service] = lambda: KnowbotBoard(repo)
     app.dependency_overrides[knowbot_routes.question_service] = lambda: asks
     app.dependency_overrides[knowbot_routes.platform_service] = lambda: (
@@ -152,6 +167,9 @@ async def test_base_scope_cannot_accept_incubate_deliver_or_reset(wired) -> None
         req = f"/api/admin/v1/knowbot-requests/{request.id}"
         drafts = f"/api/admin/v1/knowbot-drafts/{draft.id}"
         expert = "/api/admin/v1/knowbot-experts/00000000-0000-4000-8000-000000000000"
+        delivery = (
+            "/api/admin/v1/knowbot-deliveries/00000000-0000-4000-8000-000000000000"
+        )
         for path, body in [
             (f"{req}/versions/1/acceptance", ALL_CLEAR),
             (f"{req}/hand-back", None),
@@ -159,8 +177,9 @@ async def test_base_scope_cannot_accept_incubate_deliver_or_reset(wired) -> None
             (f"{drafts}/review-request", None),
             (f"/api/admin/v1/knowbot-tests/{test.id}/reset", None),
             (f"{expert}/return", None),
-            (f"{expert}/review", {"approved": True, "listing": "self"}),
-            (f"{expert}/deliver", None),
+            (f"{delivery}/review", {"approved": True}),
+            (f"{delivery}/rerun", None),
+            (f"{delivery}/deliver", None),
             (f"{expert}/stop", {"reason": "x"}),
         ]:
             refused = await c.post(path, json=body, headers=ADMIN)
@@ -252,15 +271,29 @@ async def test_the_whole_life_through_the_api(wired) -> None:
             "inbox": 1,
             "experts_new": 1,
         }
-        decision = f"/api/web/v1/knowbot-experts/{expert['expert_id']}/decision"
-        decided = await c.post(decision, json={"accept": True}, headers=WEB)
-        assert decided.json()["stage"] == "to_review"
+        # 作者提交交付（自用）：这次没取到成稿，自动查不过，交平台人员看
+        submit = f"/api/web/v1/knowbot-experts/{expert['expert_id']}/deliveries"
+        body = {"listing": "self", "authorize_reviewer": True}
+        assert (await c.post(submit, json=body)).status_code == 403  # 要 CSRF
+        submitted = await c.post(submit, json=body, headers=WEB)
+        assert submitted.status_code == 201, submitted.text
+        assert submitted.json()["status"] == "reviewing"
+        [item] = (await c.get("/api/admin/v1/knowbot-board/delivery")).json()["items"]
+        assert item["category"] == "to_review"
+        [open_one] = item["deliveries"]
+        assert open_one["auto_check"]["findings"] == [
+            {"kind": "outputs_missing", "case_id": "c1"}
+        ]
+        assert (await c.get("/api/admin/v1/knowbot-categories")).json()["categories"][
+            0
+        ] == "finance.securities_advisory"
         reviewed = await c.post(
-            f"{ebase}/review",
-            json={"approved": True, "listing": "self"},
+            f"/api/admin/v1/knowbot-deliveries/{open_one['delivery_id']}/review",
+            json={"approved": True},
             headers=ADMIN,
         )
-        assert reviewed.json()["stage"] == "listed", reviewed.text
+        assert reviewed.json()["status"] == "approved", reviewed.text
+        assert reviewed.json()["delivered_at"] is not None
         assert knowmart.delivered[0]["manifest"] == manifest()
         [mine] = (await c.get("/api/web/v1/knowbot-board/experts")).json()["items"]
         assert (mine["category"], mine["knowbot_id"]) == ("usable", "kb-1")

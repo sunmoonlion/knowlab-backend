@@ -329,6 +329,27 @@ class KnowbotTestData:
                 continue
             await self._answer(q, test, request, state, done)
 
+    async def on_demand_status(self, demand_id: str, owner: str) -> int:
+        """knowfeed 推来需求状态变了（契约 knowfeed-supply-status/v1）：等这张单的那次
+        测试马上去查一次，办完了就重解析、签、回答（同刷新时的 advance）。回动了几次
+        测试。只认这个归属用户的。"""
+        done = 0
+        for test in await self.repo.list_tests(statuses=ACTIVE_TESTS):
+            waiting = [
+                q
+                for q in await self._data_questions(test)
+                if (q.data_state or {}).get("status") == "supplying"
+                and str((q.data_state or {}).get("demand_id")) == demand_id
+            ]
+            if not waiting:
+                continue
+            request = await self.repo.get_request(test.request_id)
+            if request is None or request.owner_subject != owner:
+                continue
+            await self.advance(test, request)
+            done += 1
+        return done
+
     async def finish(self, test: TestRecord) -> None:
         """测试结束：签的授权撤掉；作者确认过的按用例记成测试集的新一版。"""
         answered = [

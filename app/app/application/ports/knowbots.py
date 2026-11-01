@@ -40,6 +40,8 @@ class RequestRecord:
     # 提议，请专家方案设计第 4.9 节第 6 条）
     origin: dict[str, Any] | None = field(default=None, repr=False)
     reference_answer: str | None = field(default=None, repr=False)
+    # 推给 knowbase 名录的最近一份 {name, latest_version}（0044 第三节）
+    directory_sent: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -223,10 +225,13 @@ class TestRecord:
     error: str | None = None
     test_set_version: int | None = None
     case_grants: list[str] = field(default_factory=list)
-    # 自助（self）还是平台（platform）；自助的那台电脑与根目录（SDD 0046 第三节）
+    # 自助（self）、平台（platform），或公开交付时平台发起的重跑（rerun）；跑在哪台电脑
+    # 与根目录（SDD 0046 第三、五节）
     mode: str = "platform"
     environment_id: str | None = None
     workspace_root: str | None = None
+    # 测试证据写进作者产出区的那一份 {material_id, version_no}（0043 第 4.2 节）
+    evidence: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -273,6 +278,52 @@ class ExpertRecord:
     stop_reason: str | None = None
     trial: bool = False
     unlisted_sent_at: datetime | None = None  # 没上架的结局送到 knowmart 的时刻
+    # 平台孵化、平台测的才要平台先交回；其余作者「提交交付」即过同意门（0046 第五节）
+    needs_return: bool = False
+
+
+@dataclass(frozen=True)
+class DeliveryRecord:
+    """一次交付过程（SDD 0046 第五节）：作者提交交付时建。
+
+    bindings：冻结下来的绑定（清单 v2 `bindings` 的形状，外加交付那一刻的许可）；
+    binding_check：许可预查 {problem, items, checked_at}；auto_check：自用轻审的自动查
+    {passed, findings, checked_at}；consents：在 knowbase 留的两种依据各几份
+    {review, rerun}；status：reviewing 在审 / approved 过了 / rejected 没过 /
+    withdrawn 撤回（作者撤回、平台人员作废）。
+    """
+
+    id: uuid.UUID
+    expert_id: uuid.UUID
+    request_id: uuid.UUID
+    listing: str
+    test_mode: str
+    needs_rerun: bool
+    submitted_by: str
+    submitted_at: datetime
+    status: str = "reviewing"
+    conversion: bool = False
+    budget_limit: Decimal | None = None
+    bindings: list[dict[str, Any]] = field(default_factory=list)
+    binding_check: dict[str, Any] | None = None
+    auto_check: dict[str, Any] | None = None
+    consents: dict[str, Any] = field(default_factory=dict)
+    rerun_test_id: uuid.UUID | None = None
+    # 重跑发起过几次、之前几次已花多少（上限按一次交付累计；平台出错后再发起最多 3 次）
+    rerun_attempts: int = 0
+    rerun_spent: Decimal = Decimal("0")
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    reason: str | None = None
+    category: str | None = None
+    delivered_at: datetime | None = None
+    delivery_error: str | None = None
+    receipt: dict[str, Any] | None = None
+    consent_ended_at: datetime | None = None
+    # 撤回：作者撤回没走完的，或平台人员作废审过却交不成的（10-30 交付审查第 4、7 条）
+    withdrawn_by: str | None = None
+    withdrawn_at: datetime | None = None
+    withdraw_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -519,6 +570,55 @@ class KnowlabRepository(Protocol):
 
     async def update_expert(self, expert_id: uuid.UUID, **changes: Any) -> None: ...
 
+    # ---------- 交付过程（SDD 0046 第五节） ----------
+    async def create_delivery(self, record: DeliveryRecord) -> DeliveryRecord:
+        """同一位专家已有在审的抛 ConcurrencyConflictError(delivery_open)。"""
+        ...
+
+    async def get_delivery(
+        self, delivery_id: uuid.UUID, *, for_update: bool = False
+    ) -> DeliveryRecord | None: ...
+
+    async def list_deliveries(
+        self,
+        request_ids: Collection[uuid.UUID] | None = None,
+        *,
+        expert_id: uuid.UUID | None = None,
+        status: str | None = None,
+    ) -> Sequence[DeliveryRecord]:
+        """按提交先后。"""
+        ...
+
+    async def update_delivery(self, delivery_id: uuid.UUID, **changes: Any) -> None: ...
+
+    async def deliveries_to_close(self, limit: int = 100) -> Sequence[DeliveryRecord]:
+        """审完了、给审核员与重跑的授权还没撤成的。"""
+        ...
+
+    async def get_test_set(
+        self,
+        request_id: uuid.UUID,
+        *,
+        version: int | None = None,
+        from_test_id: uuid.UUID | None = None,
+    ) -> TestSetRecord | None: ...
+
+    async def directory_rows(self) -> Sequence[dict[str, Any]]:
+        """有准专家的名称：request_id、owner_subject、title、directory_sent、最新准专家的
+        version、revision（不读大栏位）。"""
+        ...
+
+    async def set_directory_sent(
+        self, request_id: uuid.UUID, sent: dict[str, Any]
+    ) -> None: ...
+
+    async def tests_without_evidence(
+        self, now: datetime, limit: int = 100
+    ) -> Sequence[TestRecord]:
+        """测完了（通过、没通过）、证据还没写进产出区的：没写过的，和写不成、到了再试
+        时候（evidence.retry_after）的；按测完的先后。"""
+        ...
+
     # ---------- 补充方法 ----------
     async def create_amendment(
         self, *, request_id: uuid.UUID, owner_subject: str, text: str
@@ -686,6 +786,10 @@ class RuntimeTestClient(Protocol):
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1: ...
 
+    async def cancel(self, runtime: str, run_id: str) -> RunResultV1:
+        """停下这次测试；运行方没有这个接口时抛 AppException（404）。"""
+        ...
+
     async def outputs(
         self, runtime: str, run_id: str, case_id: str
     ) -> CaseOutputsV1 | None:
@@ -739,6 +843,78 @@ class IncubationClient(Protocol):
     async def cancel(self, incubation_id: str) -> IncubationResultV1: ...
 
 
+class KnowbaseDeliveryClient(Protocol):
+    """交付、测试证据、名录要的 knowbase 接口（契约 user-data/v2）。
+    knowbase 拒了抛 BadGatewayError（code 照 knowbase 给的），不可达抛
+    ServiceUnavailableError。"""
+
+    async def push_expert(
+        self, expert_id: str, *, owner: str, name: str, latest_version: str | None
+    ) -> None: ...
+
+    async def freeze(
+        self, expert_id: str, version: str, *, author: str, preview: bool = False
+    ) -> list[dict[str, Any]]: ...
+
+    async def binding_states(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]: ...
+
+    async def consent_platform(
+        self, user_token: str, *, kind: str, ref: str, items: list[dict[str, Any]]
+    ) -> int: ...
+
+    async def end_platform(
+        self, *, subject: str, kind: str, ref: str, reason: str
+    ) -> None: ...
+
+    async def void_frozen(self, expert_id: str, version: str, *, author: str) -> int:
+        """作废没交成的那次冻结；有别人请过的拒（frozen_in_use）。"""
+        ...
+
+    async def raise_frozen_license(
+        self,
+        expert_id: str,
+        version: str,
+        material_id: str,
+        *,
+        author: str,
+        license_: str,
+    ) -> dict[str, Any]:
+        """把冻结的那一份许可往高改（作者勾了「我有权」）。"""
+        ...
+
+    async def platform_consent_live(self, *, subject: str, kind: str, ref: str) -> int:
+        """本人给这次平台过程留的依据还有几份有效（0：撤了）。"""
+        ...
+
+    async def machine_grant(
+        self,
+        *,
+        owner: str,
+        ref: str,
+        items: list[dict[str, Any]],
+        ttl_seconds: int,
+        platform_use: str,
+    ) -> str: ...
+
+    async def revoke_grant(self, grant_id: str) -> None:
+        """撤 knowlab 签的一张授权（重跑的机器授权）。"""
+        ...
+
+    async def write_output(
+        self,
+        *,
+        beneficiary: str,
+        task_ref: str,
+        run_ref: str,
+        name: str,
+        content: bytes,
+        expert_id: str,
+        expert_version: str,
+    ) -> dict[str, Any]: ...
+
+
 class KnowmartClient(Protocol):
     """交付过了两道门的专家到 knowmart、停用某一版（服务身份 knowmart:deliver）。"""
 
@@ -750,12 +926,27 @@ class KnowmartClient(Protocol):
         knowbot_ref: str,
         manifest: dict[str, Any],
         request_public: bool = False,
+        category: str | None = None,
     ) -> dict[str, Any]:
-        """回 {knowbot_id, version, digest, listing_status?}。"""
+        """回 {knowbot_id, version, digest, listing_status?}。请求体照契约
+        `knowbot-delivery/v1`；category 是平台人员选的类目（0032 待定第一项）。"""
         ...
 
     async def stop(self, *, owner_subject: str, knowbot_id: str, version: str) -> None:
         """停用 knowmart 里的这一版；停过的再停也成功。"""
+        ...
+
+    async def withdraw_public(
+        self, *, owner_subject: str, knowbot_id: str, version: str
+    ) -> None:
+        """收回 knowmart 里这一版的公开（只撤公开、保留自用）；撤过的再撤也成功。"""
+        ...
+
+    async def versions(
+        self, *, owner_subject: str, knowbot_ref: str
+    ) -> list[dict[str, Any]]:
+        """knowmart 里这个引用各版现在怎样：{version, status, held_reason,
+        public_allowed}（status：active 在售、held 待处理、stopped 停用）。"""
         ...
 
     async def set_unlisted(

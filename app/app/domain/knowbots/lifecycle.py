@@ -13,7 +13,9 @@ SDD 0037 第四至第十节、第十八之二节。
 - 测试：每次一个新编号；平台出错（含超时、开跑失败、运营判定卡住）结束这一次，准专家
   回到待测，再测是新编号。同一个名称同时只有一个在跑。
 - 专家：测试通过即是专家，版本号就是准专家的 x；x 已经出过专家的准专家不许再测。
-  上架前两道门：先用户同意，后运营审核；都过才交 knowmart。
+  上架前两道门：先用户同意，后运营审核；都过才交 knowmart。平台孵化、平台测的那一版
+  平台先交回、作者再定；其余作者「提交交付」即过同意门（SDD 0046 第五节，
+  domain/knowbots/delivery.py）。
 """
 
 from __future__ import annotations
@@ -141,35 +143,13 @@ MAX_STOP_CHARS = 500
 TRIAL_NOTE_GATES = "两道门之前交付（试行期）"
 
 
-class ExpertDecisionIn(Strict):
-    """用户同意门：要这一版 / 不要。"""
-
-    accept: bool
-
-
-class ExpertReviewIn(Strict):
-    """运营审核门：通过（自用 / 公开，公开要发布主体有资质）/ 不通过与理由。"""
-
-    approved: bool
-    listing: Literal["self", "public"] | None = None
-    reason: str = Field(default="", max_length=MAX_REASON_CHARS)
-
-    @model_validator(mode="after")
-    def _consistent(self) -> ExpertReviewIn:
-        if self.approved and self.listing is None:
-            raise ValueError("an approval says self or public")
-        if not self.approved and (self.listing is not None or not self.reason.strip()):
-            raise ValueError("a rejection gives a reason and no listing")
-        return self
-
-
 class StopIn(Strict):
     reason: str = Field(min_length=1, max_length=MAX_STOP_CHARS)
 
 
 ExpertStage = Literal[
-    "to_return",  # 测试通过、还没交回用户
-    "awaiting_user",  # 交回了，等用户要不要
+    "to_return",  # 平台孵化、平台测的：测试通过、还没交回用户
+    "awaiting_user",  # 等作者提交交付（或说不要）
     "declined",  # 用户不要
     "to_review",  # 用户要了，等运营审核
     "rejected",  # 运营审核不通过
@@ -188,6 +168,7 @@ class ExpertGates:
     review_approved: bool | None
     listed_at: datetime | None
     stopped_at: datetime | None
+    needs_return: bool = True
 
 
 def expert_stage(e: ExpertGates) -> str:
@@ -195,7 +176,7 @@ def expert_stage(e: ExpertGates) -> str:
         return "stopped"
     if e.listed_at is not None:
         return "listed"
-    if e.returned_at is None:
+    if e.returned_at is None and e.needs_return:
         return "to_return"
     if e.user_accepted is None:
         return "awaiting_user"
@@ -217,7 +198,6 @@ DELIVERY_CATEGORIES: dict[str, frozenset[str]] = {
     "listed": frozenset({"listed"}),
     "not_listed": frozenset({"declined", "rejected"}),
 }
-OUR_EXPERT_STAGES = frozenset({"to_return", "to_review", "to_deliver"})
 # web端「专家」栏：用户只看交回了的
 USER_EXPERT_CATEGORIES: dict[str, frozenset[str]] = {
     "new": frozenset({"awaiting_user"}),

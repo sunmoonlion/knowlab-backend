@@ -15,9 +15,11 @@ from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
 from tests.knowbot_fakes import MATERIAL, FakeLibrary
-from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema
+from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema, _versions
 
 TARGET = ROOT / "alembic/versions/20261029_0022_workdraft_data_formats.py"
+# 真仓储读的是最新的表：再往上补后面的迁移
+LATER = [p for p in _versions() if p.stem > TARGET.stem]
 OWNER = "user-123"
 REQUEST = uuid.UUID(int=7)
 
@@ -66,6 +68,8 @@ async def test_data_formats_migrate_and_are_kept_by_the_real_repository() -> Non
             assert await _all(c, "SELECT data_formats FROM knowbot_workdraft") == [
                 ({},)
             ]
+        async with engine.begin() as c:
+            await c.run_sync(lambda conn: _run(conn, LATER))
         factory = make_session_factory(engine)
         async with factory() as session:
             repo = SqlKnowlabRepository(session)
@@ -86,7 +90,9 @@ async def test_data_formats_migrate_and_are_kept_by_the_real_repository() -> Non
             assert await repo.list_incubations(statuses={"running"}) == []
             assert await repo.list_tests(statuses={"running", "waiting"}) == []
         async with engine.begin() as c:
-            await c.run_sync(lambda conn: _run(conn, [TARGET], "downgrade"))
+            await c.run_sync(
+                lambda conn: _run(conn, [*reversed(LATER), TARGET], "downgrade")
+            )
         async with engine.begin() as c:
             columns = await _all(
                 c,

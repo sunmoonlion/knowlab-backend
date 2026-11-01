@@ -12,6 +12,10 @@ knowlab 后端把一份草稿清单、验收用例（带测试集）、预算与
   问题。有人值守（所有者 2026-10-16）：跑到要人决定的地方，状态是 waiting，结果里
   列出问题；knowlab 这边运营答跑法、用户答投资判断，答完运行方接着跑。同一个问题
   重复回答：内容相同回原状态，不同则 409。等人的时间不计入超时，最长 max_wait_seconds。
+- `POST /api/internal/v1/knowbot-runtime/test-runs/{run_id}/cancel`：停下这次测试，回
+  当前状态（停了是 cancelled）。knowlab 在作者撤回交付、审核员审成不过时停平台重跑，
+  免得接着在作者电脑上花作者的钱（SDD 0046 第五节，10-30 交付审查第 4 条）。运行方还
+  没有这个接口时回 404，knowlab 照样撤掉这次签的授权、把测试记成平台出错。
 - `GET /api/internal/v1/knowbot-runtime/test-runs/{run_id}/cases/{case_id}/outputs`：
   一条用例跑完后的产出：成稿与各步交回物（SDD 0037，v1 冻结后加的接口）。运行方
   在那条用例记结果时取好；还没有、或这次测试没取的，404。

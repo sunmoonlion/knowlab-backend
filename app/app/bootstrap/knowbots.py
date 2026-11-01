@@ -8,6 +8,7 @@ from functools import lru_cache
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.knowbot_board import KnowbotBoard
+from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_incubation import KnowbotIncubationService
 from app.application.services.knowbot_library import KnowbotLibraryService
@@ -18,6 +19,7 @@ from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.external.knowbase_data_v2 import KnowbaseDataV2
+from app.infrastructure.external.knowbase_delivery import KnowbaseDelivery
 from app.infrastructure.external.knowbase_library import KnowbaseLibrary
 from app.infrastructure.external.knowbot_clients import (
     KnowbenchIncubationClient,
@@ -48,6 +50,19 @@ def knowbot_question_service(session: AsyncSession) -> KnowbotQuestionService:
     return KnowbotQuestionService(SqlKnowlabRepository(session), runtime_clients())
 
 
+@lru_cache(maxsize=1)
+def _knowbase_delivery() -> KnowbaseDelivery:
+    return KnowbaseDelivery()
+
+
+def knowbase_delivery() -> KnowbaseDelivery | None:
+    """交付、测试证据、名录要的 knowbase 接口（服务关系 user-data-directory、
+    user-data-output、user-data-grant-test 与作者本人令牌）；没配 knowbase 就没有。"""
+    if not os.environ.get("KNOWBASE_INTERNAL_URL", "").strip():
+        return None
+    return _knowbase_delivery()
+
+
 def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
     repo = SqlKnowlabRepository(session)
     questions = KnowbotQuestionService(repo, runtime_clients())
@@ -56,6 +71,19 @@ def knowbot_service(session: AsyncSession) -> KnowbotCreationService:
         runtime_clients(),
         on_refresh=questions.resend,
         test_data=knowbot_test_data(session),
+        knowbase=knowbase_delivery(),
+    )
+
+
+def knowbot_delivery_service(session: AsyncSession) -> KnowbotDeliveryService:
+    """交付（SDD 0046 第五节）：提交、轻审、重跑、审核、交 knowmart、名录。"""
+    repo = SqlKnowlabRepository(session)
+    return KnowbotDeliveryService(
+        repo,
+        knowmart_client(),
+        knowbase_delivery(),
+        knowbot_service(session),
+        KnowbotExpertService(repo, knowmart_client()),
     )
 
 
@@ -80,7 +108,12 @@ def knowbot_test_data(session: AsyncSession) -> KnowbotTestData | None:
 
 def knowbot_expert_service(session: AsyncSession) -> KnowbotExpertService:
     """专家的交回、两道门、上架、停用（SDD 0037）。"""
-    return KnowbotExpertService(SqlKnowlabRepository(session), knowmart_client())
+    return KnowbotExpertService(
+        SqlKnowlabRepository(session),
+        knowmart_client(),
+        knowbase=knowbase_delivery(),
+        creation=knowbot_service(session),
+    )
 
 
 def knowbot_workdraft_service(session: AsyncSession) -> KnowbotWorkdraftService:

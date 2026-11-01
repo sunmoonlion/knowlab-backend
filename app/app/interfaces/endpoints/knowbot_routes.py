@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Path
@@ -30,7 +31,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors.exceptions import ServiceUnavailableError
+from app.application.errors.exceptions import NotFoundError, ServiceUnavailableError
 from app.application.ports.knowbots import DraftRecord
 from app.application.services.knowbot_board import (
     KnowbotBoard,
@@ -46,7 +47,13 @@ from app.application.services.knowbot_board import (
     timeline,
     user_expert_items,
 )
-from app.application.services.knowbot_experts import KnowbotExpertService, stage_of
+from app.application.services.knowbot_deliveries import KnowbotDeliveryService
+from app.application.services.knowbot_experts import (
+    KnowbotExpertService,
+    shown_to_author,
+    stage_of,
+)
+from app.application.services.knowbot_grants import live_incubation
 from app.application.services.knowbot_incubation import (
     DEFAULT_BUDGET,
     KnowbotIncubationService,
@@ -60,6 +67,7 @@ from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.bootstrap.knowbots import (
     knowbot_board,
+    knowbot_delivery_service,
     knowbot_expert_service,
     knowbot_incubation_service,
     knowbot_library_service,
@@ -71,11 +79,14 @@ from app.bootstrap.knowbots import (
     knowbot_workdraft_service,
     runtime_clients,
 )
+from app.domain.knowbots.delivery import (
+    CATEGORY_CODES,
+    DeliveryReviewIn,
+    DeliverySubmitIn,
+)
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
-    ExpertDecisionIn,
-    ExpertReviewIn,
     RevisionIn,
     StopIn,
     UserReviewIn,
@@ -91,6 +102,7 @@ from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.endpoints.knowbot_views import (
     amendment_view,
     answered_view,
+    delivery_view,
     draft_view,
     expert_view,
     grant_view,
@@ -136,6 +148,12 @@ def board_service(
     return knowbot_board(session)
 
 
+def delivery_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotDeliveryService:
+    return knowbot_delivery_service(session)
+
+
 def question_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotQuestionService:
@@ -179,6 +197,7 @@ Proposals = Annotated[KnowbotProposalService, Depends(proposal_service)]
 Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
+Deliveries = Annotated[KnowbotDeliveryService, Depends(delivery_service)]
 Board = Annotated[KnowbotBoard, Depends(board_service)]
 Questions = Annotated[KnowbotQuestionService, Depends(question_service)]
 # knowbase 用户令牌：真要动 knowbase 时才换（测试集与测试里的数据，SDD 0046 第三节）
@@ -219,7 +238,8 @@ async def _detail(
     return life_view(life, admin=admin) | {
         # 现在的孵化是自助还是平台；作者给平台的授权（SDD 0046 第四节）
         "incubation_mode": life.request.incubation_mode,
-        # 从 knowbench 转来的：来源与用户的模型直接答过的回答（只算提议）
+        # 从 knowbench 转来的：来源与用户的模型直接答过的回答（只算提议）。管理端只在
+        # 孵化授权在效的平台孵化时给（operator_view 已清掉）
         "origin": life.request.origin,
         "reference_answer": life.request.reference_answer,
         "grants": [grant_view(g, now, admin=admin) for g in life.grants],
@@ -229,14 +249,17 @@ async def _detail(
         "experts": [
             expert_view(e, life, admin=admin)
             for e in life.experts
-            if admin or e.returned_at is not None
+            if admin or shown_to_author(e)
         ],
         "timeline": timeline(life, for_user=not admin),
-        # 旧的补充方法（SDD 0035，已取消）：只读，出处照旧可查
+        # 旧的补充方法（SDD 0035，已取消）：只读，出处照旧可查；管理端只在孵化授权
+        # 在效的平台孵化时给（纯自助作者写的运营看不到）
         "amendments": [
             amendment_view(a, admin=admin)
             for a in await svc.amendments(life.request.id, life.drafts)
-        ],
+        ]
+        if not admin or live_incubation(life.grants, now) is not None
+        else [],
     }
 
 
@@ -444,12 +467,37 @@ async def my_test_outputs(
     return _ok(outputs_view(test, await svc.test_outputs(test, request), admin=False))
 
 
-@web_router.post("/knowbot-experts/{expert_id}/decision")
-async def decide(
-    principal: User, body: ExpertDecisionIn, experts: Experts, expert_id: ItemId
+@web_router.post("/knowbot-experts/{expert_id}/deliveries")
+async def submit_delivery(
+    principal: User,
+    body: DeliverySubmitIn,
+    deliveries: Deliveries,
+    token: KnowbaseToken,
+    expert_id: ItemId,
 ) -> JSONResponse:
-    """用户同意门：要这一版 / 不要。要了的等我们审核，审过才上架。"""
-    found = await experts.decide(principal.subject, expert_id, body)
+    """「提交交付」（SDD 0046 第五节）：选这一版、定自用或公开、授权审核员看这次交付。
+    这一下就是用户同意门；自用的能自动查的自动查，都过马上进 knowmart 小店。上架了的
+    自用版本再提交一次公开，就是自用转公开（重查许可）。"""
+    found = await deliveries.submit(principal.subject, expert_id, body, token)
+    return _ok({"delivery_id": str(found.id), "status": found.status}, 201)
+
+
+@web_router.post("/knowbot-experts/{expert_id}/deliveries/withdraw")
+async def withdraw_delivery(
+    principal: User, deliveries: Deliveries, expert_id: ItemId
+) -> JSONResponse:
+    """撤回没走完的交付（在审的，或审过还没交成的）：停在跑的平台重跑、撤给审核员的
+    授权；第一次交付的这一版回到「等你提交」。"""
+    found = await deliveries.withdraw(principal.subject, expert_id)
+    return _ok({"delivery_id": str(found.id), "status": found.status})
+
+
+@web_router.post("/knowbot-experts/{expert_id}/decline")
+async def decline_expert(
+    principal: User, experts: Experts, expert_id: ItemId
+) -> JSONResponse:
+    """作者不要这一版：不上架。"""
+    found = await experts.decline(principal.subject, expert_id)
     return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
 
 
@@ -1307,6 +1355,9 @@ async def reset(_: Releaser, svc: Service, test_id: ItemId) -> Response:
 async def test_outputs(admin: Admin, svc: Service, test_id: ItemId) -> JSONResponse:
     """这次测试每条用例的成稿与各步交回物：测试人员验证这一稿用（SDD 0037）。"""
     test, request = await svc.operator_test(test_id)
+    if test.mode == "rerun":
+        # 平台重跑：审核员看结论、不看原始产出（SDD 0046 第五节）
+        raise NotFoundError("No such test", code="test_not_found")
     # 产出是用户的分析内容：谁、哪一次、何时读的留一行，不记正文（审读 10-19）
     log.info("knowbot outputs read by=%s test=%s", admin.subject, test.id)
     return _ok(outputs_view(test, await svc.test_outputs(test, request), admin=True))
@@ -1321,27 +1372,76 @@ async def return_expert(
     return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
 
 
-@admin_router.post("/knowbot-experts/{expert_id}/review")
-async def review_expert(
-    admin: Releaser, body: ExpertReviewIn, experts: Experts, expert_id: ItemId
-) -> JSONResponse:
-    """运营审核门：通过（自用 / 公开）即交 knowmart；不通过写理由。交付失败记在
-    delivery_error，可重试。"""
-    found = await experts.review(expert_id, body, admin.subject)
-    return _ok(
-        {
-            "expert_id": str(found.id),
-            "stage": stage_of(found),
-            "delivery_error": found.delivery_error,
-        }
+async def _operator_delivery(board: KnowbotBoard, found: Any) -> dict[str, Any]:
+    """回包从运营看的那一份里取：审完了的不带绑定、许可预查、自动查（同列表）。
+    撤回、作废后这个名称运营已看不到了的，回只有结论的那一份。"""
+    try:
+        life = await board.life(str(found.request_id), operator=True)
+    except NotFoundError:
+        request = await board.repo.get_request(found.request_id)
+        assert request is not None
+        life = Life(request=request)
+    shown = next(
+        (d for d in life.deliveries if d.id == found.id),
+        replace(found, bindings=[], binding_check=None, auto_check=None),
     )
+    return delivery_view(shown, life, admin=True)
 
 
-@admin_router.post("/knowbot-experts/{expert_id}/deliver")
-async def deliver(_: Releaser, experts: Experts, expert_id: ItemId) -> JSONResponse:
+@admin_router.get("/knowbot-categories")
+async def categories(_: Admin) -> JSONResponse:
+    """交付时可选的类目（契约 knowbot-delivery/v1；名称由前端照 knowmart 的叫法写）。"""
+    return _ok({"categories": list(CATEGORY_CODES)})
+
+
+@admin_router.post("/knowbot-deliveries/{delivery_id}/rerun")
+async def start_rerun(
+    admin: Releaser, deliveries: Deliveries, delivery_id: ItemId
+) -> JSONResponse:
+    """平台发起重跑（公开、自助测的）：在作者的账号下、作者的电脑上、用作者的 key 跑
+    （decisions ⑯）。"""
+    test = await deliveries.start_rerun(delivery_id, admin.subject)
+    return _ok({"test_id": str(test.id), "status": test.status}, 201)
+
+
+@admin_router.post("/knowbot-deliveries/{delivery_id}/review")
+async def review_delivery(
+    admin: Releaser,
+    body: DeliveryReviewIn,
+    deliveries: Deliveries,
+    board: Board,
+    delivery_id: ItemId,
+) -> JSONResponse:
+    """审一次交付：过（公开的选类目）即交 knowmart；不过写理由。交不成记下，可重试。"""
+    found = await deliveries.review(delivery_id, body, admin.subject)
+    return _ok(await _operator_delivery(board, found))
+
+
+class VoidBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+@admin_router.post("/knowbot-deliveries/{delivery_id}/void")
+async def void_delivery(
+    admin: Releaser,
+    body: VoidBody,
+    deliveries: Deliveries,
+    board: Board,
+    delivery_id: ItemId,
+) -> JSONResponse:
+    """作废审过了却一直交不成的那一次（写理由）：撤依据，这一版回到「等作者提交」。"""
+    found = await deliveries.void(delivery_id, admin.subject, body.reason)
+    return _ok(await _operator_delivery(board, found))
+
+
+@admin_router.post("/knowbot-deliveries/{delivery_id}/deliver")
+async def retry_delivery(
+    _: Releaser, deliveries: Deliveries, board: Board, delivery_id: ItemId
+) -> JSONResponse:
     """重试交付：审过了、上次交 knowmart 没成功的。"""
-    found = await experts.deliver(expert_id)
-    return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
+    found = await deliveries.retry(delivery_id)
+    return _ok(await _operator_delivery(board, found))
 
 
 @admin_router.post("/knowbot-experts/{expert_id}/stop")
