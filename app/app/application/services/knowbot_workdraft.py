@@ -37,7 +37,7 @@ from app.application.ports.knowbots import (
     RequestRecord,
     WorkdraftRecord,
 )
-from app.application.services.knowbot_grants import live_incubation
+from app.application.services.knowbot_grants import live_incubation, self_acceptance
 from app.application.services.knowbot_service import MAX_VERSIONS, parse_id
 from app.domain.knowbots.compile import compile_manifest, decompile, pack_problems
 from app.domain.knowbots.drafts import draft_manifest_problems
@@ -364,13 +364,42 @@ class KnowbotWorkdraftService:
     async def operator_publish(self, request_id: str) -> DraftRecord:
         """平台模式出一版：运营点，准专家记平台（decisions 10-29）。最新一版创意要正式
         受理过（运营孵化受理了的版本）；出处照样只认作者原话与作者接受的。"""
-        request = await self.platform_request(request_id)
-        found = await self.repo.get_acceptance(request.id, request.latest_version)
-        if found is None or found.kind != "formal" or not found.accepted:
-            raise ConcurrencyConflictError(
-                "Incubate only from an accepted version", code="version_not_accepted"
+        rid = parse_id(request_id, "request")
+        async with self.repo.transaction():
+            await self.repo.lock_request(rid)
+            request = await self.platform_request(str(rid))
+            found = await self.repo.get_acceptance(request.id, request.latest_version)
+            if found is None or found.kind != "formal" or not found.accepted:
+                raise ConcurrencyConflictError(
+                    "Incubate only from an accepted version", code="version_not_accepted"
+                )
+            current = await self.repo.get_workdraft(request.id, for_update=True)
+            if current is None:
+                raise BadRequestError(
+                    "The workdraft is empty", code="workdraft_invalid"
+                )
+            fresh = await self.repo.get_request(request.id)
+            assert fresh is not None
+            version, revision = await self._next(fresh)
+            manifest, problems = await self._compile(fresh, current, version)
+            if problems:
+                raise BadRequestError(_summary(problems), code="workdraft_invalid")
+            draft = await self.repo.create_draft(
+                request_id=fresh.id,
+                request_version=fresh.latest_version,
+                revision=revision,
+                version=version,
+                manifest=manifest,
+                mode="platform",
             )
-        return await self._publish(request, "platform")
+            await self.repo.update_draft(
+                draft.id,
+                rules_reviewed_by=PROGRAM_REVIEWER,
+                rules_reviewed_at=self.now(),
+            )
+        found = await self.repo.get_draft(draft.id)
+        assert found is not None
+        return found
 
     async def _publish(self, request: RequestRecord, mode: str) -> DraftRecord:
         async with self.repo.transaction():
@@ -428,4 +457,8 @@ class KnowbotWorkdraftService:
                 consent_version=latest.consent_version,
                 created_by=owner_subject,
             )
+            if current.incubation_mode == "self":
+                await self.repo.add_acceptance(
+                    self_acceptance(current.id, found.version, self.now())
+                )
         return found.version

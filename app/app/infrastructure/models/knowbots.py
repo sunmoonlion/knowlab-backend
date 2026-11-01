@@ -78,6 +78,13 @@ class KnowbotRequest(TimestampMixin, Base):
 
     __table_args__ = (
         Index("ix_knowbot_request_owner_subject", "owner_subject"),
+        Index(
+            "uq_knowbot_request_owner_origin_key",
+            "owner_subject",
+            text("(origin->>'key')"),
+            unique=True,
+            postgresql_where=text("origin IS NOT NULL AND origin->>'key' IS NOT NULL"),
+        ),
         CheckConstraint(
             "incubation_mode IN ('self', 'platform')",
             name="ck_knowbot_request_incubation_mode",
@@ -830,7 +837,7 @@ class KnowbotWorkdraftProposal(Base):
     )
     path: Mapped[str] = mapped_column(String(200), nullable=False)
     op: Mapped[str] = mapped_column(String(8), nullable=False)
-    value: Mapped[Any] = mapped_column(JSONB)
+    value: Mapped[Any] = mapped_column(JSONB(none_as_null=True), nullable=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     proposed_by: Mapped[str] = mapped_column(String(512), nullable=False)
     proposed_at: Mapped[datetime] = mapped_column(

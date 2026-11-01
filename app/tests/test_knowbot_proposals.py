@@ -230,3 +230,21 @@ async def test_operators_start_a_round_on_the_authors_account(world) -> None:
     [sent] = incubator.started
     assert sent.owner_subject == OWNER and sent.budget.limit == "20.00"
     assert [r.id for r in await incubations.operator_rounds(rid)] == [record.id]
+
+
+async def test_operator_propose_remove_step_with_none_value(world) -> None:
+    repo, svc, works, props, *_ = world
+    request = await _platform(svc)
+    rid = str(request.id)
+    await svc.accept(rid, 1, all_clear(), "admin-1")
+    await works.save(OWNER, rid, revision=0, edits=CELLS)
+    [removed] = await props.propose(
+        rid,
+        "admin-1",
+        [{"path": "steps/overview", "op": "remove", "value": None, "reason": "去掉"}]
+    )
+    assert removed.op == "remove"
+    assert removed.value is None
+    stored, decided = await props.decide(OWNER, rid, str(removed.id), action="accept", revision=1)
+    assert decided.state == "accepted"
+    assert stored is not None and stored.body.get("steps") == []

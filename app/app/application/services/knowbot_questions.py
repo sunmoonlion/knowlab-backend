@@ -44,6 +44,7 @@ from app.application.ports.knowbots import (
 )
 from app.domain.knowbots.drafts import case_question_digest
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
+from app.application.services.knowbot_grants import live_incubation
 from app.domain.knowbots.test_run import CONTRACT, Answer, AnswersV1
 
 
@@ -76,7 +77,7 @@ def _platform(test: TestRecord, draft: DraftRecord) -> bool:
 def _mine(question: QuestionRecord, test: TestRecord, draft: DraftRecord) -> bool:
     """作者本人答的：转给他的；自助测的工具审批（运营看不到，只能他批）。"""
     if question.kind == "tool_approval":
-        return not _platform(test, draft)
+        return test.mode not in ("platform", "rerun")
     return question.route == "user"
 
 
@@ -143,6 +144,25 @@ class KnowbotQuestionService:
             return None
         return test
 
+    async def _shown_to_operator(self, draft: DraftRecord) -> bool:
+        grants = await self.repo.list_grants([draft.request_id])
+        now = self.now()
+        if draft.mode == "platform" and live_incubation(grants, now):
+            return True
+        tests = await self.repo.list_tests(request_ids=[draft.request_id])
+        if any(
+            t.draft_id == draft.id and t.mode in ("platform", "rerun")
+            for t in tests
+        ):
+            return True
+        return any(
+            g.kind == "test"
+            and g.draft_id == draft.id
+            and g.status in ("pending", "active")
+            and (g.expires_at is None or g.expires_at > now)
+            for g in grants
+        )
+
     async def _open_questions(
         self, *, operator: bool = False
     ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord, TestRecord]]:
@@ -152,8 +172,11 @@ class KnowbotQuestionService:
             if test is None:
                 continue
             q, draft, request = await self._with_context(question)
-            if operator and not _platform(test, draft):
-                continue  # 自助测的：运营看不到
+            if operator and (
+                test.mode not in ("platform", "rerun")
+                or not await self._shown_to_operator(draft)
+            ):
+                continue  # 自助测的或未授权：运营看不到
             out.append((q, draft, request, test))
         return out
 
@@ -165,7 +188,12 @@ class KnowbotQuestionService:
             if question.draft_id is None
             else await self.repo.get_draft(question.draft_id)
         )
-        if test is None or draft is None or not _platform(test, draft):
+        if (
+            test is None
+            or draft is None
+            or test.mode not in ("platform", "rerun")
+            or not await self._shown_to_operator(draft)
+        ):
             raise NotFoundError("No such question", code="question_not_found")
 
     # ---------- 运营（管理端） ----------

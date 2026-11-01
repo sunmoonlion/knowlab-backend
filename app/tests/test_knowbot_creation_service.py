@@ -130,15 +130,15 @@ async def test_incubation_needs_an_accepted_version(parts):
     assert (await repo.get_request(request.id)).incubation_mode == "self"
     with pytest.raises(NotFoundError):
         await svc.accept(str(request.id), 1, all_clear(), "admin-1")
-    # 作者再请平台：这一版写过正式受理单，一个版本一张，写了不改
+    # 作者再请平台：最新一版被正式拒过直接回 409（项 17 审查修复：提示作者先改创意）
     platform = KnowbotPlatformService(repo, now=svc.now)
-    await platform.ask_platform(OWNER, str(request.id), PLATFORM)
-    with pytest.raises(ConcurrencyConflictError) as raised:
-        await svc.accept(str(request.id), 1, all_clear(), "admin-1")
-    assert raised.value.code == "already_decided"
-    # 用户改创意出 v2，v2 受理了才能孵化
+    with pytest.raises(ConcurrencyConflictError) as rejected:
+        await platform.ask_platform(OWNER, str(request.id), PLATFORM)
+    assert rejected.value.code == "version_rejected"
+    # 用户改创意出 v2，请平台后 v2 受理了才能孵化
     v2 = await svc.revise(OWNER, str(request.id), _revision(not_solves="不给任何建议"))
     assert v2.version == 2
+    await platform.ask_platform(OWNER, str(request.id), PLATFORM)
     await svc.accept(str(request.id), 2, all_clear(), "admin-1")
     draft = await platform_draft(svc, str(request.id), manifest())
     assert draft.request_version == 2

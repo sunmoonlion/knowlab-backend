@@ -230,13 +230,21 @@ class KnowbotIncubationService:
         )
 
     # ---------- 发起 ----------
-    async def _answers(self, request: RequestRecord) -> list[QuestionRecord]:
+    async def _answers(self, request: RequestRecord, mode: str = "self") -> list[QuestionRecord]:
         """这个名称里作者答过的孵化缺口（第二轮起带上）。"""
-        return [
+        gaps = [
             q
             for q in await self.repo.list_gaps(request_ids=[request.id])
             if q.answered_by == "user" and q.answer is not None
         ]
+        if mode == "platform":
+            platform_round_ids = {
+                r.id
+                for r in await self.repo.list_incubations(request_id=request.id)
+                if r.mode == "platform"
+            }
+            return [q for q in gaps if q.incubation_id in platform_round_ids]
+        return gaps
 
     async def start(
         self,
@@ -316,7 +324,7 @@ class KnowbotIncubationService:
             kind, text = seed_of(version.idea)
             if not text.strip():
                 raise BadRequestError("The idea is empty", code="seed_empty")
-            answered = await self._answers(fresh)
+            answered = await self._answers(fresh, mode=mode)
             incubation_id = uuid.uuid4()
             run_id = f"knowlab-incubation-{incubation_id}"
             try:
@@ -727,33 +735,22 @@ class KnowbotIncubationService:
         sources = {p: s for p, s in start_sources.items() if p in after}
         handback = Handback.model_validate(record.handback or {})
         rows = related(handback.sources, suggestion.path)
-        made: list[str] = []
+        pending_entries: list[dict[str, Any]] = []
         for path, text in after.items():
             if before.get(path) == text and path in sources:
                 continue
             if action == "accept_edited":
-                entry = await self.repo.add_workdraft_entry(
-                    workdraft_id=current.id,
-                    kind="edit",
-                    actor_subject=record.owner_subject,
-                    actor_role=AUTHOR,
-                    path=path,
-                    text=text,
-                )
-                sources[path] = {"kind": "user_text", "ref": f"record:{entry.id}"}
-                made.append(str(entry.id))
+                pending_entries.append({
+                    "kind": "edit",
+                    "path": path,
+                    "text": text,
+                    "source_kind": "user_text",
+                    "explicit_ref": None,
+                    "suggestion_ref": None,
+                })
                 continue
-            entry = await self.repo.add_workdraft_entry(
-                workdraft_id=current.id,
-                kind="accept",
-                actor_subject=record.owner_subject,
-                actor_role=AUTHOR,
-                path=path,
-                text=text,
-                suggestion_ref=f"{record.id}:{suggestion.id}",
-            )
-            made.append(str(entry.id))
             row = source_of(rows, path)
+            explicit_ref: str | None = None
             if row is not None and row.kind == "idea":
                 ref = idea_ref(
                     record.request_version,
@@ -765,11 +762,40 @@ class KnowbotIncubationService:
                         "Its source does not check out: edit it, then accept",
                         "suggestion_unverified",
                     )
-                sources[path] = {"kind": "user_text", "ref": ref}
+                source_kind = "user_text"
+                explicit_ref = ref
             elif row is not None and row.kind == "answer":
-                sources[path] = {"kind": "user_confirmed", "ref": f"question:{row.ref}"}
+                source_kind = "user_confirmed"
+                explicit_ref = f"question:{row.ref}"
             else:
-                sources[path] = {"kind": "user_confirmed", "ref": f"record:{entry.id}"}
+                source_kind = "user_confirmed"
+                explicit_ref = None
+
+            pending_entries.append({
+                "kind": "accept",
+                "path": path,
+                "text": text,
+                "source_kind": source_kind,
+                "explicit_ref": explicit_ref,
+                "suggestion_ref": f"{record.id}:{suggestion.id}",
+            })
+
+        made: list[str] = []
+        for item in pending_entries:
+            entry = await self.repo.add_workdraft_entry(
+                workdraft_id=current.id,
+                kind=item["kind"],
+                actor_subject=record.owner_subject,
+                actor_role=AUTHOR,
+                path=item["path"],
+                text=item["text"],
+                suggestion_ref=item.get("suggestion_ref"),
+            )
+            made.append(str(entry.id))
+            if item.get("explicit_ref"):
+                sources[item["path"]] = {"kind": item["source_kind"], "ref": item["explicit_ref"]}
+            else:
+                sources[item["path"]] = {"kind": item["source_kind"], "ref": f"record:{entry.id}"}
         return body, sources, made
 
     async def accept_step(

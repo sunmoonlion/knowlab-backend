@@ -128,6 +128,7 @@ class KnowbotProposalService:
         ]
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
+            await self.platform_request(request_id)
             await self.repo.add_proposals(records)
         return records
 

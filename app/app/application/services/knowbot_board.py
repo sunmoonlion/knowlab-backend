@@ -135,7 +135,15 @@ def operator_view(life: Life, now: datetime) -> Life | None:
     tested = {
         g.draft_id
         for g in life.grants
-        if g.kind == "test" and g.status != "declined" and g.draft_id is not None
+        if g.kind == "test"
+        and g.status in ("pending", "active")
+        and (g.expires_at is None or g.expires_at > now)
+        and g.draft_id is not None
+    }
+    actually_tested = {
+        t.draft_id
+        for t in life.tests
+        if t.mode == "platform"
     }
     # 作者交审了、还在审、给审核员的授权还在的那几版：这一版的准专家（审核员要看
     # 清单）与测试、重跑（SDD 0046 第五节）。审完（过、不过、撤回）授权撤了，运营只留
@@ -148,7 +156,10 @@ def operator_view(life: Life, now: datetime) -> Life | None:
     drafts = tuple(
         d
         for d in life.drafts
-        if (incubating and d.mode == "platform") or d.id in tested or d.id in submitted
+        if (incubating and d.mode == "platform")
+        or d.id in tested
+        or d.id in actually_tested
+        or d.id in submitted
     )
     delivered = any(
         e.listed_at is not None or life.open_delivery(e.id) is not None
@@ -367,9 +378,14 @@ def light_items(
             draft = life.draft(grant.draft_id)
             if draft is None:
                 continue
-            category = {"pending": "light_pending", "declined": "light_declined"}.get(
-                grant.status, "light_accepted"
-            )
+            if grant.status == "pending":
+                category = "light_pending"
+            elif grant.status == "declined":
+                category = "light_declined"
+            elif grant.status == "active":
+                category = "light_accepted"
+            else:
+                continue
             out.append((category, life, draft, grant))
     return out
 

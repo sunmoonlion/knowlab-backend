@@ -62,7 +62,7 @@ from app.application.services.knowbot_library import KnowbotLibraryService
 from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
-from app.application.services.knowbot_service import KnowbotCreationService
+from app.application.services.knowbot_service import KnowbotCreationService, parse_id
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.bootstrap.knowbots import (
@@ -239,9 +239,9 @@ async def _detail(
         # 现在的孵化是自助还是平台；作者给平台的授权（SDD 0046 第四节）
         "incubation_mode": life.request.incubation_mode,
         # 从 knowbench 转来的：来源与用户的模型直接答过的回答（只算提议）。管理端只在
-        # 孵化授权在效的平台孵化时给（operator_view 已清掉）
-        "origin": life.request.origin,
-        "reference_answer": life.request.reference_answer,
+        # 孵化授权在效的平台孵化时给（operator_view 已清掉）；没有创意版本时不给后两项
+        "origin": life.request.origin if life.versions else None,
+        "reference_answer": life.request.reference_answer if life.versions else None,
         "grants": [grant_view(g, now, admin=admin) for g in life.grants],
         "versions": [version_view(v, life, admin=admin) for v in life.versions],
         "drafts": [draft_view(d, life, admin=admin) for d in life.drafts],
@@ -1114,13 +1114,15 @@ async def request_detail(
     """一个名称的详情页（管理端看的：平台模式的那几步）；孵化要看的：平台测试中答过的
     问题。"""
     life = await board.life(request_id, operator=True)
+    shown_draft_ids = {d.id for d in life.drafts}
     return _ok(
         await _detail(life, svc, admin=True)
         | {
-            # 测试中答过的：用户确认的判断写进下一位准专家的规则出处（user_confirmed）
+            # 测试中答过的：只取运营视图里的准专家
             "answered": [
                 answered_view(q, admin=True)
                 for q in await questions.answered(life.request.id)
+                if q.draft_id in shown_draft_ids
             ],
         }
     )
@@ -1363,11 +1365,31 @@ async def test_outputs(admin: Admin, svc: Service, test_id: ItemId) -> JSONRespo
     return _ok(outputs_view(test, await svc.test_outputs(test, request), admin=True))
 
 
+async def _verify_operator_expert(board: KnowbotBoard, expert_id: str) -> None:
+    eid = parse_id(expert_id, "expert")
+    expert = await board.repo.get_expert(eid)
+    if expert is None:
+        raise NotFoundError("No such expert", code="expert_not_found")
+    life = await board.life(str(expert.request_id), operator=True)
+    if not any(e.id == eid for e in life.experts):
+        raise NotFoundError("No such expert", code="expert_not_found")
+
+
+async def _verify_operator_delivery(board: KnowbotBoard, delivery_id: str) -> None:
+    did = parse_id(delivery_id, "delivery")
+    delivery = await board.repo.get_delivery(did)
+    if delivery is None:
+        raise NotFoundError("No such delivery", code="delivery_not_found")
+    life = await board.life(str(delivery.request_id), operator=True)
+    if not any(d.id == did for d in life.deliveries):
+        raise NotFoundError("No such delivery", code="delivery_not_found")
+
 @admin_router.post("/knowbot-experts/{expert_id}/return")
 async def return_expert(
-    admin: Releaser, experts: Experts, expert_id: ItemId
+    admin: Releaser, experts: Experts, board: Board, expert_id: ItemId
 ) -> JSONResponse:
     """交回：把这一版通知用户（用户同意门开始）。"""
+    await _verify_operator_expert(board, expert_id)
     found = await experts.return_to_user(expert_id, admin.subject)
     return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
 
@@ -1396,10 +1418,11 @@ async def categories(_: Admin) -> JSONResponse:
 
 @admin_router.post("/knowbot-deliveries/{delivery_id}/rerun")
 async def start_rerun(
-    admin: Releaser, deliveries: Deliveries, delivery_id: ItemId
+    admin: Releaser, deliveries: Deliveries, board: Board, delivery_id: ItemId
 ) -> JSONResponse:
     """平台发起重跑（公开、自助测的）：在作者的账号下、作者的电脑上、用作者的 key 跑
     （decisions ⑯）。"""
+    await _verify_operator_delivery(board, delivery_id)
     test = await deliveries.start_rerun(delivery_id, admin.subject)
     return _ok({"test_id": str(test.id), "status": test.status}, 201)
 
@@ -1413,6 +1436,7 @@ async def review_delivery(
     delivery_id: ItemId,
 ) -> JSONResponse:
     """审一次交付：过（公开的选类目）即交 knowmart；不过写理由。交不成记下，可重试。"""
+    await _verify_operator_delivery(board, delivery_id)
     found = await deliveries.review(delivery_id, body, admin.subject)
     return _ok(await _operator_delivery(board, found))
 
@@ -1431,6 +1455,7 @@ async def void_delivery(
     delivery_id: ItemId,
 ) -> JSONResponse:
     """作废审过了却一直交不成的那一次（写理由）：撤依据，这一版回到「等作者提交」。"""
+    await _verify_operator_delivery(board, delivery_id)
     found = await deliveries.void(delivery_id, admin.subject, body.reason)
     return _ok(await _operator_delivery(board, found))
 
@@ -1440,15 +1465,17 @@ async def retry_delivery(
     _: Releaser, deliveries: Deliveries, board: Board, delivery_id: ItemId
 ) -> JSONResponse:
     """重试交付：审过了、上次交 knowmart 没成功的。"""
+    await _verify_operator_delivery(board, delivery_id)
     found = await deliveries.retry(delivery_id)
     return _ok(await _operator_delivery(board, found))
 
 
 @admin_router.post("/knowbot-experts/{expert_id}/stop")
 async def stop_expert(
-    admin: Releaser, body: StopIn, experts: Experts, expert_id: ItemId
+    admin: Releaser, body: StopIn, experts: Experts, board: Board, expert_id: ItemId
 ) -> JSONResponse:
     """停用上架了的这一版（写理由）；knowmart 那一版跟着停。"""
+    await _verify_operator_expert(board, expert_id)
     found = await experts.stop(expert_id, body.reason, admin.subject)
     return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
 

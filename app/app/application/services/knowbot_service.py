@@ -228,28 +228,36 @@ class KnowbotCreationService:
         数据说明，他补用例、点同意才能测。同一个幂等钥匙只建一份：回（申请，是不是这次新建的）。"""
         if not OWNER.fullmatch(owner_subject or ""):
             raise BadRequestError("The owner is invalid", code="owner_invalid")
+        question = (body.question or "").strip()
+        if not question:
+            raise BadRequestError("The question is empty", code="question_empty")
         for mine in await self.repo.list_requests_for_owner(owner_subject):
             if (mine.origin or {}).get("key") == body.key:
                 return mine, False
-        question = body.question.strip()
         title = question.splitlines()[0].strip()[:80] or question[:80]
-        async with self.repo.transaction():
-            created = await self.repo.create_request(
-                owner_subject=owner_subject,
-                title=title,
-                runtime=runtime,
-                idea={"kind": "question", "question": question},
-                cases=[],
-                consent_version=0,
-                origin={
-                    "app": runtime,
-                    "project_id": body.project_id,
-                    "task_id": body.task_id,
-                    "key": body.key,
-                },
-                reference_answer=(body.reference_answer or "").strip() or None,
-            )
-            await self.repo.add_acceptance(self_acceptance(created.id, 1, self.now()))
+        try:
+            async with self.repo.transaction():
+                created = await self.repo.create_request(
+                    owner_subject=owner_subject,
+                    title=title,
+                    runtime=runtime,
+                    idea={"kind": "question", "question": question},
+                    cases=[],
+                    consent_version=0,
+                    origin={
+                        "app": runtime,
+                        "project_id": body.project_id,
+                        "task_id": body.task_id,
+                        "key": body.key,
+                    },
+                    reference_answer=(body.reference_answer or "").strip() or None,
+                )
+                await self.repo.add_acceptance(self_acceptance(created.id, 1, self.now()))
+        except Exception:
+            for mine in await self.repo.list_requests_for_owner(owner_subject):
+                if (mine.origin or {}).get("key") == body.key:
+                    return mine, False
+            raise
         found = await self.repo.get_request(created.id)
         assert found is not None
         return found, True
@@ -382,10 +390,20 @@ class KnowbotCreationService:
 
     async def _shown_to_operator(self, draft: DraftRecord) -> bool:
         grants = await self.repo.list_grants([draft.request_id])
-        if draft.mode == "platform" and live_incubation(grants, self.now()):
+        now = self.now()
+        if draft.mode == "platform" and live_incubation(grants, now):
+            return True
+        tests = await self.repo.list_tests(request_ids=[draft.request_id])
+        if any(
+            t.draft_id == draft.id and t.mode in ("platform", "rerun")
+            for t in tests
+        ):
             return True
         if any(
-            g.kind == "test" and g.draft_id == draft.id and g.status != "declined"
+            g.kind == "test"
+            and g.draft_id == draft.id
+            and g.status in ("pending", "active")
+            and (g.expires_at is None or g.expires_at > now)
             for g in grants
         ):
             return True
@@ -418,6 +436,7 @@ class KnowbotCreationService:
                     if g.kind == "test"
                     and g.draft_id == draft.id
                     and g.status == "active"
+                    and (g.expires_at is None or g.expires_at > now)
                 ),
                 None,
             )
@@ -576,12 +595,13 @@ class KnowbotCreationService:
 
         费用上限：自助的是作者这次填的；平台的是作者在授权里设的（`platform_budget`）。"""
         mode = "self" if runner else "platform"
-        await self._key_ready(draft_id)
         if runner is None:
-            budget_limit = await self.platform_budget(
-                await self.operator_draft(draft_id)
-            )
+            op_draft = await self.operator_draft(draft_id)
+            await self._key_ready(draft_id)
+            budget_limit = await self.platform_budget(op_draft)
             runner = await self._authors_computer(draft_id)
+        else:
+            await self._key_ready(draft_id)
         assert budget_limit is not None
         async with self.repo.transaction():
             found = await self.repo.get_draft(parse_id(draft_id))

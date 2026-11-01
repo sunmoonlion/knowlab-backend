@@ -87,6 +87,11 @@ class KnowbotPlatformService:
             request = await self.repo.get_request(rid)
             assert request is not None
             found = await self.repo.get_acceptance(rid, request.latest_version)
+            if found is not None and found.kind == "formal" and not found.accepted:
+                raise _conflict(
+                    "This version was rejected by the platform: revise your idea first",
+                    "version_rejected",
+                )
             if found is not None and found.kind == "formal" and found.accepted:
                 # 这一版正式受理过（以前平台孵化过又收回来）：不用再受理，授权直接生效
                 await self.repo.update_grant(
@@ -108,6 +113,22 @@ class KnowbotPlatformService:
                 if g.kind == "incubate" and g.status in ("pending", "active"):
                     await self.repo.update_grant(
                         g.id, status="revoked", ended_by=owner_subject, ended_at=now
+                    )
+            for inc in await self.repo.list_incubations(request_id=rid):
+                if inc.mode == "platform" and inc.status in ("queued", "running", "waiting"):
+                    await self.repo.update_incubation(
+                        inc.id,
+                        status="canceled",
+                        ended_at=now,
+                        last_error="The author took back the request",
+                    )
+            for t in await self.repo.list_tests(request_ids=[rid]):
+                if t.mode in ("platform", "rerun") and t.status in ("queued", "running", "waiting"):
+                    await self.repo.update_test(
+                        t.id,
+                        status="platform_error",
+                        finished_at=now,
+                        last_error="The author took back the request",
                     )
             # 运营没被接受的提议作废（decisions 10-29）
             for p in await self.repo.list_proposals(rid):
@@ -151,7 +172,7 @@ class KnowbotPlatformService:
             raise _conflict(
                 "Platform drafts are tested by the platform already", "draft_not_self"
             )
-        if draft.status not in ("pending_test", "failed"):
+        if draft.status != "pending_test":
             raise _conflict("This draft cannot be tested now", "draft_not_testable")
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
