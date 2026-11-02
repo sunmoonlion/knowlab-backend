@@ -1,6 +1,6 @@
-"""Test Assembly of Full 14 Financial & Valuation Methods into Financial Expert Manifest.
+"""Test Assembly of Complete 20 Financial & Valuation Methods into Financial Expert Manifest.
 Verifies:
-- All 14 author methods freeze with valid provider schema and independent slot names.
+- All 20 author methods freeze with valid provider schema and independent slot names.
 - Complete financial & valuation expert assembly compiles cleanly with 0 errors.
 - Compiled manifest strictly adheres to knowbench/dynamic-methods/v2 contract.
 - Exports golden fixture for Luna's knowbench execution integration.
@@ -13,9 +13,10 @@ import pytest
 
 from app.domain.knowbots.methods import render
 from tests.financial_author_method_fixtures import (
-    ALL_14_SPECS,
+    ALL_20_SPECS,
     BATCH1_SPECS,
     BATCH2_SPECS,
+    BATCH3_SPECS,
     build_financial_expert_manifest,
     make_author_method_definition,
 )
@@ -23,15 +24,16 @@ from tests.financial_author_method_fixtures import (
 PARENT = Path(__file__).resolve().parents[3]
 
 
-def test_all_14_author_methods_validity():
-    assert len(ALL_14_SPECS) == 14
+def test_all_20_author_methods_validity():
+    assert len(ALL_20_SPECS) == 20
     assert len(BATCH1_SPECS) == 8
     assert len(BATCH2_SPECS) == 6
+    assert len(BATCH3_SPECS) == 6
     
     validator = jsonschema.Draft202012Validator(json.loads(render()))
     
     digests = set()
-    for spec in ALL_14_SPECS:
+    for spec in ALL_20_SPECS:
         defn = make_author_method_definition(spec)
         assert defn.step.id == "method"
         assert defn.step.selection.required is False
@@ -56,9 +58,9 @@ def test_financial_expert_manifest_compilation_and_export():
     assert pack["runtime_contract"] == "knowbench/dynamic-methods/v2"
     assert pack["method_compiler"] == "knowlab/workdraft-compiler/v1"
     
-    # 14 methods bound
-    assert len(pack["method_sources"]) == 14
-    for spec in ALL_14_SPECS:
+    # All 20 methods bound
+    assert len(pack["method_sources"]) == 20
+    for spec in ALL_20_SPECS:
         m_id = spec["id"]
         assert m_id in pack["method_sources"]
         source = pack["method_sources"][m_id]

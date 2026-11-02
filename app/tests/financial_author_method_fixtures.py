@@ -1,6 +1,7 @@
-"""Author Method Fixtures for Financial Analysis and Valuation Methods (Complete 14 Methods).
-Batch 1: Core Accounting & Financial Diagnostics (M01, M02, M04, M05, M06, M07, M12, M20)
-Batch 2: Valuation, Unit Economics & Moat Synthesis (M03, M08, M09, M14, M15, M19)
+"""Author Method Fixtures for Financial Analysis and Valuation Methods (Complete 20 Methods).
+Batch 1: Core Accounting & Diagnostics (M01, M02, M04, M05, M06, M07, M12, M20)
+Batch 2: Valuation, Unit Economics & Moat (M03, M08, M09, M14, M15, M19)
+Batch 3: Capacity, R&D, 3-Statement Forecast, Governance & Impairment (M10, M11, M13, M16, M17, M18)
 """
 
 from uuid import UUID
@@ -22,9 +23,9 @@ from app.domain.knowbots.workdraft import (
     cells,
 )
 
-# Complete 14 Financial & Valuation Method Specifications
-ALL_14_SPECS = [
-    # ---------- Batch 1: Core Accounting & Diagnostics ----------
+# Complete 20 Financial & Valuation Method Specifications
+ALL_20_SPECS = [
+    # ---------- Batch 1: Core Accounting & Diagnostics (8) ----------
     {
         "id": "fin_statement_restructure",
         "title": "财务三表标准化重构与口径对齐",
@@ -162,7 +163,7 @@ ALL_14_SPECS = [
         ],
     },
 
-    # ---------- Batch 2: Valuation, Unit Economics & Moat Synthesis ----------
+    # ---------- Batch 2: Valuation, Unit Economics & Moat (6) ----------
     {
         "id": "non_recurring_items_purification",
         "title": "非经常性损益穿透与扣非还原",
@@ -170,7 +171,7 @@ ALL_14_SPECS = [
         "tags": ["扣非净利润", "非经常损益", "盈利纯净度", "政府补助"],
         "does": "穿透政府补助、处置损益等偶发项目，结合所得税率扣减还原主营持续经营净利润。",
         "why": "剔除偶然因素扰动，评估主营业务真实核心盈利内核与可持续性。",
-        "provenance": "证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》",
+        "provenance": "证监会《公开发行证券的公司信息披露解释性公告第1号》",
         "feeder_outputs": [OutputCell(name="standardized_income_statement", type="table"), OutputCell(name="non_recurring_schedule", type="table")],
         "inputs": {"feeder": "income_and_nonrec"},
         "outputs": [
@@ -263,11 +264,115 @@ ALL_14_SPECS = [
             OutputCell(name="moat_synthesis_summary", type="text"),
         ],
     },
+
+    # ---------- Batch 3: Capacity, R&D, Forecasting, Governance & Impairment (6) ----------
+    {
+        "id": "capex_capacity_cycle_tracker",
+        "title": "资本开支与产能释放周期追踪",
+        "category": "capacity",
+        "tags": ["资本开支", "CAPEX", "在建工程转固", "产能周期", "新增折旧"],
+        "does": "追踪重大在建工程进度、固定资产原值与折旧速度、CAPEX扩张节奏，推演产能投产周期对未来折旧和成本的挤压。",
+        "why": "预判重资产企业固定资产扩张节奏对利润率的周期性扰动。",
+        "provenance": "《企业会计准则第4号——固定资产》及产能投资周期理论",
+        "feeder_outputs": [OutputCell(name="cip_and_fixed_assets_schedule", type="table")],
+        "inputs": {"feeder": "capex_and_cip_data"},
+        "outputs": [
+            OutputCell(name="capex_to_revenue_ratio", type="number"),
+            OutputCell(name="cip_turn_fixed_assets_amount", type="number"),
+            OutputCell(name="capacity_cycle_outlook", type="text"),
+        ],
+    },
+    {
+        "id": "rnd_capitalization_efficiency_eval",
+        "title": "研发投入资本化与产出效能评估",
+        "category": "rnd",
+        "tags": ["研发投入", "资本化率", "研发效能", "无形资产摊销"],
+        "does": "拆解研发投入总额、研发费用化比例与资本化比例、研发人员人均产出，评估资本化条件合规性与无形资产未来摊销压力。",
+        "why": "排查激进资本化粉饰当期利润风险，评估科技创新研发转化为业绩的实际效率。",
+        "provenance": "《企业会计准则第6号——无形资产》（开发支出资本化标准）",
+        "feeder_outputs": [OutputCell(name="rnd_notes_disclosure", type="table")],
+        "inputs": {"feeder": "rnd_expenditure_notes"},
+        "outputs": [
+            OutputCell(name="rnd_total_expenditure", type="number"),
+            OutputCell(name="rnd_capitalization_ratio", type="number"),
+            OutputCell(name="rnd_expense_ratio", type="number"),
+            OutputCell(name="rnd_efficiency_verdict", type="text"),
+        ],
+    },
+    {
+        "id": "three_statement_linked_forecasting",
+        "title": "三表联动预测模型",
+        "category": "forecasting",
+        "tags": ["财务建模", "三表联动", "资产平表", "配平项Plug"],
+        "does": "基于核心营收增速、毛利率、期间费用率及营运资本周转天数假设，联动预测未来3年三表并强制配平。",
+        "why": "建立具有强会计勾稽闭环的中期动态预测底稿，杜绝割裂预测。",
+        "provenance": "投资银行财务模型(Financial Modeling)三表配平公理",
+        "feeder_outputs": [OutputCell(name="historical_base_and_driver_assumptions", type="table")],
+        "inputs": {"feeder": "forecasting_assumptions_and_base"},
+        "outputs": [
+            OutputCell(name="forecasted_revenue_3y", type="table"),
+            OutputCell(name="forecasted_net_profit_3y", type="table"),
+            OutputCell(name="balance_sheet_plug_cash", type="number"),
+            OutputCell(name="statements_linked_balance_check", type="text"),
+        ],
+    },
+    {
+        "id": "pledge_reduction_related_transaction_scan",
+        "title": "股权质押、减持与重大关联交易穿透",
+        "category": "governance",
+        "tags": ["股权质押", "高管减持", "关联交易", "资金占用", "利益输送"],
+        "does": "排查大股东及董监高股权质押比例、平仓线安全垫、重要股东增减持及重大关联交易公允性与非经营性资金往来。",
+        "why": "识别公司治理结构风险、控股股东流动性困境与潜在资金侵占隐患。",
+        "provenance": "证监会《上市公司监管指引第8号——上市公司资金往来与对外担保》",
+        "feeder_outputs": [OutputCell(name="governance_and_insider_disclosure", type="table")],
+        "inputs": {"feeder": "governance_and_pledge_notes"},
+        "outputs": [
+            OutputCell(name="pledged_shares_ratio", type="number"),
+            OutputCell(name="insider_reduction_amount", type="number"),
+            OutputCell(name="related_party_receivables_ratio", type="number"),
+            OutputCell(name="governance_risk_rating", type="text"),
+        ],
+    },
+    {
+        "id": "goodwill_asset_impairment_stress_test",
+        "title": "商誉减值与资产质量压力测试",
+        "category": "impairment",
+        "tags": ["商誉减值", "坏账准备", "资产质量", "净资产压力测试"],
+        "does": "测算商誉占净资产比例、并购标的历史业绩承诺完成度，针对存货与应收账款执行极端情景坏账与跌价压力测算。",
+        "why": "排查并购后遗症与资产负债表虚胖，提前暴露业绩暴雷潜在隐患。",
+        "provenance": "《企业会计准则第8号——资产减值》及《会计监管风险提示第8号》",
+        "feeder_outputs": [OutputCell(name="impairment_and_goodwill_disclosure", type="table")],
+        "inputs": {"feeder": "asset_impairment_notes"},
+        "outputs": [
+            OutputCell(name="goodwill_to_equity_ratio", type="number"),
+            OutputCell(name="goodwill_stress_impairment_loss", type="number"),
+            OutputCell(name="accounts_receivable_bad_debt_provision", type="number"),
+            OutputCell(name="asset_quality_rating", type="text"),
+        ],
+    },
+    {
+        "id": "kam_contingent_liability_audit",
+        "title": "关键审计事项与或有负债排查",
+        "category": "audit",
+        "tags": ["KAM", "审计意见", "对外担保", "未决诉讼", "或有负债"],
+        "does": "提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。",
+        "why": "倾听外部独立审计师的警示哨声，排查表外隐性负债对净资产的刚性求偿风险。",
+        "provenance": "中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》",
+        "feeder_outputs": [OutputCell(name="audit_report_and_contingencies", type="table")],
+        "inputs": {"feeder": "audit_report_fulltext"},
+        "outputs": [
+            OutputCell(name="audit_opinion_type", type="text"),
+            OutputCell(name="kam_topics_count", type="number"),
+            OutputCell(name="external_guarantee_ratio", type="number"),
+            OutputCell(name="contingent_liability_risk_verdict", type="text"),
+        ],
+    },
 ]
 
-# Aliases
-BATCH1_SPECS = ALL_14_SPECS[:8]
-BATCH2_SPECS = ALL_14_SPECS[8:]
+# Aliases for Batches
+BATCH1_SPECS = ALL_20_SPECS[:8]
+BATCH2_SPECS = ALL_20_SPECS[8:14]
+BATCH3_SPECS = ALL_20_SPECS[14:]
 
 
 def make_author_method_definition(spec: Dict[str, Any]) -> MethodDefinition:
@@ -326,33 +431,39 @@ def make_author_method_definition(spec: Dict[str, Any]) -> MethodDefinition:
 
 def build_financial_expert_manifest(specs: List[Dict[str, Any]] | None = None) -> tuple[dict[str, Any], list[Any]]:
     """Assembles a full financial expert workdraft binding methods via bind()."""
-    target_specs = specs if specs is not None else ALL_14_SPECS
+    target_specs = specs if specs is not None else ALL_20_SPECS
     definitions = {spec["id"]: make_author_method_definition(spec) for spec in target_specs}
     
-    expert_steps = []
+    # 1 consolidated intake step covering all feeder outputs across all 20 methods
+    intake_outputs = []
+    seen = set()
+    for spec in target_specs:
+        for out in spec["feeder_outputs"]:
+            if out.name not in seen:
+                intake_outputs.append(out.model_dump(mode="json"))
+                seen.add(out.name)
+                
+    intake_step = {
+        "id": "financial_data_intake",
+        "title": "财务数据前置总接入",
+        "does": "读取并供给全部财务分析基础三表、附注及外部行情数据。",
+        "selection": {"applies_when": "初始接入", "required": True, "max_calls": 1},
+        "outputs": intake_outputs,
+        "checks": [{"template": "required", "params": {"keys": [o["name"] for o in intake_outputs]}}],
+    }
+    
+    expert_steps = [intake_step]
     method_refs = {}
     method_sources = {}
     
     for idx, spec in enumerate(target_specs):
-        feeder_id = f"feeder_{spec['id']}"
-        feeder_step = {
-            "id": feeder_id,
-            "title": f"接入_{spec['title']}",
-            "does": "读取对应数据。",
-            "selection": {"applies_when": "数据准备", "required": True, "max_calls": 1},
-            "outputs": [out.model_dump(mode="json") for out in spec["feeder_outputs"]],
-            "checks": [{"template": "required", "params": {"keys": [o.name for o in spec["feeder_outputs"]]}}],
-        }
-        expert_steps.append(feeder_step)
-        
-        # Placeholder step for the bound method
         m_id = spec["id"]
         expert_steps.append({
             "id": m_id,
             "title": spec["title"],
             "does": spec["does"],
             "why": spec["why"],
-            "uses": [feeder_id],
+            "uses": ["financial_data_intake"],
             "rules": [{"id": "r1", "text": f"依据：{spec['provenance']}"}],
             "outputs": [out.model_dump(mode="json") for out in spec["outputs"]],
             "checks": [{"template": "required", "params": {"keys": [out.name for out in spec["outputs"]]}}],
@@ -360,22 +471,22 @@ def build_financial_expert_manifest(specs: List[Dict[str, Any]] | None = None) -
         })
         
     expert_body_raw = {
-        "name": "深度财务与估值分析专家",
-        "tagline": "基于14项不可变作者方法库的财务三表重构、估值定价与护城河体检专家",
+        "name": "全面财务与估值分析专家",
+        "tagline": "基于20项不可变作者方法库的财务三表重构、估值推演、公司治理与护城河体检专家",
         "scope": {
-            "does": "对标的进行标准化三表重构、勾稽校验、杜邦分解、流动性体检、营运周期、收益质量、DCF估值、相对估值及竞争壁垒综合研判",
+            "does": "对标的进行标准化三表重构、勾稽校验、杜邦分解、流动性体检、营运周期、收益质量、DCF估值、相对估值、三表预测、产能追踪、研发评估、商誉减值与治理穿透综合研判",
             "does_not": "不代客理财，不提供内幕交易信息",
             "elsewhere": "",
         },
         "data_picks": [],
         "steps": expert_steps,
         "planning": {
-            "method_text": "接收到公司代码与财报数据时，由数据接入步骤供给数据，依次编排三表重构、勾稽平表、杜邦五步、DCF估值及综合底稿成稿。",
+            "method_text": "接收到公司代码与财报数据时，由数据接入步骤供给数据，依次编排三表重构、勾稽平表、杜邦五步、三表预测、DCF估值及综合底稿成稿。",
             "final_units": ["comprehensive_dossier_formatting"],
-            "max_steps": 30,
+            "max_steps": 25,
             "max_replans": 2,
-            "reserve": "0.10",
-            "input_max_chars": 32000,
+            "reserve": "0.15",
+            "input_max_chars": 64000,
         },
     }
     
@@ -387,7 +498,6 @@ def build_financial_expert_manifest(specs: List[Dict[str, Any]] | None = None) -
         defn = definitions[m_id]
         digest = defn.digest()
         method_uuid = UUID(int=1000 + idx)
-        feeder_id = f"feeder_{spec['id']}"
         slot_name = list(spec["inputs"].values())[0]
         
         bind_cmd = BindMethod(
@@ -395,7 +505,7 @@ def build_financial_expert_manifest(specs: List[Dict[str, Any]] | None = None) -
             revision=1,
             alias=m_id,
             digest=digest,
-            inputs={slot_name: feeder_id},
+            inputs={slot_name: "financial_data_intake"},
             required=False,
             max_calls=1,
         )
@@ -410,7 +520,7 @@ def build_financial_expert_manifest(specs: List[Dict[str, Any]] | None = None) -
             "method_id": str(method_uuid),
             "version": 1,
             "digest": digest,
-            "inputs": {slot_name: feeder_id},
+            "inputs": {slot_name: "financial_data_intake"},
         }
         method_refs[m_id] = ref
         method_sources[m_id] = {
@@ -430,9 +540,9 @@ def build_financial_expert_manifest(specs: List[Dict[str, Any]] | None = None) -
     return compile_manifest(
         parsed,
         sources,
-        pack_id="financial-and-valuation-expert-v1",
+        pack_id="comprehensive-financial-expert-v1",
         version="1",
         runtime="knowbench",
-        fallback_name="financial-valuation-expert",
+        fallback_name="comprehensive-financial-expert",
         method_sources=method_sources,
     )

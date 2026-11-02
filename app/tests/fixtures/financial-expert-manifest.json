@@ -1,45 +1,45 @@
 {
   "schema": "knowbot-manifest/v3",
-  "name": "深度财务与估值分析专家",
-  "tagline": "基于14项不可变作者方法库的财务三表重构、估值定价与护城河体检专家",
+  "name": "全面财务与估值分析专家",
+  "tagline": "基于20项不可变作者方法库的财务三表重构、估值推演、公司治理与护城河体检专家",
   "version": "1",
   "runtime": "knowbench",
   "pack": {
-    "pack_id": "financial-and-valuation-expert-v1",
+    "pack_id": "comprehensive-financial-expert-v1",
     "version": "1",
-    "title": "深度财务与估值分析专家",
-    "name": "深度财务与估值分析专家",
-    "tagline": "基于14项不可变作者方法库的财务三表重构、估值定价与护城河体检专家",
+    "title": "全面财务与估值分析专家",
+    "name": "全面财务与估值分析专家",
+    "tagline": "基于20项不可变作者方法库的财务三表重构、估值推演、公司治理与护城河体检专家",
     "scope": {
-      "does": "对标的进行标准化三表重构、勾稽校验、杜邦分解、流动性体检、营运周期、收益质量、DCF估值、相对估值及竞争壁垒综合研判",
+      "does": "对标的进行标准化三表重构、勾稽校验、杜邦分解、流动性体检、营运周期、收益质量、DCF估值、相对估值、三表预测、产能追踪、研发评估、商誉减值与治理穿透综合研判",
       "does_not": "不代客理财，不提供内幕交易信息",
       "elsewhere": ""
     },
     "runtime_contract": "knowbench/dynamic-methods/v2",
     "planning": {
-      "method_text": "接收到公司代码与财报数据时，由数据接入步骤供给数据，依次编排三表重构、勾稽平表、杜邦五步、DCF估值及综合底稿成稿。",
+      "method_text": "接收到公司代码与财报数据时，由数据接入步骤供给数据，依次编排三表重构、勾稽平表、杜邦五步、三表预测、DCF估值及综合底稿成稿。",
       "final_units": [
         "comprehensive_dossier_formatting"
       ],
-      "max_steps": 30,
+      "max_steps": 25,
       "max_replans": 2,
-      "reserve": "0.10",
-      "input_max_chars": 32000
+      "reserve": "0.15",
+      "input_max_chars": 64000
     },
     "method_units": [
       {
         "selection": {
-          "applies_when": "数据准备",
+          "applies_when": "初始接入",
           "required": true,
           "max_calls": 1
         },
         "contract": {
-          "step_id": "feeder_fin_statement_restructure",
-          "title": "接入_财务三表标准化重构与口径对齐",
-          "summary": "读取对应数据。",
+          "step_id": "financial_data_intake",
+          "title": "财务数据前置总接入",
+          "summary": "读取并供给全部财务分析基础三表、附注及外部行情数据。",
           "why": "",
           "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- raw_balance_sheet：表\n- raw_income_statement：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取并供给全部财务分析基础三表、附注及外部行情数据。\n\n交回一个 JSON，包含：\n- raw_balance_sheet：表\n- raw_income_statement：表\n- standardized_balance_sheet：表\n- standardized_income_statement：表\n- financial_panel_multi_period：表\n- multi_period_statements：表\n- cash_flow_statements：表\n- summary_series：表\n- dossier_bundle：列表\n- non_recurring_schedule：表\n- segment_volume_price_raw：表\n- counterparty_disclosure：表\n- dcf_base_assumptions：表\n- market_quotes_and_peers：表\n- long_term_profile：表\n- cip_and_fixed_assets_schedule：表\n- rnd_notes_disclosure：表\n- historical_base_and_driver_assumptions：表\n- governance_and_insider_disclosure：表\n- impairment_and_goodwill_disclosure：表\n- audit_report_and_contingencies：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -53,12 +53,69 @@
             "request_data",
             "search_evidence"
           ],
-          "output_artifact": "feeder_fin_statement_restructure",
+          "output_artifact": "financial_data_intake",
           "output_schema": {
             "raw_balance_sheet": [
               "string"
             ],
             "raw_income_statement": [
+              "string"
+            ],
+            "standardized_balance_sheet": [
+              "string"
+            ],
+            "standardized_income_statement": [
+              "string"
+            ],
+            "financial_panel_multi_period": [
+              "string"
+            ],
+            "multi_period_statements": [
+              "string"
+            ],
+            "cash_flow_statements": [
+              "string"
+            ],
+            "summary_series": [
+              "string"
+            ],
+            "dossier_bundle": [
+              "string"
+            ],
+            "non_recurring_schedule": [
+              "string"
+            ],
+            "segment_volume_price_raw": [
+              "string"
+            ],
+            "counterparty_disclosure": [
+              "string"
+            ],
+            "dcf_base_assumptions": [
+              "string"
+            ],
+            "market_quotes_and_peers": [
+              "string"
+            ],
+            "long_term_profile": [
+              "string"
+            ],
+            "cip_and_fixed_assets_schedule": [
+              "string"
+            ],
+            "rnd_notes_disclosure": [
+              "string"
+            ],
+            "historical_base_and_driver_assumptions": [
+              "string"
+            ],
+            "governance_and_insider_disclosure": [
+              "string"
+            ],
+            "impairment_and_goodwill_disclosure": [
+              "string"
+            ],
+            "audit_report_and_contingencies": [
               "string"
             ]
           },
@@ -72,19 +129,57 @@
               "kind": "required_keys",
               "keys": [
                 "raw_balance_sheet",
-                "raw_income_statement"
+                "raw_income_statement",
+                "standardized_balance_sheet",
+                "standardized_income_statement",
+                "financial_panel_multi_period",
+                "multi_period_statements",
+                "cash_flow_statements",
+                "summary_series",
+                "dossier_bundle",
+                "non_recurring_schedule",
+                "segment_volume_price_raw",
+                "counterparty_disclosure",
+                "dcf_base_assumptions",
+                "market_quotes_and_peers",
+                "long_term_profile",
+                "cip_and_fixed_assets_schedule",
+                "rnd_notes_disclosure",
+                "historical_base_and_driver_assumptions",
+                "governance_and_insider_disclosure",
+                "impairment_and_goodwill_disclosure",
+                "audit_report_and_contingencies"
               ],
-              "label": "交回项都在：「raw_balance_sheet」、「raw_income_statement」",
+              "label": "交回项都在：「raw_balance_sheet」、「raw_income_statement」、「standardized_balance_sheet」、「standardized_income_statement」、「financial_panel_multi_period」、「multi_period_statements」、「cash_flow_statements」、「summary_series」、「dossier_bundle」、「non_recurring_schedule」、「segment_volume_price_raw」、「counterparty_disclosure」、「dcf_base_assumptions」、「market_quotes_and_peers」、「long_term_profile」、「cip_and_fixed_assets_schedule」、「rnd_notes_disclosure」、「historical_base_and_driver_assumptions」、「governance_and_insider_disclosure」、「impairment_and_goodwill_disclosure」、「audit_report_and_contingencies」",
               "message": "缺交回项"
             },
             {
               "kind": "required_keys",
               "keys": [
                 "raw_balance_sheet",
-                "raw_income_statement"
+                "raw_income_statement",
+                "standardized_balance_sheet",
+                "standardized_income_statement",
+                "financial_panel_multi_period",
+                "multi_period_statements",
+                "cash_flow_statements",
+                "summary_series",
+                "dossier_bundle",
+                "non_recurring_schedule",
+                "segment_volume_price_raw",
+                "counterparty_disclosure",
+                "dcf_base_assumptions",
+                "market_quotes_and_peers",
+                "long_term_profile",
+                "cip_and_fixed_assets_schedule",
+                "rnd_notes_disclosure",
+                "historical_base_and_driver_assumptions",
+                "governance_and_insider_disclosure",
+                "impairment_and_goodwill_disclosure",
+                "audit_report_and_contingencies"
               ],
-              "label": "必须有：「raw_balance_sheet」、「raw_income_statement」",
-              "message": "没过：必须有：「raw_balance_sheet」、「raw_income_statement」"
+              "label": "必须有：「raw_balance_sheet」、「raw_income_statement」、「standardized_balance_sheet」、「standardized_income_statement」、「financial_panel_multi_period」、「multi_period_statements」、「cash_flow_statements」、「summary_series」、「dossier_bundle」、「non_recurring_schedule」、「segment_volume_price_raw」、「counterparty_disclosure」、「dcf_base_assumptions」、「market_quotes_and_peers」、「long_term_profile」、「cip_and_fixed_assets_schedule」、「rnd_notes_disclosure」、「historical_base_and_driver_assumptions」、「governance_and_insider_disclosure」、「impairment_and_goodwill_disclosure」、「audit_report_and_contingencies」",
+              "message": "没过：必须有：「raw_balance_sheet」、「raw_income_statement」、「standardized_balance_sheet」、「standardized_income_statement」、「financial_panel_multi_period」、「multi_period_statements」、「cash_flow_statements」、「summary_series」、「dossier_bundle」、「non_recurring_schedule」、「segment_volume_price_raw」、「counterparty_disclosure」、「dcf_base_assumptions」、「market_quotes_and_peers」、「long_term_profile」、「cip_and_fixed_assets_schedule」、「rnd_notes_disclosure」、「historical_base_and_driver_assumptions」、「governance_and_insider_disclosure」、「impairment_and_goodwill_disclosure」、「audit_report_and_contingencies」"
             },
             {
               "kind": "no_positioning_advice",
@@ -111,9 +206,9 @@
           "summary": "读取原始披露三表，依CAS2024准则重构列报科目，统一货币计量单位并记录重分类调整溯源。",
           "why": "消除非标科目与列报口径差异，形成横向与跨期可比的基础分析底稿。",
           "input_refs": [
-            "feeder_fin_statement_restructure"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取原始披露三表，依CAS2024准则重构列报科目，统一货币计量单位并记录重分类调整溯源。\n\n规则：\n1. 依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_fin_statement_restructure（接入_财务三表标准化重构与口径对齐）\n\n交回一个 JSON，包含：\n- standardized_balance_sheet：表\n- standardized_income_statement：表\n- reclassification_audit_trail：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取原始披露三表，依CAS2024准则重构列报科目，统一货币计量单位并记录重分类调整溯源。\n\n规则：\n1. 依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- standardized_balance_sheet：表\n- standardized_income_statement：表\n- reclassification_audit_trail：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -181,78 +276,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_accounting_statement_reconciliation",
-          "title": "接入_报表勾稽平衡与重述校验",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- standardized_balance_sheet：表\n- standardized_income_statement：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_accounting_statement_reconciliation",
-          "output_schema": {
-            "standardized_balance_sheet": [
-              "string"
-            ],
-            "standardized_income_statement": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "standardized_balance_sheet",
-                "standardized_income_statement"
-              ],
-              "label": "交回项都在：「standardized_balance_sheet」、「standardized_income_statement」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "standardized_balance_sheet",
-                "standardized_income_statement"
-              ],
-              "label": "必须有：「standardized_balance_sheet」、「standardized_income_statement」",
-              "message": "没过：必须有：「standardized_balance_sheet」、「standardized_income_statement」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -263,9 +286,9 @@
           "summary": "执行资产=负债+所有者权益等式校验(误差绝对值<1.00元)，校验净利润与未分配利润勾稽及前期追溯调整。",
           "why": "验证三表横向纵向强勾稽平衡，排查会计不平衡或重述差错，建立分析可信基石。",
           "input_refs": [
-            "feeder_accounting_statement_reconciliation"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：执行资产=负债+所有者权益等式校验(误差绝对值<1.00元)，校验净利润与未分配利润勾稽及前期追溯调整。\n\n规则：\n1. 依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_accounting_statement_reconciliation（接入_报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- reconciliation_status：文字\n- balance_sheet_balance_diff：数\n- audit_reconciliations：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：执行资产=负债+所有者权益等式校验(误差绝对值<1.00元)，校验净利润与未分配利润勾稽及前期追溯调整。\n\n规则：\n1. 依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- reconciliation_status：文字\n- balance_sheet_balance_diff：数\n- audit_reconciliations：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -329,73 +352,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_dupont_five_way_decomposition",
-          "title": "接入_杜邦五步分解法",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- financial_panel_multi_period：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_dupont_five_way_decomposition",
-          "output_schema": {
-            "financial_panel_multi_period": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "financial_panel_multi_period"
-              ],
-              "label": "交回项都在：「financial_panel_multi_period」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "financial_panel_multi_period"
-              ],
-              "label": "必须有：「financial_panel_multi_period」",
-              "message": "没过：必须有：「financial_panel_multi_period」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -406,9 +362,9 @@
           "summary": "将ROE分解为税务负担率、利息负担率、息税前利润率、资产周转率及权益乘数，评估核心盈利驱动因子。",
           "why": "穿透净资产收益率的杠杆、运营效率与税息影响，识别超额收益的真实来源。",
           "input_refs": [
-            "feeder_dupont_five_way_decomposition"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：将ROE分解为税务负担率、利息负担率、息税前利润率、资产周转率及权益乘数，评估核心盈利驱动因子。\n\n规则：\n1. 依据：经典杜邦分析体系与特许金融分析师(CFA)财务分析框架\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_dupont_five_way_decomposition（接入_杜邦五步分解法）\n\n交回一个 JSON，包含：\n- roe：数\n- operating_margin：数\n- asset_turnover：数\n- equity_multiplier：数\n- dupont_table：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：将ROE分解为税务负担率、利息负担率、息税前利润率、资产周转率及权益乘数，评估核心盈利驱动因子。\n\n规则：\n1. 依据：经典杜邦分析体系与特许金融分析师(CFA)财务分析框架\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- roe：数\n- operating_margin：数\n- asset_turnover：数\n- equity_multiplier：数\n- dupont_table：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -478,73 +434,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_solvency_liquidity_stress_check",
-          "title": "接入_偿债压力与流动性体检",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- standardized_balance_sheet：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_solvency_liquidity_stress_check",
-          "output_schema": {
-            "standardized_balance_sheet": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "standardized_balance_sheet"
-              ],
-              "label": "交回项都在：「standardized_balance_sheet」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "standardized_balance_sheet"
-              ],
-              "label": "必须有：「standardized_balance_sheet」",
-              "message": "没过：必须有：「standardized_balance_sheet」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -555,9 +444,9 @@
           "summary": "计算流动比率、速动比率、现金比率、资产负债率及EBIT利息保障倍数，测算现金流压力抗风险天数。",
           "why": "评估企业短期流动性安全边际与极端现金承压下的刚性兑付能力。",
           "input_refs": [
-            "feeder_solvency_liquidity_stress_check"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算流动比率、速动比率、现金比率、资产负债率及EBIT利息保障倍数，测算现金流压力抗风险天数。\n\n规则：\n1. 依据：信用评级方法论与企业偿债能力分析通用准则\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_solvency_liquidity_stress_check（接入_偿债压力与流动性体检）\n\n交回一个 JSON，包含：\n- current_ratio：数\n- quick_ratio：数\n- debt_to_assets_ratio：数\n- stress_test_survival_days：数\n- solvency_assessment_summary：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算流动比率、速动比率、现金比率、资产负债率及EBIT利息保障倍数，测算现金流压力抗风险天数。\n\n规则：\n1. 依据：信用评级方法论与企业偿债能力分析通用准则\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- current_ratio：数\n- quick_ratio：数\n- debt_to_assets_ratio：数\n- stress_test_survival_days：数\n- solvency_assessment_summary：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -625,73 +514,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_working_capital_cash_cycle_analysis",
-          "title": "接入_营运资本周转与现金循环周期",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- multi_period_statements：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_working_capital_cash_cycle_analysis",
-          "output_schema": {
-            "multi_period_statements": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "multi_period_statements"
-              ],
-              "label": "交回项都在：「multi_period_statements」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "multi_period_statements"
-              ],
-              "label": "必须有：「multi_period_statements」",
-              "message": "没过：必须有：「multi_period_statements」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -702,9 +524,9 @@
           "summary": "计算存货周转天数DIO、应收账款周转天数DSO、应付账款周转天数DPO及现金循环周期CCC=DIO+DSO-DPO。",
           "why": "衡量供应链资金占用与产业链话语权（无偿占用上下游资金程度）。",
           "input_refs": [
-            "feeder_working_capital_cash_cycle_analysis"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算存货周转天数DIO、应收账款周转天数DSO、应付账款周转天数DPO及现金循环周期CCC=DIO+DSO-DPO。\n\n规则：\n1. 依据：营运资本管理理论与理查兹-劳克林(Richards & Laughlin)现金循环模型\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_working_capital_cash_cycle_analysis（接入_营运资本周转与现金循环周期）\n\n交回一个 JSON，包含：\n- dio_inventory_days：数\n- dso_receivable_days：数\n- dpo_payable_days：数\n- ccc_cash_conversion_cycle：数\n- channel_bargaining_power_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算存货周转天数DIO、应收账款周转天数DSO、应付账款周转天数DPO及现金循环周期CCC=DIO+DSO-DPO。\n\n规则：\n1. 依据：营运资本管理理论与理查兹-劳克林(Richards & Laughlin)现金循环模型\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- dio_inventory_days：数\n- dso_receivable_days：数\n- dpo_payable_days：数\n- ccc_cash_conversion_cycle：数\n- channel_bargaining_power_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -772,73 +594,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_earnings_quality_accrual_audit",
-          "title": "接入_收益质量分析与应计项排雷",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- cash_flow_statements：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_earnings_quality_accrual_audit",
-          "output_schema": {
-            "cash_flow_statements": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "cash_flow_statements"
-              ],
-              "label": "交回项都在：「cash_flow_statements」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "cash_flow_statements"
-              ],
-              "label": "必须有：「cash_flow_statements」",
-              "message": "没过：必须有：「cash_flow_statements」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -849,9 +604,9 @@
           "summary": "测算净利润现金含量(OCF/净利润)、自由现金流FCF=OCF-资本开支、总应计项及其占总资产比重。",
           "why": "识别账面净利润含金量，排查激进会计政策与盈余操纵隐患。",
           "input_refs": [
-            "feeder_earnings_quality_accrual_audit"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算净利润现金含量(OCF/净利润)、自由现金流FCF=OCF-资本开支、总应计项及其占总资产比重。\n\n规则：\n1. 依据：斯隆(Sloan 1996)应计异象与企业自由现金流估值前置体检规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_earnings_quality_accrual_audit（接入_收益质量分析与应计项排雷）\n\n交回一个 JSON，包含：\n- ocf_to_net_profit_ratio：数\n- free_cash_flow：数\n- accrual_items_total：数\n- earnings_quality_rating：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算净利润现金含量(OCF/净利润)、自由现金流FCF=OCF-资本开支、总应计项及其占总资产比重。\n\n规则：\n1. 依据：斯隆(Sloan 1996)应计异象与企业自由现金流估值前置体检规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- ocf_to_net_profit_ratio：数\n- free_cash_flow：数\n- accrual_items_total：数\n- earnings_quality_rating：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -916,73 +671,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_historical_cagr_trend_extrapolation",
-          "title": "接入_复合年均增长率测算与趋势外推",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- summary_series：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_historical_cagr_trend_extrapolation",
-          "output_schema": {
-            "summary_series": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "summary_series"
-              ],
-              "label": "交回项都在：「summary_series」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "summary_series"
-              ],
-              "label": "必须有：「summary_series」",
-              "message": "没过：必须有：「summary_series」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -993,9 +681,9 @@
           "summary": "测算营收、归母净利及经营现金流复合年均增长率CAGR，校验增长背离并外推下一期中枢区间。",
           "why": "消除单年基数扰动，平滑测算企业中期增长趋势，为估值假设提供基线支撑。",
           "input_refs": [
-            "feeder_historical_cagr_trend_extrapolation"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算营收、归母净利及经营现金流复合年均增长率CAGR，校验增长背离并外推下一期中枢区间。\n\n规则：\n1. 依据：证券投资分析复合增长率统计标准与趋势回归方法\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_historical_cagr_trend_extrapolation（接入_复合年均增长率测算与趋势外推）\n\n交回一个 JSON，包含：\n- revenue_cagr：数\n- net_profit_cagr：数\n- ocf_cagr：数\n- extrapolated_forecast_next_year：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算营收、归母净利及经营现金流复合年均增长率CAGR，校验增长背离并外推下一期中枢区间。\n\n规则：\n1. 依据：证券投资分析复合增长率统计标准与趋势回归方法\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- revenue_cagr：数\n- net_profit_cagr：数\n- ocf_cagr：数\n- extrapolated_forecast_next_year：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1060,73 +748,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_comprehensive_dossier_formatting",
-          "title": "接入_结构化研究底稿与报告成稿编排",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- dossier_bundle：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_comprehensive_dossier_formatting",
-          "output_schema": {
-            "dossier_bundle": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "dossier_bundle"
-              ],
-              "label": "交回项都在：「dossier_bundle」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "dossier_bundle"
-              ],
-              "label": "必须有：「dossier_bundle」",
-              "message": "没过：必须有：「dossier_bundle」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1137,9 +758,9 @@
           "summary": "聚合前序各方法输出，按照券商投研报告标准编排执行摘要、财务体检、风险提示及审计溯源底稿。",
           "why": "形成可审计、数据可溯源、结构标准规范的投研分析成果底稿。",
           "input_refs": [
-            "feeder_comprehensive_dossier_formatting"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：聚合前序各方法输出，按照券商投研报告标准编排执行摘要、财务体检、风险提示及审计溯源底稿。\n\n规则：\n1. 依据：中国证券业协会证券投资咨询业务分析报告执业规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_comprehensive_dossier_formatting（接入_结构化研究底稿与报告成稿编排）\n\n交回一个 JSON，包含：\n- executive_summary：文字\n- full_dossier_markdown：文字\n- components_included_count：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：聚合前序各方法输出，按照券商投研报告标准编排执行摘要、财务体检、风险提示及审计溯源底稿。\n\n规则：\n1. 依据：中国证券业协会证券投资咨询业务分析报告执业规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- executive_summary：文字\n- full_dossier_markdown：文字\n- components_included_count：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1201,78 +822,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_non_recurring_items_purification",
-          "title": "接入_非经常性损益穿透与扣非还原",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- standardized_income_statement：表\n- non_recurring_schedule：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_non_recurring_items_purification",
-          "output_schema": {
-            "standardized_income_statement": [
-              "string"
-            ],
-            "non_recurring_schedule": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "standardized_income_statement",
-                "non_recurring_schedule"
-              ],
-              "label": "交回项都在：「standardized_income_statement」、「non_recurring_schedule」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "standardized_income_statement",
-                "non_recurring_schedule"
-              ],
-              "label": "必须有：「standardized_income_statement」、「non_recurring_schedule」",
-              "message": "没过：必须有：「standardized_income_statement」、「non_recurring_schedule」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1283,9 +832,9 @@
           "summary": "穿透政府补助、处置损益等偶发项目，结合所得税率扣减还原主营持续经营净利润。",
           "why": "剔除偶然因素扰动，评估主营业务真实核心盈利内核与可持续性。",
           "input_refs": [
-            "feeder_non_recurring_items_purification"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：穿透政府补助、处置损益等偶发项目，结合所得税率扣减还原主营持续经营净利润。\n\n规则：\n1. 依据：证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_non_recurring_items_purification（接入_非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- net_profit_parent：数\n- non_recurring_items_net：数\n- deducted_net_profit：数\n- non_recurring_profit_ratio：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：穿透政府补助、处置损益等偶发项目，结合所得税率扣减还原主营持续经营净利润。\n\n规则：\n1. 依据：证监会《公开发行证券的公司信息披露解释性公告第1号》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- net_profit_parent：数\n- non_recurring_items_net：数\n- deducted_net_profit：数\n- non_recurring_profit_ratio：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1350,73 +899,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_segment_volume_price_decomposition",
-          "title": "接入_分部业务量价拆解",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- segment_volume_price_raw：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_segment_volume_price_decomposition",
-          "output_schema": {
-            "segment_volume_price_raw": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "segment_volume_price_raw"
-              ],
-              "label": "交回项都在：「segment_volume_price_raw」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "segment_volume_price_raw"
-              ],
-              "label": "必须有：「segment_volume_price_raw」",
-              "message": "没过：必须有：「segment_volume_price_raw」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1427,9 +909,9 @@
           "summary": "按产品分部拆解销量变动与单价变动对总收入增量的独立贡献，计算分部毛利率。",
           "why": "透视驱动营收增长的微观内核（提价 vs 放量），分析产品结构升级趋势。",
           "input_refs": [
-            "feeder_segment_volume_price_decomposition"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按产品分部拆解销量变动与单价变动对总收入增量的独立贡献，计算分部毛利率。\n\n规则：\n1. 依据：《企业会计准则第35号——分部报告》及主营业务量价归因模型\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_segment_volume_price_decomposition（接入_分部业务量价拆解）\n\n交回一个 JSON，包含：\n- volume_contribution_amount：数\n- price_contribution_amount：数\n- product_mix_upgrade_analysis：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按产品分部拆解销量变动与单价变动对总收入增量的独立贡献，计算分部毛利率。\n\n规则：\n1. 依据：《企业会计准则第35号——分部报告》及主营业务量价归因模型\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- volume_contribution_amount：数\n- price_contribution_amount：数\n- product_mix_upgrade_analysis：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1491,73 +973,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_customer_supplier_concentration_scan",
-          "title": "接入_客户与供应商集中度透视",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- counterparty_disclosure：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_customer_supplier_concentration_scan",
-          "output_schema": {
-            "counterparty_disclosure": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "counterparty_disclosure"
-              ],
-              "label": "交回项都在：「counterparty_disclosure」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "counterparty_disclosure"
-              ],
-              "label": "必须有：「counterparty_disclosure」",
-              "message": "没过：必须有：「counterparty_disclosure」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1568,9 +983,9 @@
           "summary": "提取前五大客户与供应商占比，排查关联方交易比例，计算集中度风险评级。",
           "why": "评估企业对单一渠道或关键供应商的依赖风险，检测供应链稳健性。",
           "input_refs": [
-            "feeder_customer_supplier_concentration_scan"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取前五大客户与供应商占比，排查关联方交易比例，计算集中度风险评级。\n\n规则：\n1. 依据：证监会《公开发行证券的公司信息披露内容与格式准则第2号》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_customer_supplier_concentration_scan（接入_客户与供应商集中度透视）\n\n交回一个 JSON，包含：\n- top5_customer_share_total：数\n- top5_supplier_share_total：数\n- supply_chain_risk_rating：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取前五大客户与供应商占比，排查关联方交易比例，计算集中度风险评级。\n\n规则：\n1. 依据：证监会《公开发行证券的公司信息披露内容与格式准则第2号》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- top5_customer_share_total：数\n- top5_supplier_share_total：数\n- supply_chain_risk_rating：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1632,73 +1047,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_dcf_intrinsic_valuation",
-          "title": "接入_企业自由现金流贴现模型 DCF",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- dcf_base_assumptions：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_dcf_intrinsic_valuation",
-          "output_schema": {
-            "dcf_base_assumptions": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "dcf_base_assumptions"
-              ],
-              "label": "交回项都在：「dcf_base_assumptions」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "dcf_base_assumptions"
-              ],
-              "label": "必须有：「dcf_base_assumptions」",
-              "message": "没过：必须有：「dcf_base_assumptions」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1709,9 +1057,9 @@
           "summary": "基于显性预测期FCFF与加权平均资本成本WACC，结合永续增长率g测算企业价值EV与每股内在目标价。",
           "why": "立足企业生命周期内在现金创造力，建立严谨的无杠杆现金流绝对估值体系。",
           "input_refs": [
-            "feeder_dcf_intrinsic_valuation"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于显性预测期FCFF与加权平均资本成本WACC，结合永续增长率g测算企业价值EV与每股内在目标价。\n\n规则：\n1. 依据：Aswath Damodaran《投资估价》与CAPM资本资产定价模型\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_dcf_intrinsic_valuation（接入_企业自由现金流贴现模型 DCF）\n\n交回一个 JSON，包含：\n- wacc_rate：数\n- enterprise_value_ev：数\n- equity_intrinsic_value：数\n- implied_share_price：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于显性预测期FCFF与加权平均资本成本WACC，结合永续增长率g测算企业价值EV与每股内在目标价。\n\n规则：\n1. 依据：Aswath Damodaran《投资估价》与CAPM资本资产定价模型\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- wacc_rate：数\n- enterprise_value_ev：数\n- equity_intrinsic_value：数\n- implied_share_price：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1776,73 +1124,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_relative_multiple_valuation",
-          "title": "接入_相对估值倍数与历史分位数对标",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- market_quotes_and_peers：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_relative_multiple_valuation",
-          "output_schema": {
-            "market_quotes_and_peers": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "market_quotes_and_peers"
-              ],
-              "label": "交回项都在：「market_quotes_and_peers」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "market_quotes_and_peers"
-              ],
-              "label": "必须有：「market_quotes_and_peers」",
-              "message": "没过：必须有：「market_quotes_and_peers」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1853,9 +1134,9 @@
           "summary": "计算PE(TTM)、PB倍数，对标近5~10年历史百分位(Percentile)与同业可比公司估值中枢。",
           "why": "锚定当前市场价格在历史估值钟摆中的位置，判定安全边际与相对折溢价。",
           "input_refs": [
-            "feeder_relative_multiple_valuation"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算PE(TTM)、PB倍数，对标近5~10年历史百分位(Percentile)与同业可比公司估值中枢。\n\n规则：\n1. 依据：现代投资组合理论相对估值分析规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_relative_multiple_valuation（接入_相对估值倍数与历史分位数对标）\n\n交回一个 JSON，包含：\n- pe_ttm：数\n- pb_ratio：数\n- historical_pe_percentile：数\n- valuation_watermark_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算PE(TTM)、PB倍数，对标近5~10年历史百分位(Percentile)与同业可比公司估值中枢。\n\n规则：\n1. 依据：现代投资组合理论相对估值分析规范\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- pe_ttm：数\n- pb_ratio：数\n- historical_pe_percentile：数\n- valuation_watermark_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1920,73 +1201,6 @@
       },
       {
         "selection": {
-          "applies_when": "数据准备",
-          "required": true,
-          "max_calls": 1
-        },
-        "contract": {
-          "step_id": "feeder_competitive_moat_thesis_synthesis",
-          "title": "接入_竞争壁垒与核心投资假说验证",
-          "summary": "读取对应数据。",
-          "why": "",
-          "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取对应数据。\n\n交回一个 JSON，包含：\n- long_term_profile：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
-          "tools": [
-            "compute",
-            "describe_items",
-            "find_subject",
-            "list_inputs",
-            "lookup",
-            "query_facts",
-            "query_metric",
-            "read_facts",
-            "read_input",
-            "request_data",
-            "search_evidence"
-          ],
-          "output_artifact": "feeder_competitive_moat_thesis_synthesis",
-          "output_schema": {
-            "long_term_profile": [
-              "string"
-            ]
-          },
-          "acceptance": [
-            {
-              "kind": "json_object",
-              "label": "交回的是一个 JSON",
-              "message": "交回物不是 JSON 对象"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "long_term_profile"
-              ],
-              "label": "交回项都在：「long_term_profile」",
-              "message": "缺交回项"
-            },
-            {
-              "kind": "required_keys",
-              "keys": [
-                "long_term_profile"
-              ],
-              "label": "必须有：「long_term_profile」",
-              "message": "没过：必须有：「long_term_profile」"
-            },
-            {
-              "kind": "no_positioning_advice",
-              "label": "没有评级、目标价、买卖建议",
-              "message": "含有评级、目标价或买卖建议的措辞"
-            }
-          ],
-          "on_reject": "rework",
-          "max_reworks": 1,
-          "reserve": "0.05",
-          "input_max_chars": 8000,
-          "ask_before": []
-        }
-      },
-      {
-        "selection": {
           "applies_when": "财务分析执行",
           "required": false,
           "max_calls": 1
@@ -1997,9 +1211,9 @@
           "summary": "从毛利率定价权、ROIC超额回报利差(ROIC-WACC)、特许资源及客户黏性综合判定护城河等级并建立证伪清单。",
           "why": "验证商业模式超额收益的持续性，为长期投资价值提供定性与定量交叉支持。",
           "input_refs": [
-            "feeder_competitive_moat_thesis_synthesis"
+            "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：从毛利率定价权、ROIC超额回报利差(ROIC-WACC)、特许资源及客户黏性综合判定护城河等级并建立证伪清单。\n\n规则：\n1. 依据：晨星(Morningstar)经济护城河分析评级理论与反脆弱投资假说框架\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：feeder_competitive_moat_thesis_synthesis（接入_竞争壁垒与核心投资假说验证）\n\n交回一个 JSON，包含：\n- moat_grade_rating：文字\n- pricing_power_score：数\n- roic_wacc_spread：数\n- moat_synthesis_summary：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：从毛利率定价权、ROIC超额回报利差(ROIC-WACC)、特许资源及客户黏性综合判定护城河等级并建立证伪清单。\n\n规则：\n1. 依据：晨星(Morningstar)经济护城河分析评级理论与反脆弱投资假说框架\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- moat_grade_rating：文字\n- pricing_power_score：数\n- roic_wacc_spread：数\n- moat_synthesis_summary：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2061,6 +1275,469 @@
           "ask_before": [],
           "step_version": "1"
         }
+      },
+      {
+        "selection": {
+          "applies_when": "财务分析执行",
+          "required": false,
+          "max_calls": 1
+        },
+        "contract": {
+          "step_id": "capex_capacity_cycle_tracker",
+          "title": "资本开支与产能释放周期追踪",
+          "summary": "追踪重大在建工程进度、固定资产原值与折旧速度、CAPEX扩张节奏，推演产能投产周期对未来折旧和成本的挤压。",
+          "why": "预判重资产企业固定资产扩张节奏对利润率的周期性扰动。",
+          "input_refs": [
+            "financial_data_intake"
+          ],
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：追踪重大在建工程进度、固定资产原值与折旧速度、CAPEX扩张节奏，推演产能投产周期对未来折旧和成本的挤压。\n\n规则：\n1. 依据：《企业会计准则第4号——固定资产》及产能投资周期理论\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- capex_to_revenue_ratio：数\n- cip_turn_fixed_assets_amount：数\n- capacity_cycle_outlook：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "tools": [
+            "compute",
+            "describe_items",
+            "find_subject",
+            "list_inputs",
+            "lookup",
+            "query_facts",
+            "query_metric",
+            "read_facts",
+            "read_input",
+            "request_data",
+            "search_evidence"
+          ],
+          "output_artifact": "capex_capacity_cycle_tracker",
+          "output_schema": {
+            "capex_to_revenue_ratio": "number",
+            "cip_turn_fixed_assets_amount": "number",
+            "capacity_cycle_outlook": "string"
+          },
+          "acceptance": [
+            {
+              "kind": "json_object",
+              "label": "交回的是一个 JSON",
+              "message": "交回物不是 JSON 对象"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "capex_to_revenue_ratio",
+                "cip_turn_fixed_assets_amount",
+                "capacity_cycle_outlook"
+              ],
+              "label": "交回项都在：「capex_to_revenue_ratio」、「cip_turn_fixed_assets_amount」、「capacity_cycle_outlook」",
+              "message": "缺交回项"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "capex_to_revenue_ratio",
+                "cip_turn_fixed_assets_amount",
+                "capacity_cycle_outlook"
+              ],
+              "label": "必须有：「capex_to_revenue_ratio」、「cip_turn_fixed_assets_amount」、「capacity_cycle_outlook」",
+              "message": "没过：必须有：「capex_to_revenue_ratio」、「cip_turn_fixed_assets_amount」、「capacity_cycle_outlook」"
+            },
+            {
+              "kind": "no_positioning_advice",
+              "label": "没有评级、目标价、买卖建议",
+              "message": "含有评级、目标价或买卖建议的措辞"
+            }
+          ],
+          "on_reject": "rework",
+          "max_reworks": 1,
+          "reserve": "0.05",
+          "input_max_chars": 8000,
+          "ask_before": [],
+          "step_version": "1"
+        }
+      },
+      {
+        "selection": {
+          "applies_when": "财务分析执行",
+          "required": false,
+          "max_calls": 1
+        },
+        "contract": {
+          "step_id": "rnd_capitalization_efficiency_eval",
+          "title": "研发投入资本化与产出效能评估",
+          "summary": "拆解研发投入总额、研发费用化比例与资本化比例、研发人员人均产出，评估资本化条件合规性与无形资产未来摊销压力。",
+          "why": "排查激进资本化粉饰当期利润风险，评估科技创新研发转化为业绩的实际效率。",
+          "input_refs": [
+            "financial_data_intake"
+          ],
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：拆解研发投入总额、研发费用化比例与资本化比例、研发人员人均产出，评估资本化条件合规性与无形资产未来摊销压力。\n\n规则：\n1. 依据：《企业会计准则第6号——无形资产》（开发支出资本化标准）\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- rnd_total_expenditure：数\n- rnd_capitalization_ratio：数\n- rnd_expense_ratio：数\n- rnd_efficiency_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "tools": [
+            "compute",
+            "describe_items",
+            "find_subject",
+            "list_inputs",
+            "lookup",
+            "query_facts",
+            "query_metric",
+            "read_facts",
+            "read_input",
+            "request_data",
+            "search_evidence"
+          ],
+          "output_artifact": "rnd_capitalization_efficiency_eval",
+          "output_schema": {
+            "rnd_total_expenditure": "number",
+            "rnd_capitalization_ratio": "number",
+            "rnd_expense_ratio": "number",
+            "rnd_efficiency_verdict": "string"
+          },
+          "acceptance": [
+            {
+              "kind": "json_object",
+              "label": "交回的是一个 JSON",
+              "message": "交回物不是 JSON 对象"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "rnd_total_expenditure",
+                "rnd_capitalization_ratio",
+                "rnd_expense_ratio",
+                "rnd_efficiency_verdict"
+              ],
+              "label": "交回项都在：「rnd_total_expenditure」、「rnd_capitalization_ratio」、「rnd_expense_ratio」、「rnd_efficiency_verdict」",
+              "message": "缺交回项"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "rnd_total_expenditure",
+                "rnd_capitalization_ratio",
+                "rnd_expense_ratio",
+                "rnd_efficiency_verdict"
+              ],
+              "label": "必须有：「rnd_total_expenditure」、「rnd_capitalization_ratio」、「rnd_expense_ratio」、「rnd_efficiency_verdict」",
+              "message": "没过：必须有：「rnd_total_expenditure」、「rnd_capitalization_ratio」、「rnd_expense_ratio」、「rnd_efficiency_verdict」"
+            },
+            {
+              "kind": "no_positioning_advice",
+              "label": "没有评级、目标价、买卖建议",
+              "message": "含有评级、目标价或买卖建议的措辞"
+            }
+          ],
+          "on_reject": "rework",
+          "max_reworks": 1,
+          "reserve": "0.05",
+          "input_max_chars": 8000,
+          "ask_before": [],
+          "step_version": "1"
+        }
+      },
+      {
+        "selection": {
+          "applies_when": "财务分析执行",
+          "required": false,
+          "max_calls": 1
+        },
+        "contract": {
+          "step_id": "three_statement_linked_forecasting",
+          "title": "三表联动预测模型",
+          "summary": "基于核心营收增速、毛利率、期间费用率及营运资本周转天数假设，联动预测未来3年三表并强制配平。",
+          "why": "建立具有强会计勾稽闭环的中期动态预测底稿，杜绝割裂预测。",
+          "input_refs": [
+            "financial_data_intake"
+          ],
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于核心营收增速、毛利率、期间费用率及营运资本周转天数假设，联动预测未来3年三表并强制配平。\n\n规则：\n1. 依据：投资银行财务模型(Financial Modeling)三表配平公理\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- forecasted_revenue_3y：表\n- forecasted_net_profit_3y：表\n- balance_sheet_plug_cash：数\n- statements_linked_balance_check：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "tools": [
+            "compute",
+            "describe_items",
+            "find_subject",
+            "list_inputs",
+            "lookup",
+            "query_facts",
+            "query_metric",
+            "read_facts",
+            "read_input",
+            "request_data",
+            "search_evidence"
+          ],
+          "output_artifact": "three_statement_linked_forecasting",
+          "output_schema": {
+            "forecasted_revenue_3y": [
+              "string"
+            ],
+            "forecasted_net_profit_3y": [
+              "string"
+            ],
+            "balance_sheet_plug_cash": "number",
+            "statements_linked_balance_check": "string"
+          },
+          "acceptance": [
+            {
+              "kind": "json_object",
+              "label": "交回的是一个 JSON",
+              "message": "交回物不是 JSON 对象"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "forecasted_revenue_3y",
+                "forecasted_net_profit_3y",
+                "balance_sheet_plug_cash",
+                "statements_linked_balance_check"
+              ],
+              "label": "交回项都在：「forecasted_revenue_3y」、「forecasted_net_profit_3y」、「balance_sheet_plug_cash」、「statements_linked_balance_check」",
+              "message": "缺交回项"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "forecasted_revenue_3y",
+                "forecasted_net_profit_3y",
+                "balance_sheet_plug_cash",
+                "statements_linked_balance_check"
+              ],
+              "label": "必须有：「forecasted_revenue_3y」、「forecasted_net_profit_3y」、「balance_sheet_plug_cash」、「statements_linked_balance_check」",
+              "message": "没过：必须有：「forecasted_revenue_3y」、「forecasted_net_profit_3y」、「balance_sheet_plug_cash」、「statements_linked_balance_check」"
+            },
+            {
+              "kind": "no_positioning_advice",
+              "label": "没有评级、目标价、买卖建议",
+              "message": "含有评级、目标价或买卖建议的措辞"
+            }
+          ],
+          "on_reject": "rework",
+          "max_reworks": 1,
+          "reserve": "0.05",
+          "input_max_chars": 8000,
+          "ask_before": [],
+          "step_version": "1"
+        }
+      },
+      {
+        "selection": {
+          "applies_when": "财务分析执行",
+          "required": false,
+          "max_calls": 1
+        },
+        "contract": {
+          "step_id": "pledge_reduction_related_transaction_scan",
+          "title": "股权质押、减持与重大关联交易穿透",
+          "summary": "排查大股东及董监高股权质押比例、平仓线安全垫、重要股东增减持及重大关联交易公允性与非经营性资金往来。",
+          "why": "识别公司治理结构风险、控股股东流动性困境与潜在资金侵占隐患。",
+          "input_refs": [
+            "financial_data_intake"
+          ],
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：排查大股东及董监高股权质押比例、平仓线安全垫、重要股东增减持及重大关联交易公允性与非经营性资金往来。\n\n规则：\n1. 依据：证监会《上市公司监管指引第8号——上市公司资金往来与对外担保》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- pledged_shares_ratio：数\n- insider_reduction_amount：数\n- related_party_receivables_ratio：数\n- governance_risk_rating：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "tools": [
+            "compute",
+            "describe_items",
+            "find_subject",
+            "list_inputs",
+            "lookup",
+            "query_facts",
+            "query_metric",
+            "read_facts",
+            "read_input",
+            "request_data",
+            "search_evidence"
+          ],
+          "output_artifact": "pledge_reduction_related_transaction_scan",
+          "output_schema": {
+            "pledged_shares_ratio": "number",
+            "insider_reduction_amount": "number",
+            "related_party_receivables_ratio": "number",
+            "governance_risk_rating": "string"
+          },
+          "acceptance": [
+            {
+              "kind": "json_object",
+              "label": "交回的是一个 JSON",
+              "message": "交回物不是 JSON 对象"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "pledged_shares_ratio",
+                "insider_reduction_amount",
+                "related_party_receivables_ratio",
+                "governance_risk_rating"
+              ],
+              "label": "交回项都在：「pledged_shares_ratio」、「insider_reduction_amount」、「related_party_receivables_ratio」、「governance_risk_rating」",
+              "message": "缺交回项"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "pledged_shares_ratio",
+                "insider_reduction_amount",
+                "related_party_receivables_ratio",
+                "governance_risk_rating"
+              ],
+              "label": "必须有：「pledged_shares_ratio」、「insider_reduction_amount」、「related_party_receivables_ratio」、「governance_risk_rating」",
+              "message": "没过：必须有：「pledged_shares_ratio」、「insider_reduction_amount」、「related_party_receivables_ratio」、「governance_risk_rating」"
+            },
+            {
+              "kind": "no_positioning_advice",
+              "label": "没有评级、目标价、买卖建议",
+              "message": "含有评级、目标价或买卖建议的措辞"
+            }
+          ],
+          "on_reject": "rework",
+          "max_reworks": 1,
+          "reserve": "0.05",
+          "input_max_chars": 8000,
+          "ask_before": [],
+          "step_version": "1"
+        }
+      },
+      {
+        "selection": {
+          "applies_when": "财务分析执行",
+          "required": false,
+          "max_calls": 1
+        },
+        "contract": {
+          "step_id": "goodwill_asset_impairment_stress_test",
+          "title": "商誉减值与资产质量压力测试",
+          "summary": "测算商誉占净资产比例、并购标的历史业绩承诺完成度，针对存货与应收账款执行极端情景坏账与跌价压力测算。",
+          "why": "排查并购后遗症与资产负债表虚胖，提前暴露业绩暴雷潜在隐患。",
+          "input_refs": [
+            "financial_data_intake"
+          ],
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算商誉占净资产比例、并购标的历史业绩承诺完成度，针对存货与应收账款执行极端情景坏账与跌价压力测算。\n\n规则：\n1. 依据：《企业会计准则第8号——资产减值》及《会计监管风险提示第8号》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- goodwill_to_equity_ratio：数\n- goodwill_stress_impairment_loss：数\n- accounts_receivable_bad_debt_provision：数\n- asset_quality_rating：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "tools": [
+            "compute",
+            "describe_items",
+            "find_subject",
+            "list_inputs",
+            "lookup",
+            "query_facts",
+            "query_metric",
+            "read_facts",
+            "read_input",
+            "request_data",
+            "search_evidence"
+          ],
+          "output_artifact": "goodwill_asset_impairment_stress_test",
+          "output_schema": {
+            "goodwill_to_equity_ratio": "number",
+            "goodwill_stress_impairment_loss": "number",
+            "accounts_receivable_bad_debt_provision": "number",
+            "asset_quality_rating": "string"
+          },
+          "acceptance": [
+            {
+              "kind": "json_object",
+              "label": "交回的是一个 JSON",
+              "message": "交回物不是 JSON 对象"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "goodwill_to_equity_ratio",
+                "goodwill_stress_impairment_loss",
+                "accounts_receivable_bad_debt_provision",
+                "asset_quality_rating"
+              ],
+              "label": "交回项都在：「goodwill_to_equity_ratio」、「goodwill_stress_impairment_loss」、「accounts_receivable_bad_debt_provision」、「asset_quality_rating」",
+              "message": "缺交回项"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "goodwill_to_equity_ratio",
+                "goodwill_stress_impairment_loss",
+                "accounts_receivable_bad_debt_provision",
+                "asset_quality_rating"
+              ],
+              "label": "必须有：「goodwill_to_equity_ratio」、「goodwill_stress_impairment_loss」、「accounts_receivable_bad_debt_provision」、「asset_quality_rating」",
+              "message": "没过：必须有：「goodwill_to_equity_ratio」、「goodwill_stress_impairment_loss」、「accounts_receivable_bad_debt_provision」、「asset_quality_rating」"
+            },
+            {
+              "kind": "no_positioning_advice",
+              "label": "没有评级、目标价、买卖建议",
+              "message": "含有评级、目标价或买卖建议的措辞"
+            }
+          ],
+          "on_reject": "rework",
+          "max_reworks": 1,
+          "reserve": "0.05",
+          "input_max_chars": 8000,
+          "ask_before": [],
+          "step_version": "1"
+        }
+      },
+      {
+        "selection": {
+          "applies_when": "财务分析执行",
+          "required": false,
+          "max_calls": 1
+        },
+        "contract": {
+          "step_id": "kam_contingent_liability_audit",
+          "title": "关键审计事项与或有负债排查",
+          "summary": "提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。",
+          "why": "倾听外部独立审计师的警示哨声，排查表外隐性负债对净资产的刚性求偿风险。",
+          "input_refs": [
+            "financial_data_intake"
+          ],
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。\n\n规则：\n1. 依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》\n2. 严禁伪造数据，数值必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务数据前置总接入）\n\n交回一个 JSON，包含：\n- audit_opinion_type：文字\n- kam_topics_count：数\n- external_guarantee_ratio：数\n- contingent_liability_risk_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "tools": [
+            "compute",
+            "describe_items",
+            "find_subject",
+            "list_inputs",
+            "lookup",
+            "query_facts",
+            "query_metric",
+            "read_facts",
+            "read_input",
+            "request_data",
+            "search_evidence"
+          ],
+          "output_artifact": "kam_contingent_liability_audit",
+          "output_schema": {
+            "audit_opinion_type": "string",
+            "kam_topics_count": "number",
+            "external_guarantee_ratio": "number",
+            "contingent_liability_risk_verdict": "string"
+          },
+          "acceptance": [
+            {
+              "kind": "json_object",
+              "label": "交回的是一个 JSON",
+              "message": "交回物不是 JSON 对象"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "audit_opinion_type",
+                "kam_topics_count",
+                "external_guarantee_ratio",
+                "contingent_liability_risk_verdict"
+              ],
+              "label": "交回项都在：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+              "message": "缺交回项"
+            },
+            {
+              "kind": "required_keys",
+              "keys": [
+                "audit_opinion_type",
+                "kam_topics_count",
+                "external_guarantee_ratio",
+                "contingent_liability_risk_verdict"
+              ],
+              "label": "必须有：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+              "message": "没过：必须有：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」"
+            },
+            {
+              "kind": "no_positioning_advice",
+              "label": "没有评级、目标价、买卖建议",
+              "message": "含有评级、目标价或买卖建议的措辞"
+            }
+          ],
+          "on_reject": "rework",
+          "max_reworks": 1,
+          "reserve": "0.05",
+          "input_max_chars": 8000,
+          "ask_before": [],
+          "step_version": "1"
+        }
       }
     ],
     "method_compiler": "knowlab/workdraft-compiler/v1",
@@ -2071,7 +1748,7 @@
           "version": 1,
           "digest": "sha256:8616e568c8f463821bbf32a6a42aa640b112282c21140743111eab5f69d3c3f4",
           "inputs": {
-            "raw_statements": "feeder_fin_statement_restructure"
+            "raw_statements": "financial_data_intake"
           }
         },
         "definition": {
@@ -2181,7 +1858,7 @@
           "version": 1,
           "digest": "sha256:a646d2dfd7549d35311d468d14f34c21f9e55a3762c3503346ce396541f0dbfc",
           "inputs": {
-            "standardized_statements": "feeder_accounting_statement_reconciliation"
+            "standardized_statements": "financial_data_intake"
           }
         },
         "definition": {
@@ -2287,7 +1964,7 @@
           "version": 1,
           "digest": "sha256:728dc397aa0bcc772651fff11411e68e3fba22c5bd1486ce9db5c8bf5bd63846",
           "inputs": {
-            "financial_panel": "feeder_dupont_five_way_decomposition"
+            "financial_panel": "financial_data_intake"
           }
         },
         "definition": {
@@ -2404,7 +2081,7 @@
           "version": 1,
           "digest": "sha256:f869c06d1ae12caa07b85d15d51a53d1b362305cef40ee2783bbbb006b09921a",
           "inputs": {
-            "standardized_bs": "feeder_solvency_liquidity_stress_check"
+            "standardized_bs": "financial_data_intake"
           }
         },
         "definition": {
@@ -2519,7 +2196,7 @@
           "version": 1,
           "digest": "sha256:72b8f9f3f2b6fdefb2bc562a267bd540af644ce04da4b27113475ba17b56bb1d",
           "inputs": {
-            "multi_period_statements": "feeder_working_capital_cash_cycle_analysis"
+            "multi_period_statements": "financial_data_intake"
           }
         },
         "definition": {
@@ -2634,7 +2311,7 @@
           "version": 1,
           "digest": "sha256:1489f0533137079792f72bea7637f1e87efcbd9ea2d0d53ca2549e0c7e735a7a",
           "inputs": {
-            "cfs_data": "feeder_earnings_quality_accrual_audit"
+            "cfs_data": "financial_data_intake"
           }
         },
         "definition": {
@@ -2742,7 +2419,7 @@
           "version": 1,
           "digest": "sha256:21b6613e5c31b9d3107ed8c961eb33cc4515804f0dc042b1bed55cdaf7fb8d3f",
           "inputs": {
-            "time_series": "feeder_historical_cagr_trend_extrapolation"
+            "time_series": "financial_data_intake"
           }
         },
         "definition": {
@@ -2850,7 +2527,7 @@
           "version": 1,
           "digest": "sha256:b2d54b58feb49018e1b9599a9f1b715e8735634d40632c58b0f2183ecb9e5c38",
           "inputs": {
-            "dossier_components": "feeder_comprehensive_dossier_formatting"
+            "dossier_components": "financial_data_intake"
           }
         },
         "definition": {
@@ -2949,9 +2626,9 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f0",
           "version": 1,
-          "digest": "sha256:e2c8463c0294b4860cd2866ebd7d364db9d3b4cd583e1970e73365015f1979bf",
+          "digest": "sha256:46102f8f5feddf74a6e9d5b68475f3a3277c00ec838bee9e6f140e7569b7e9a2",
           "inputs": {
-            "income_and_nonrec": "feeder_non_recurring_items_purification"
+            "income_and_nonrec": "financial_data_intake"
           }
         },
         "definition": {
@@ -2967,7 +2644,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》"
+                "text": "依据：证监会《公开发行证券的公司信息披露解释性公告第1号》"
               },
               {
                 "id": "r2",
@@ -3062,7 +2739,7 @@
           "version": 1,
           "digest": "sha256:1cab01e8429f508878eb28069b7af578c62022e88db25f7e248f4275e1b68d5f",
           "inputs": {
-            "segment_disclosure": "feeder_segment_volume_price_decomposition"
+            "segment_disclosure": "financial_data_intake"
           }
         },
         "definition": {
@@ -3163,7 +2840,7 @@
           "version": 1,
           "digest": "sha256:f320c30177e118ac2661d59a0b6e0140babafceadf478525cce07ff549bb5b4b",
           "inputs": {
-            "counterparty_data": "feeder_customer_supplier_concentration_scan"
+            "counterparty_data": "financial_data_intake"
           }
         },
         "definition": {
@@ -3264,7 +2941,7 @@
           "version": 1,
           "digest": "sha256:c2361c981764d0c2b6b2008d7f09851a5bba786afba5a54b524913538f39122e",
           "inputs": {
-            "dcf_inputs": "feeder_dcf_intrinsic_valuation"
+            "dcf_inputs": "financial_data_intake"
           }
         },
         "definition": {
@@ -3372,7 +3049,7 @@
           "version": 1,
           "digest": "sha256:58183d6c254a13adab9b3134ca6033a08daf58b28e86e4ace1cd734c9431a836",
           "inputs": {
-            "multiple_inputs": "feeder_relative_multiple_valuation"
+            "multiple_inputs": "financial_data_intake"
           }
         },
         "definition": {
@@ -3480,7 +3157,7 @@
           "version": 1,
           "digest": "sha256:1550b19e1300ef58d984f70a2861627224c8d4624251cb6b57ee1cb3fd183ae4",
           "inputs": {
-            "moat_inputs": "feeder_competitive_moat_thesis_synthesis"
+            "moat_inputs": "financial_data_intake"
           }
         },
         "definition": {
@@ -3581,74 +3258,704 @@
             }
           }
         }
+      },
+      "capex_capacity_cycle_tracker": {
+        "reference": {
+          "method_id": "00000000-0000-0000-0000-0000000003f6",
+          "version": 1,
+          "digest": "sha256:8238afe41a6821e03c153567d4612270250c67af6e124057fb4001b4ab5bf9c8",
+          "inputs": {
+            "capex_and_cip_data": "financial_data_intake"
+          }
+        },
+        "definition": {
+          "schema": "knowlab/method-definition/v1",
+          "step": {
+            "id": "method",
+            "title": "资本开支与产能释放周期追踪",
+            "does": "追踪重大在建工程进度、固定资产原值与折旧速度、CAPEX扩张节奏，推演产能投产周期对未来折旧和成本的挤压。",
+            "why": "预判重资产企业固定资产扩张节奏对利润率的周期性扰动。",
+            "uses": [
+              "capex_and_cip_data"
+            ],
+            "rules": [
+              {
+                "id": "r1",
+                "text": "依据：《企业会计准则第4号——固定资产》及产能投资周期理论"
+              },
+              {
+                "id": "r2",
+                "text": "严禁伪造数据，数值必须精准对齐对应输入源。"
+              }
+            ],
+            "ask_before": [],
+            "outputs": [
+              {
+                "name": "capex_to_revenue_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "cip_turn_fixed_assets_amount",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "capacity_cycle_outlook",
+                "type": "text",
+                "items": null
+              }
+            ],
+            "checks": [
+              {
+                "template": "required",
+                "params": {
+                  "keys": [
+                    "capex_to_revenue_ratio",
+                    "cip_turn_fixed_assets_amount",
+                    "capacity_cycle_outlook"
+                  ]
+                }
+              }
+            ],
+            "on_fail": {
+              "kind": "rework",
+              "back_to": null
+            },
+            "advanced": {
+              "tools": [
+                "compute",
+                "describe_items",
+                "find_subject",
+                "list_inputs",
+                "lookup",
+                "query_facts",
+                "query_metric",
+                "read_facts",
+                "read_input",
+                "request_data",
+                "search_evidence"
+              ],
+              "reserve": "0.05",
+              "input_max_chars": 8000,
+              "output_schema": {
+                "capex_to_revenue_ratio": "number",
+                "cip_turn_fixed_assets_amount": "number",
+                "capacity_cycle_outlook": "string"
+              },
+              "output_file": null
+            },
+            "selection": {
+              "applies_when": "财务分析执行",
+              "required": false,
+              "max_calls": 1
+            }
+          },
+          "input_schemas": {
+            "capex_and_cip_data": {
+              "cip_and_fixed_assets_schedule": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "rnd_capitalization_efficiency_eval": {
+        "reference": {
+          "method_id": "00000000-0000-0000-0000-0000000003f7",
+          "version": 1,
+          "digest": "sha256:4c70ac8981ce804d180f935b11adca96704a0ab923f5f702859a60789a7be489",
+          "inputs": {
+            "rnd_expenditure_notes": "financial_data_intake"
+          }
+        },
+        "definition": {
+          "schema": "knowlab/method-definition/v1",
+          "step": {
+            "id": "method",
+            "title": "研发投入资本化与产出效能评估",
+            "does": "拆解研发投入总额、研发费用化比例与资本化比例、研发人员人均产出，评估资本化条件合规性与无形资产未来摊销压力。",
+            "why": "排查激进资本化粉饰当期利润风险，评估科技创新研发转化为业绩的实际效率。",
+            "uses": [
+              "rnd_expenditure_notes"
+            ],
+            "rules": [
+              {
+                "id": "r1",
+                "text": "依据：《企业会计准则第6号——无形资产》（开发支出资本化标准）"
+              },
+              {
+                "id": "r2",
+                "text": "严禁伪造数据，数值必须精准对齐对应输入源。"
+              }
+            ],
+            "ask_before": [],
+            "outputs": [
+              {
+                "name": "rnd_total_expenditure",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "rnd_capitalization_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "rnd_expense_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "rnd_efficiency_verdict",
+                "type": "text",
+                "items": null
+              }
+            ],
+            "checks": [
+              {
+                "template": "required",
+                "params": {
+                  "keys": [
+                    "rnd_total_expenditure",
+                    "rnd_capitalization_ratio",
+                    "rnd_expense_ratio",
+                    "rnd_efficiency_verdict"
+                  ]
+                }
+              }
+            ],
+            "on_fail": {
+              "kind": "rework",
+              "back_to": null
+            },
+            "advanced": {
+              "tools": [
+                "compute",
+                "describe_items",
+                "find_subject",
+                "list_inputs",
+                "lookup",
+                "query_facts",
+                "query_metric",
+                "read_facts",
+                "read_input",
+                "request_data",
+                "search_evidence"
+              ],
+              "reserve": "0.05",
+              "input_max_chars": 8000,
+              "output_schema": {
+                "rnd_total_expenditure": "number",
+                "rnd_capitalization_ratio": "number",
+                "rnd_expense_ratio": "number",
+                "rnd_efficiency_verdict": "string"
+              },
+              "output_file": null
+            },
+            "selection": {
+              "applies_when": "财务分析执行",
+              "required": false,
+              "max_calls": 1
+            }
+          },
+          "input_schemas": {
+            "rnd_expenditure_notes": {
+              "rnd_notes_disclosure": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "three_statement_linked_forecasting": {
+        "reference": {
+          "method_id": "00000000-0000-0000-0000-0000000003f8",
+          "version": 1,
+          "digest": "sha256:1ca698f1068d16a44dd133f1945667704995674be0281b76d3d5cae68eddfafb",
+          "inputs": {
+            "forecasting_assumptions_and_base": "financial_data_intake"
+          }
+        },
+        "definition": {
+          "schema": "knowlab/method-definition/v1",
+          "step": {
+            "id": "method",
+            "title": "三表联动预测模型",
+            "does": "基于核心营收增速、毛利率、期间费用率及营运资本周转天数假设，联动预测未来3年三表并强制配平。",
+            "why": "建立具有强会计勾稽闭环的中期动态预测底稿，杜绝割裂预测。",
+            "uses": [
+              "forecasting_assumptions_and_base"
+            ],
+            "rules": [
+              {
+                "id": "r1",
+                "text": "依据：投资银行财务模型(Financial Modeling)三表配平公理"
+              },
+              {
+                "id": "r2",
+                "text": "严禁伪造数据，数值必须精准对齐对应输入源。"
+              }
+            ],
+            "ask_before": [],
+            "outputs": [
+              {
+                "name": "forecasted_revenue_3y",
+                "type": "table",
+                "items": null
+              },
+              {
+                "name": "forecasted_net_profit_3y",
+                "type": "table",
+                "items": null
+              },
+              {
+                "name": "balance_sheet_plug_cash",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "statements_linked_balance_check",
+                "type": "text",
+                "items": null
+              }
+            ],
+            "checks": [
+              {
+                "template": "required",
+                "params": {
+                  "keys": [
+                    "forecasted_revenue_3y",
+                    "forecasted_net_profit_3y",
+                    "balance_sheet_plug_cash",
+                    "statements_linked_balance_check"
+                  ]
+                }
+              }
+            ],
+            "on_fail": {
+              "kind": "rework",
+              "back_to": null
+            },
+            "advanced": {
+              "tools": [
+                "compute",
+                "describe_items",
+                "find_subject",
+                "list_inputs",
+                "lookup",
+                "query_facts",
+                "query_metric",
+                "read_facts",
+                "read_input",
+                "request_data",
+                "search_evidence"
+              ],
+              "reserve": "0.05",
+              "input_max_chars": 8000,
+              "output_schema": {
+                "forecasted_revenue_3y": [
+                  "string"
+                ],
+                "forecasted_net_profit_3y": [
+                  "string"
+                ],
+                "balance_sheet_plug_cash": "number",
+                "statements_linked_balance_check": "string"
+              },
+              "output_file": null
+            },
+            "selection": {
+              "applies_when": "财务分析执行",
+              "required": false,
+              "max_calls": 1
+            }
+          },
+          "input_schemas": {
+            "forecasting_assumptions_and_base": {
+              "historical_base_and_driver_assumptions": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "pledge_reduction_related_transaction_scan": {
+        "reference": {
+          "method_id": "00000000-0000-0000-0000-0000000003f9",
+          "version": 1,
+          "digest": "sha256:82171f789df77d3951726cbf8274c51388298823bd182171f72a33382baa7811",
+          "inputs": {
+            "governance_and_pledge_notes": "financial_data_intake"
+          }
+        },
+        "definition": {
+          "schema": "knowlab/method-definition/v1",
+          "step": {
+            "id": "method",
+            "title": "股权质押、减持与重大关联交易穿透",
+            "does": "排查大股东及董监高股权质押比例、平仓线安全垫、重要股东增减持及重大关联交易公允性与非经营性资金往来。",
+            "why": "识别公司治理结构风险、控股股东流动性困境与潜在资金侵占隐患。",
+            "uses": [
+              "governance_and_pledge_notes"
+            ],
+            "rules": [
+              {
+                "id": "r1",
+                "text": "依据：证监会《上市公司监管指引第8号——上市公司资金往来与对外担保》"
+              },
+              {
+                "id": "r2",
+                "text": "严禁伪造数据，数值必须精准对齐对应输入源。"
+              }
+            ],
+            "ask_before": [],
+            "outputs": [
+              {
+                "name": "pledged_shares_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "insider_reduction_amount",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "related_party_receivables_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "governance_risk_rating",
+                "type": "text",
+                "items": null
+              }
+            ],
+            "checks": [
+              {
+                "template": "required",
+                "params": {
+                  "keys": [
+                    "pledged_shares_ratio",
+                    "insider_reduction_amount",
+                    "related_party_receivables_ratio",
+                    "governance_risk_rating"
+                  ]
+                }
+              }
+            ],
+            "on_fail": {
+              "kind": "rework",
+              "back_to": null
+            },
+            "advanced": {
+              "tools": [
+                "compute",
+                "describe_items",
+                "find_subject",
+                "list_inputs",
+                "lookup",
+                "query_facts",
+                "query_metric",
+                "read_facts",
+                "read_input",
+                "request_data",
+                "search_evidence"
+              ],
+              "reserve": "0.05",
+              "input_max_chars": 8000,
+              "output_schema": {
+                "pledged_shares_ratio": "number",
+                "insider_reduction_amount": "number",
+                "related_party_receivables_ratio": "number",
+                "governance_risk_rating": "string"
+              },
+              "output_file": null
+            },
+            "selection": {
+              "applies_when": "财务分析执行",
+              "required": false,
+              "max_calls": 1
+            }
+          },
+          "input_schemas": {
+            "governance_and_pledge_notes": {
+              "governance_and_insider_disclosure": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "goodwill_asset_impairment_stress_test": {
+        "reference": {
+          "method_id": "00000000-0000-0000-0000-0000000003fa",
+          "version": 1,
+          "digest": "sha256:47df92daa3ebf56edb0f01ffb7b69928d9d16d333c59e1f1cddd7b17d99532d2",
+          "inputs": {
+            "asset_impairment_notes": "financial_data_intake"
+          }
+        },
+        "definition": {
+          "schema": "knowlab/method-definition/v1",
+          "step": {
+            "id": "method",
+            "title": "商誉减值与资产质量压力测试",
+            "does": "测算商誉占净资产比例、并购标的历史业绩承诺完成度，针对存货与应收账款执行极端情景坏账与跌价压力测算。",
+            "why": "排查并购后遗症与资产负债表虚胖，提前暴露业绩暴雷潜在隐患。",
+            "uses": [
+              "asset_impairment_notes"
+            ],
+            "rules": [
+              {
+                "id": "r1",
+                "text": "依据：《企业会计准则第8号——资产减值》及《会计监管风险提示第8号》"
+              },
+              {
+                "id": "r2",
+                "text": "严禁伪造数据，数值必须精准对齐对应输入源。"
+              }
+            ],
+            "ask_before": [],
+            "outputs": [
+              {
+                "name": "goodwill_to_equity_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "goodwill_stress_impairment_loss",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "accounts_receivable_bad_debt_provision",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "asset_quality_rating",
+                "type": "text",
+                "items": null
+              }
+            ],
+            "checks": [
+              {
+                "template": "required",
+                "params": {
+                  "keys": [
+                    "goodwill_to_equity_ratio",
+                    "goodwill_stress_impairment_loss",
+                    "accounts_receivable_bad_debt_provision",
+                    "asset_quality_rating"
+                  ]
+                }
+              }
+            ],
+            "on_fail": {
+              "kind": "rework",
+              "back_to": null
+            },
+            "advanced": {
+              "tools": [
+                "compute",
+                "describe_items",
+                "find_subject",
+                "list_inputs",
+                "lookup",
+                "query_facts",
+                "query_metric",
+                "read_facts",
+                "read_input",
+                "request_data",
+                "search_evidence"
+              ],
+              "reserve": "0.05",
+              "input_max_chars": 8000,
+              "output_schema": {
+                "goodwill_to_equity_ratio": "number",
+                "goodwill_stress_impairment_loss": "number",
+                "accounts_receivable_bad_debt_provision": "number",
+                "asset_quality_rating": "string"
+              },
+              "output_file": null
+            },
+            "selection": {
+              "applies_when": "财务分析执行",
+              "required": false,
+              "max_calls": 1
+            }
+          },
+          "input_schemas": {
+            "asset_impairment_notes": {
+              "impairment_and_goodwill_disclosure": [
+                "string"
+              ]
+            }
+          }
+        }
+      },
+      "kam_contingent_liability_audit": {
+        "reference": {
+          "method_id": "00000000-0000-0000-0000-0000000003fb",
+          "version": 1,
+          "digest": "sha256:a82aa920ad1b6ac742e945d5bff82148280b9aa6327edba211af7b09c885f7c2",
+          "inputs": {
+            "audit_report_fulltext": "financial_data_intake"
+          }
+        },
+        "definition": {
+          "schema": "knowlab/method-definition/v1",
+          "step": {
+            "id": "method",
+            "title": "关键审计事项与或有负债排查",
+            "does": "提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。",
+            "why": "倾听外部独立审计师的警示哨声，排查表外隐性负债对净资产的刚性求偿风险。",
+            "uses": [
+              "audit_report_fulltext"
+            ],
+            "rules": [
+              {
+                "id": "r1",
+                "text": "依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》"
+              },
+              {
+                "id": "r2",
+                "text": "严禁伪造数据，数值必须精准对齐对应输入源。"
+              }
+            ],
+            "ask_before": [],
+            "outputs": [
+              {
+                "name": "audit_opinion_type",
+                "type": "text",
+                "items": null
+              },
+              {
+                "name": "kam_topics_count",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "external_guarantee_ratio",
+                "type": "number",
+                "items": null
+              },
+              {
+                "name": "contingent_liability_risk_verdict",
+                "type": "text",
+                "items": null
+              }
+            ],
+            "checks": [
+              {
+                "template": "required",
+                "params": {
+                  "keys": [
+                    "audit_opinion_type",
+                    "kam_topics_count",
+                    "external_guarantee_ratio",
+                    "contingent_liability_risk_verdict"
+                  ]
+                }
+              }
+            ],
+            "on_fail": {
+              "kind": "rework",
+              "back_to": null
+            },
+            "advanced": {
+              "tools": [
+                "compute",
+                "describe_items",
+                "find_subject",
+                "list_inputs",
+                "lookup",
+                "query_facts",
+                "query_metric",
+                "read_facts",
+                "read_input",
+                "request_data",
+                "search_evidence"
+              ],
+              "reserve": "0.05",
+              "input_max_chars": 8000,
+              "output_schema": {
+                "audit_opinion_type": "string",
+                "kam_topics_count": "number",
+                "external_guarantee_ratio": "number",
+                "contingent_liability_risk_verdict": "string"
+              },
+              "output_file": null
+            },
+            "selection": {
+              "applies_when": "财务分析执行",
+              "required": false,
+              "max_calls": 1
+            }
+          },
+          "input_schemas": {
+            "audit_report_fulltext": {
+              "audit_report_and_contingencies": [
+                "string"
+              ]
+            }
+          }
+        }
       }
     }
   },
   "rule_sources": [
     {
-      "rule": "接入_财务三表标准化重构与口径对齐·怎样算对：必须有：「raw_balance_sheet」、「raw_income_statement」",
+      "rule": "财务数据前置总接入·怎样算对：必须有：「raw_balance_sheet」、「raw_income_statement」、「standardized_balance_sheet」、「standardized_income_statement」、「financial_panel_multi_period」、「multi_period_statements」、「cash_flow_statemen…",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000001c"
+      "ref": "record:00000000-0000-0000-0000-000000000035"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：必须有：「standardized_balance_sheet」、「standardized_income_statement」、「reclassification_audit_trail」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000029"
+      "ref": "record:00000000-0000-0000-0000-000000000042"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000024"
+      "ref": "record:00000000-0000-0000-0000-00000000003d"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000025"
-    },
-    {
-      "rule": "接入_报表勾稽平衡与重述校验·怎样算对：必须有：「standardized_balance_sheet」、「standardized_income_statement」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000032"
+      "ref": "record:00000000-0000-0000-0000-00000000003e"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：必须有：「reconciliation_status」、「balance_sheet_balance_diff」、「audit_reconciliations」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003f"
+      "ref": "record:00000000-0000-0000-0000-00000000004f"
     },
     {
       "rule": "报表勾稽平衡与重述校验：依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003a"
+      "ref": "record:00000000-0000-0000-0000-00000000004a"
     },
     {
       "rule": "报表勾稽平衡与重述校验：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003b"
-    },
-    {
-      "rule": "接入_杜邦五步分解法·怎样算对：必须有：「financial_panel_multi_period」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000047"
+      "ref": "record:00000000-0000-0000-0000-00000000004b"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：必须有：「roe」、「operating_margin」、「asset_turnover」、「equity_multiplier」、「dupont_table」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000056"
+      "ref": "record:00000000-0000-0000-0000-00000000005e"
     },
     {
       "rule": "杜邦五步分解法：依据：经典杜邦分析体系与特许金融分析师(CFA)财务分析框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004f"
+      "ref": "record:00000000-0000-0000-0000-000000000057"
     },
     {
       "rule": "杜邦五步分解法：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000050"
-    },
-    {
-      "rule": "接入_偿债压力与流动性体检·怎样算对：必须有：「standardized_balance_sheet」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005e"
+      "ref": "record:00000000-0000-0000-0000-000000000058"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：必须有：「current_ratio」、「quick_ratio」、「debt_to_assets_ratio」、「stress_test_survival_days」、「solvency_assessment_summary」",
@@ -3666,204 +3973,244 @@
       "ref": "record:00000000-0000-0000-0000-000000000067"
     },
     {
-      "rule": "接入_营运资本周转与现金循环周期·怎样算对：必须有：「multi_period_statements」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000075"
-    },
-    {
       "rule": "营运资本周转与现金循环周期·怎样算对：必须有：「dio_inventory_days」、「dso_receivable_days」、「dpo_payable_days」、「ccc_cash_conversion_cycle」、「channel_bargaining_power_verdict」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000084"
+      "ref": "record:00000000-0000-0000-0000-00000000007c"
     },
     {
       "rule": "营运资本周转与现金循环周期：依据：营运资本管理理论与理查兹-劳克林(Richards & Laughlin)现金循环模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007d"
+      "ref": "record:00000000-0000-0000-0000-000000000075"
     },
     {
       "rule": "营运资本周转与现金循环周期：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007e"
-    },
-    {
-      "rule": "接入_收益质量分析与应计项排雷·怎样算对：必须有：「cash_flow_statements」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008c"
+      "ref": "record:00000000-0000-0000-0000-000000000076"
     },
     {
       "rule": "收益质量分析与应计项排雷·怎样算对：必须有：「ocf_to_net_profit_ratio」、「free_cash_flow」、「accrual_items_total」、「earnings_quality_rating」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009a"
+      "ref": "record:00000000-0000-0000-0000-00000000008a"
     },
     {
       "rule": "收益质量分析与应计项排雷：依据：斯隆(Sloan 1996)应计异象与企业自由现金流估值前置体检规范",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000094"
+      "ref": "record:00000000-0000-0000-0000-000000000084"
     },
     {
       "rule": "收益质量分析与应计项排雷：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000095"
-    },
-    {
-      "rule": "接入_复合年均增长率测算与趋势外推·怎样算对：必须有：「summary_series」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a2"
+      "ref": "record:00000000-0000-0000-0000-000000000085"
     },
     {
       "rule": "复合年均增长率测算与趋势外推·怎样算对：必须有：「revenue_cagr」、「net_profit_cagr」、「ocf_cagr」、「extrapolated_forecast_next_year」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b0"
+      "ref": "record:00000000-0000-0000-0000-000000000098"
     },
     {
       "rule": "复合年均增长率测算与趋势外推：依据：证券投资分析复合增长率统计标准与趋势回归方法",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000aa"
+      "ref": "record:00000000-0000-0000-0000-000000000092"
     },
     {
       "rule": "复合年均增长率测算与趋势外推：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ab"
-    },
-    {
-      "rule": "接入_结构化研究底稿与报告成稿编排·怎样算对：必须有：「dossier_bundle」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b8"
+      "ref": "record:00000000-0000-0000-0000-000000000093"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：必须有：「executive_summary」、「full_dossier_markdown」、「components_included_count」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c5"
+      "ref": "record:00000000-0000-0000-0000-0000000000a5"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：依据：中国证券业协会证券投资咨询业务分析报告执业规范",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c0"
+      "ref": "record:00000000-0000-0000-0000-0000000000a0"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c1"
-    },
-    {
-      "rule": "接入_非经常性损益穿透与扣非还原·怎样算对：必须有：「standardized_income_statement」、「non_recurring_schedule」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ce"
+      "ref": "record:00000000-0000-0000-0000-0000000000a1"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：必须有：「net_profit_parent」、「non_recurring_items_net」、「deducted_net_profit」、「non_recurring_profit_ratio」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000dc"
+      "ref": "record:00000000-0000-0000-0000-0000000000b3"
     },
     {
-      "rule": "非经常性损益穿透与扣非还原：依据：证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》",
+      "rule": "非经常性损益穿透与扣非还原：依据：证监会《公开发行证券的公司信息披露解释性公告第1号》",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d6"
+      "ref": "record:00000000-0000-0000-0000-0000000000ad"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d7"
-    },
-    {
-      "rule": "接入_分部业务量价拆解·怎样算对：必须有：「segment_volume_price_raw」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e4"
+      "ref": "record:00000000-0000-0000-0000-0000000000ae"
     },
     {
       "rule": "分部业务量价拆解·怎样算对：必须有：「volume_contribution_amount」、「price_contribution_amount」、「product_mix_upgrade_analysis」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f1"
+      "ref": "record:00000000-0000-0000-0000-0000000000c0"
     },
     {
       "rule": "分部业务量价拆解：依据：《企业会计准则第35号——分部报告》及主营业务量价归因模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ec"
+      "ref": "record:00000000-0000-0000-0000-0000000000bb"
     },
     {
       "rule": "分部业务量价拆解：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ed"
-    },
-    {
-      "rule": "接入_客户与供应商集中度透视·怎样算对：必须有：「counterparty_disclosure」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f9"
+      "ref": "record:00000000-0000-0000-0000-0000000000bc"
     },
     {
       "rule": "客户与供应商集中度透视·怎样算对：必须有：「top5_customer_share_total」、「top5_supplier_share_total」、「supply_chain_risk_rating」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000106"
+      "ref": "record:00000000-0000-0000-0000-0000000000cd"
     },
     {
       "rule": "客户与供应商集中度透视：依据：证监会《公开发行证券的公司信息披露内容与格式准则第2号》",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000101"
+      "ref": "record:00000000-0000-0000-0000-0000000000c8"
     },
     {
       "rule": "客户与供应商集中度透视：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000102"
-    },
-    {
-      "rule": "接入_企业自由现金流贴现模型 DCF·怎样算对：必须有：「dcf_base_assumptions」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010e"
+      "ref": "record:00000000-0000-0000-0000-0000000000c9"
     },
     {
       "rule": "企业自由现金流贴现模型 DCF·怎样算对：必须有：「wacc_rate」、「enterprise_value_ev」、「equity_intrinsic_value」、「implied_share_price」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011c"
+      "ref": "record:00000000-0000-0000-0000-0000000000db"
     },
     {
       "rule": "企业自由现金流贴现模型 DCF：依据：Aswath Damodaran《投资估价》与CAPM资本资产定价模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000116"
+      "ref": "record:00000000-0000-0000-0000-0000000000d5"
     },
     {
       "rule": "企业自由现金流贴现模型 DCF：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000117"
-    },
-    {
-      "rule": "接入_相对估值倍数与历史分位数对标·怎样算对：必须有：「market_quotes_and_peers」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000124"
+      "ref": "record:00000000-0000-0000-0000-0000000000d6"
     },
     {
       "rule": "相对估值倍数与历史分位数对标·怎样算对：必须有：「pe_ttm」、「pb_ratio」、「historical_pe_percentile」、「valuation_watermark_verdict」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000132"
+      "ref": "record:00000000-0000-0000-0000-0000000000e9"
     },
     {
       "rule": "相对估值倍数与历史分位数对标：依据：现代投资组合理论相对估值分析规范",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012c"
+      "ref": "record:00000000-0000-0000-0000-0000000000e3"
     },
     {
       "rule": "相对估值倍数与历史分位数对标：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012d"
-    },
-    {
-      "rule": "接入_竞争壁垒与核心投资假说验证·怎样算对：必须有：「long_term_profile」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013a"
+      "ref": "record:00000000-0000-0000-0000-0000000000e4"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证·怎样算对：必须有：「moat_grade_rating」、「pricing_power_score」、「roic_wacc_spread」、「moat_synthesis_summary」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000148"
+      "ref": "record:00000000-0000-0000-0000-0000000000f7"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证：依据：晨星(Morningstar)经济护城河分析评级理论与反脆弱投资假说框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000142"
+      "ref": "record:00000000-0000-0000-0000-0000000000f1"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证：严禁伪造数据，数值必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000143"
+      "ref": "record:00000000-0000-0000-0000-0000000000f2"
+    },
+    {
+      "rule": "资本开支与产能释放周期追踪·怎样算对：必须有：「capex_to_revenue_ratio」、「cip_turn_fixed_assets_amount」、「capacity_cycle_outlook」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000104"
+    },
+    {
+      "rule": "资本开支与产能释放周期追踪：依据：《企业会计准则第4号——固定资产》及产能投资周期理论",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000ff"
+    },
+    {
+      "rule": "资本开支与产能释放周期追踪：严禁伪造数据，数值必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000100"
+    },
+    {
+      "rule": "研发投入资本化与产出效能评估·怎样算对：必须有：「rnd_total_expenditure」、「rnd_capitalization_ratio」、「rnd_expense_ratio」、「rnd_efficiency_verdict」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000112"
+    },
+    {
+      "rule": "研发投入资本化与产出效能评估：依据：《企业会计准则第6号——无形资产》（开发支出资本化标准）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000010c"
+    },
+    {
+      "rule": "研发投入资本化与产出效能评估：严禁伪造数据，数值必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000010d"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：必须有：「forecasted_revenue_3y」、「forecasted_net_profit_3y」、「balance_sheet_plug_cash」、「statements_linked_balance_check」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000120"
+    },
+    {
+      "rule": "三表联动预测模型：依据：投资银行财务模型(Financial Modeling)三表配平公理",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000011a"
+    },
+    {
+      "rule": "三表联动预测模型：严禁伪造数据，数值必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000011b"
+    },
+    {
+      "rule": "股权质押、减持与重大关联交易穿透·怎样算对：必须有：「pledged_shares_ratio」、「insider_reduction_amount」、「related_party_receivables_ratio」、「governance_risk_rating」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000012e"
+    },
+    {
+      "rule": "股权质押、减持与重大关联交易穿透：依据：证监会《上市公司监管指引第8号——上市公司资金往来与对外担保》",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000128"
+    },
+    {
+      "rule": "股权质押、减持与重大关联交易穿透：严禁伪造数据，数值必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000129"
+    },
+    {
+      "rule": "商誉减值与资产质量压力测试·怎样算对：必须有：「goodwill_to_equity_ratio」、「goodwill_stress_impairment_loss」、「accounts_receivable_bad_debt_provision」、「asset_quality_rating」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000013c"
+    },
+    {
+      "rule": "商誉减值与资产质量压力测试：依据：《企业会计准则第8号——资产减值》及《会计监管风险提示第8号》",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000136"
+    },
+    {
+      "rule": "商誉减值与资产质量压力测试：严禁伪造数据，数值必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000137"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：必须有：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000014a"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000144"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：严禁伪造数据，数值必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000145"
     },
     {
       "rule": "planning",
@@ -3941,144 +4288,114 @@
       "ref": "record:00000000-0000-0000-0000-000000000013"
     },
     {
-      "rule": "steps/feeder_fin_statement_restructure/selection",
+      "rule": "method_refs/capex_capacity_cycle_tracker",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000014"
+    },
+    {
+      "rule": "method_refs/rnd_capitalization_efficiency_eval",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000015"
+    },
+    {
+      "rule": "method_refs/three_statement_linked_forecasting",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000016"
     },
     {
-      "rule": "steps/feeder_fin_statement_restructure/uses",
+      "rule": "method_refs/pledge_reduction_related_transaction_scan",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000017"
     },
     {
-      "rule": "steps/feeder_fin_statement_restructure/advanced",
+      "rule": "method_refs/goodwill_asset_impairment_stress_test",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000018"
     },
     {
-      "rule": "steps/feeder_fin_statement_restructure/on_fail",
+      "rule": "method_refs/kam_contingent_liability_audit",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000019"
     },
     {
+      "rule": "steps/financial_data_intake/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000001c"
+    },
+    {
+      "rule": "steps/financial_data_intake/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000001d"
+    },
+    {
+      "rule": "steps/financial_data_intake/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000001e"
+    },
+    {
+      "rule": "steps/financial_data_intake/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000001f"
+    },
+    {
       "rule": "steps/fin_statement_restructure/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000020"
-    },
-    {
-      "rule": "steps/fin_statement_restructure/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000021"
-    },
-    {
-      "rule": "steps/fin_statement_restructure/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000022"
-    },
-    {
-      "rule": "steps/fin_statement_restructure/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000023"
-    },
-    {
-      "rule": "steps/feeder_accounting_statement_reconciliation/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002c"
-    },
-    {
-      "rule": "steps/feeder_accounting_statement_reconciliation/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002d"
-    },
-    {
-      "rule": "steps/feeder_accounting_statement_reconciliation/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002e"
-    },
-    {
-      "rule": "steps/feeder_accounting_statement_reconciliation/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002f"
-    },
-    {
-      "rule": "steps/accounting_statement_reconciliation/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000036"
-    },
-    {
-      "rule": "steps/accounting_statement_reconciliation/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000037"
-    },
-    {
-      "rule": "steps/accounting_statement_reconciliation/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000038"
-    },
-    {
-      "rule": "steps/accounting_statement_reconciliation/on_fail",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000039"
     },
     {
-      "rule": "steps/feeder_dupont_five_way_decomposition/selection",
+      "rule": "steps/fin_statement_restructure/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000042"
+      "ref": "record:00000000-0000-0000-0000-00000000003a"
     },
     {
-      "rule": "steps/feeder_dupont_five_way_decomposition/uses",
+      "rule": "steps/fin_statement_restructure/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000043"
+      "ref": "record:00000000-0000-0000-0000-00000000003b"
     },
     {
-      "rule": "steps/feeder_dupont_five_way_decomposition/advanced",
+      "rule": "steps/fin_statement_restructure/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000044"
+      "ref": "record:00000000-0000-0000-0000-00000000003c"
     },
     {
-      "rule": "steps/feeder_dupont_five_way_decomposition/on_fail",
+      "rule": "steps/accounting_statement_reconciliation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000045"
+      "ref": "record:00000000-0000-0000-0000-000000000046"
+    },
+    {
+      "rule": "steps/accounting_statement_reconciliation/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000047"
+    },
+    {
+      "rule": "steps/accounting_statement_reconciliation/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000048"
+    },
+    {
+      "rule": "steps/accounting_statement_reconciliation/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000049"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004b"
+      "ref": "record:00000000-0000-0000-0000-000000000053"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004c"
+      "ref": "record:00000000-0000-0000-0000-000000000054"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004d"
+      "ref": "record:00000000-0000-0000-0000-000000000055"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004e"
-    },
-    {
-      "rule": "steps/feeder_solvency_liquidity_stress_check/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000059"
-    },
-    {
-      "rule": "steps/feeder_solvency_liquidity_stress_check/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005a"
-    },
-    {
-      "rule": "steps/feeder_solvency_liquidity_stress_check/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005b"
-    },
-    {
-      "rule": "steps/feeder_solvency_liquidity_stress_check/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005c"
+      "ref": "record:00000000-0000-0000-0000-000000000056"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/selection",
@@ -4101,404 +4418,324 @@
       "ref": "record:00000000-0000-0000-0000-000000000065"
     },
     {
-      "rule": "steps/feeder_working_capital_cash_cycle_analysis/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000070"
-    },
-    {
-      "rule": "steps/feeder_working_capital_cash_cycle_analysis/uses",
+      "rule": "steps/working_capital_cash_cycle_analysis/selection",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000071"
     },
     {
-      "rule": "steps/feeder_working_capital_cash_cycle_analysis/advanced",
+      "rule": "steps/working_capital_cash_cycle_analysis/uses",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000072"
     },
     {
-      "rule": "steps/feeder_working_capital_cash_cycle_analysis/on_fail",
+      "rule": "steps/working_capital_cash_cycle_analysis/advanced",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000073"
     },
     {
-      "rule": "steps/working_capital_cash_cycle_analysis/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000079"
-    },
-    {
-      "rule": "steps/working_capital_cash_cycle_analysis/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007a"
-    },
-    {
-      "rule": "steps/working_capital_cash_cycle_analysis/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007b"
-    },
-    {
       "rule": "steps/working_capital_cash_cycle_analysis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007c"
-    },
-    {
-      "rule": "steps/feeder_earnings_quality_accrual_audit/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000087"
-    },
-    {
-      "rule": "steps/feeder_earnings_quality_accrual_audit/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000088"
-    },
-    {
-      "rule": "steps/feeder_earnings_quality_accrual_audit/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000089"
-    },
-    {
-      "rule": "steps/feeder_earnings_quality_accrual_audit/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008a"
+      "ref": "record:00000000-0000-0000-0000-000000000074"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000090"
+      "ref": "record:00000000-0000-0000-0000-000000000080"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000091"
+      "ref": "record:00000000-0000-0000-0000-000000000081"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000092"
+      "ref": "record:00000000-0000-0000-0000-000000000082"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000093"
-    },
-    {
-      "rule": "steps/feeder_historical_cagr_trend_extrapolation/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009d"
-    },
-    {
-      "rule": "steps/feeder_historical_cagr_trend_extrapolation/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009e"
-    },
-    {
-      "rule": "steps/feeder_historical_cagr_trend_extrapolation/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009f"
-    },
-    {
-      "rule": "steps/feeder_historical_cagr_trend_extrapolation/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a0"
+      "ref": "record:00000000-0000-0000-0000-000000000083"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a6"
+      "ref": "record:00000000-0000-0000-0000-00000000008e"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a7"
+      "ref": "record:00000000-0000-0000-0000-00000000008f"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a8"
+      "ref": "record:00000000-0000-0000-0000-000000000090"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a9"
-    },
-    {
-      "rule": "steps/feeder_comprehensive_dossier_formatting/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b3"
-    },
-    {
-      "rule": "steps/feeder_comprehensive_dossier_formatting/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b4"
-    },
-    {
-      "rule": "steps/feeder_comprehensive_dossier_formatting/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b5"
-    },
-    {
-      "rule": "steps/feeder_comprehensive_dossier_formatting/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b6"
+      "ref": "record:00000000-0000-0000-0000-000000000091"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bc"
+      "ref": "record:00000000-0000-0000-0000-00000000009c"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bd"
+      "ref": "record:00000000-0000-0000-0000-00000000009d"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000be"
+      "ref": "record:00000000-0000-0000-0000-00000000009e"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bf"
-    },
-    {
-      "rule": "steps/feeder_non_recurring_items_purification/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c8"
-    },
-    {
-      "rule": "steps/feeder_non_recurring_items_purification/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c9"
-    },
-    {
-      "rule": "steps/feeder_non_recurring_items_purification/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ca"
-    },
-    {
-      "rule": "steps/feeder_non_recurring_items_purification/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cb"
+      "ref": "record:00000000-0000-0000-0000-00000000009f"
     },
     {
       "rule": "steps/non_recurring_items_purification/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d2"
+      "ref": "record:00000000-0000-0000-0000-0000000000a9"
     },
     {
       "rule": "steps/non_recurring_items_purification/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d3"
+      "ref": "record:00000000-0000-0000-0000-0000000000aa"
     },
     {
       "rule": "steps/non_recurring_items_purification/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d4"
+      "ref": "record:00000000-0000-0000-0000-0000000000ab"
     },
     {
       "rule": "steps/non_recurring_items_purification/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d5"
-    },
-    {
-      "rule": "steps/feeder_segment_volume_price_decomposition/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000df"
-    },
-    {
-      "rule": "steps/feeder_segment_volume_price_decomposition/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e0"
-    },
-    {
-      "rule": "steps/feeder_segment_volume_price_decomposition/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e1"
-    },
-    {
-      "rule": "steps/feeder_segment_volume_price_decomposition/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e2"
+      "ref": "record:00000000-0000-0000-0000-0000000000ac"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e8"
+      "ref": "record:00000000-0000-0000-0000-0000000000b7"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e9"
+      "ref": "record:00000000-0000-0000-0000-0000000000b8"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ea"
+      "ref": "record:00000000-0000-0000-0000-0000000000b9"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000eb"
-    },
-    {
-      "rule": "steps/feeder_customer_supplier_concentration_scan/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f4"
-    },
-    {
-      "rule": "steps/feeder_customer_supplier_concentration_scan/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f5"
-    },
-    {
-      "rule": "steps/feeder_customer_supplier_concentration_scan/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f6"
-    },
-    {
-      "rule": "steps/feeder_customer_supplier_concentration_scan/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f7"
+      "ref": "record:00000000-0000-0000-0000-0000000000ba"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fd"
+      "ref": "record:00000000-0000-0000-0000-0000000000c4"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fe"
+      "ref": "record:00000000-0000-0000-0000-0000000000c5"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ff"
+      "ref": "record:00000000-0000-0000-0000-0000000000c6"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000100"
-    },
-    {
-      "rule": "steps/feeder_dcf_intrinsic_valuation/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000109"
-    },
-    {
-      "rule": "steps/feeder_dcf_intrinsic_valuation/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010a"
-    },
-    {
-      "rule": "steps/feeder_dcf_intrinsic_valuation/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010b"
-    },
-    {
-      "rule": "steps/feeder_dcf_intrinsic_valuation/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010c"
+      "ref": "record:00000000-0000-0000-0000-0000000000c7"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000112"
+      "ref": "record:00000000-0000-0000-0000-0000000000d1"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000113"
+      "ref": "record:00000000-0000-0000-0000-0000000000d2"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000114"
+      "ref": "record:00000000-0000-0000-0000-0000000000d3"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000115"
-    },
-    {
-      "rule": "steps/feeder_relative_multiple_valuation/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011f"
-    },
-    {
-      "rule": "steps/feeder_relative_multiple_valuation/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000120"
-    },
-    {
-      "rule": "steps/feeder_relative_multiple_valuation/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000121"
-    },
-    {
-      "rule": "steps/feeder_relative_multiple_valuation/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000122"
+      "ref": "record:00000000-0000-0000-0000-0000000000d4"
     },
     {
       "rule": "steps/relative_multiple_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000128"
+      "ref": "record:00000000-0000-0000-0000-0000000000df"
     },
     {
       "rule": "steps/relative_multiple_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000129"
+      "ref": "record:00000000-0000-0000-0000-0000000000e0"
     },
     {
       "rule": "steps/relative_multiple_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012a"
+      "ref": "record:00000000-0000-0000-0000-0000000000e1"
     },
     {
       "rule": "steps/relative_multiple_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012b"
-    },
-    {
-      "rule": "steps/feeder_competitive_moat_thesis_synthesis/selection",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000135"
-    },
-    {
-      "rule": "steps/feeder_competitive_moat_thesis_synthesis/uses",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000136"
-    },
-    {
-      "rule": "steps/feeder_competitive_moat_thesis_synthesis/advanced",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000137"
-    },
-    {
-      "rule": "steps/feeder_competitive_moat_thesis_synthesis/on_fail",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000138"
+      "ref": "record:00000000-0000-0000-0000-0000000000e2"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013e"
+      "ref": "record:00000000-0000-0000-0000-0000000000ed"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013f"
+      "ref": "record:00000000-0000-0000-0000-0000000000ee"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000140"
+      "ref": "record:00000000-0000-0000-0000-0000000000ef"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/on_fail",
       "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000f0"
+    },
+    {
+      "rule": "steps/capex_capacity_cycle_tracker/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000fb"
+    },
+    {
+      "rule": "steps/capex_capacity_cycle_tracker/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000fc"
+    },
+    {
+      "rule": "steps/capex_capacity_cycle_tracker/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000fd"
+    },
+    {
+      "rule": "steps/capex_capacity_cycle_tracker/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000fe"
+    },
+    {
+      "rule": "steps/rnd_capitalization_efficiency_eval/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000108"
+    },
+    {
+      "rule": "steps/rnd_capitalization_efficiency_eval/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000109"
+    },
+    {
+      "rule": "steps/rnd_capitalization_efficiency_eval/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000010a"
+    },
+    {
+      "rule": "steps/rnd_capitalization_efficiency_eval/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000010b"
+    },
+    {
+      "rule": "steps/three_statement_linked_forecasting/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000116"
+    },
+    {
+      "rule": "steps/three_statement_linked_forecasting/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000117"
+    },
+    {
+      "rule": "steps/three_statement_linked_forecasting/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000118"
+    },
+    {
+      "rule": "steps/three_statement_linked_forecasting/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000119"
+    },
+    {
+      "rule": "steps/pledge_reduction_related_transaction_scan/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000124"
+    },
+    {
+      "rule": "steps/pledge_reduction_related_transaction_scan/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000125"
+    },
+    {
+      "rule": "steps/pledge_reduction_related_transaction_scan/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000126"
+    },
+    {
+      "rule": "steps/pledge_reduction_related_transaction_scan/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000127"
+    },
+    {
+      "rule": "steps/goodwill_asset_impairment_stress_test/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000132"
+    },
+    {
+      "rule": "steps/goodwill_asset_impairment_stress_test/uses",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000133"
+    },
+    {
+      "rule": "steps/goodwill_asset_impairment_stress_test/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000134"
+    },
+    {
+      "rule": "steps/goodwill_asset_impairment_stress_test/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000135"
+    },
+    {
+      "rule": "steps/kam_contingent_liability_audit/selection",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000140"
+    },
+    {
+      "rule": "steps/kam_contingent_liability_audit/uses",
+      "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000141"
+    },
+    {
+      "rule": "steps/kam_contingent_liability_audit/advanced",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000142"
+    },
+    {
+      "rule": "steps/kam_contingent_liability_audit/on_fail",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000143"
     }
   ]
 }
