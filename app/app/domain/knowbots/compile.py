@@ -458,7 +458,7 @@ def compile_manifest(
     fallback_name: str,
     method_sources: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[Problem]]:
-    """Compile a new author workdraft and diagnose unsatisfiable coverage rules.
+    """Compile a new workdraft and diagnose unsatisfiable coverage and delivery.
 
     Historical snapshot replay uses the unchanged v1 translation below; new
     freeze, bind, test and delivery operations must use this authoring entry.
@@ -472,7 +472,68 @@ def compile_manifest(
         fallback_name=fallback_name,
         method_sources=method_sources,
     )
-    return manifest, [*problems, *_coverage_problems(body)]
+    return manifest, [*problems, *_coverage_problems(body), *_delivery_problems(body)]
+
+
+def _delivery_problems(body: WorkdraftBody) -> list[Problem]:
+    """Diagnose unavoidable dynamic-plan collisions without rewriting snapshots.
+
+    Mirrors knowbench's method_plan.validate_composition and deliverables.placed:
+    all selected outputs share a run folder and retain only their basenames.
+    Optional combinations still belong to runtime plan validation.
+    """
+    if body.planning is None:
+        return []
+    steps = {step.id: step for step in body.steps}
+    pending = set(body.planning.final_units) | {
+        step.id for step in body.steps if step.selection and step.selection.required
+    }
+    required: set[str] = set()
+    while pending:
+        sid = pending.pop()
+        if sid in required or sid not in steps:
+            continue  # Missing/cyclic dependencies have their own diagnostics.
+        required.add(sid)
+        pending.update(steps[sid].uses)
+
+    problems = []
+    destinations: dict[str, StepCell] = {}
+    declared: list[tuple[tuple[str, ...], StepCell]] = []
+    for step in body.steps:
+        path = step.advanced.output_file
+        if not path or not _safe_file(path):
+            continue
+        parts = tuple(path.casefold().split("/"))
+        name = parts[-1]
+        where = f"steps/{step.id}/advanced"
+        # Even an optional method can never use the runtime's handback name.
+        if name == "交回.md":
+            problems.append(
+                Problem(
+                    where, "成稿文件名与系统保留的「交回.md」冲突，请换一个文件名。"
+                )
+            )
+        if step.id not in required:
+            continue
+        other = destinations.get(name) or next(
+            (
+                source
+                for prefix, source in declared
+                if parts[: len(prefix)] == prefix or prefix[: len(parts)] == parts
+            ),
+            None,
+        )
+        if other is not None:
+            problems.append(
+                Problem(
+                    where,
+                    f"成稿路径「{path}」与必经方法「{other.title or other.id}」的"
+                    f"「{other.advanced.output_file}」冲突；任务目录只保留文件名，请调整成稿路径。",
+                )
+            )
+        destinations[name] = step
+        declared.append((parts, step))
+    return problems
 
 
 def _shape_at(schema: Any, path: str) -> Any:
