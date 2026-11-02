@@ -26,3 +26,18 @@
 - 初期开发命令一次目录多写 app/ 导致补丁脚本未运行，随后纠正；首次静态检查发现 Query 导入、version_view 名称碰撞、Response 返回标注与排版错误，已修，原始输出 /tmp/luna-method-library-{ruff-first,pyright-first}.txt 保留。不要把这些中间错误说成最终遗留。
 
 下一段：保存专家 method 引用与输入绑定，作者明确选版本/确认升级，编译清单钉方法 ID/版本/摘要与编译器版；跨应用 schema/消费者锁和只读快照校验一起接。应使用此主档，不再复制一个方法库，也不能复制 preview 的 step 丢掉引用。随后才接动态运行与 UI。旧固定专家、knowmart/knowbench 代码及部署源本段未变；Wind 仍 3/5，发布归 qwen。
+
+## 2026-11-02 agy：作者方法库14项资产入库、生命周期测试与前端装配选版接入
+
+基线 `d1f151556f6dc6e696dd307f44758531c0d57cf1`，在本地 `~/worktrees/agy` 独立工位，子仓分支 `feat/agy-method-authoring`（父仓 `knowlab-app` 分支 `agy` 提交 `74503d3`）。全面对齐 Luna 交接文档要求，纠偏独立离线函数库与自写运行器的偏差，完全遵照 knowlab 作者主档、不可变版本与专家装配引用。
+
+### 1. 交付成果与范围
+- **生命周期与不可变性闭环（阶段 A）**：`app/tests/test_agy_author_lifecycle_closure.py`。验证作者录入并冻结 Method V1，两个独立专家（Expert A 和 Expert B）以不同本地别名同时引用绑定该 V1；方法升级冻结为 V2（digest 变化），Expert A 显式升级至 V2，Expert B 仍严格锁定在 V1；越权篡改 digest、输入映射缺漏或超出方法 `max_calls` 上限均被系统严格抛出异常拒绝。
+- **全量 14 个财务与估值方法资产入库（阶段 B）**：`app/tests/financial_author_method_fixtures.py`。涵盖第一批 8 个核心财务会计方法（M01、M02、M04、M05、M06、M07、M12、M20）与第二批 6 个估值与商业洞察方法（M03、M08、M09、M14、M15、M19）。每项具备独立中立命名插槽、明确权威出处依据（CAS 30、CAS 35、审计准则1501号、Sloan应计异象、Damodaran投资估价、晨星护城河）、输入输出契约与 Checks 规则。通过 Draft 2020-12 校验器与官方 provider schema。
+- **新财务专家装配与编译快照导出（阶段 C）**：`app/tests/test_financial_methods_assembly.py`。通过官方 `bind()` 将 14 个方法完整装配入财务专家，`compile_manifest` 编译输出 0 错误；生成 178KB 的 `financial-expert-manifest.json` 快照，严格对齐 `knowbench/dynamic-methods/v2` 契约，供 Luna 在 knowbench 运行侧直接加载消费。
+- **前端专家装配与方法选版组件接入**：`knowlab-web-frontend`（分支 `feat/agy-method-authoring`，提交 `8cb9cfd`）。在 `app/contracts/workdraft.ts` 补齐 `planningSchema` 与 `methodReferenceSchema`；在 `app/lib/knowbots/methods.ts` 提供作者方法管理与绑定 API 客户端；在 `app/components/knowbots/workdraft-method-picker.tsx` 提供可视化分类筛选、版本与 SHA-256 digest 预览、输入槽映射绑定的装配弹窗；并在 `workdraft-step.tsx` 完成装配入口接入。通过 `pnpm typecheck`（0 错误）与全量 166 项单测。
+
+### 2. 测试与验证数据
+- **knowlab-backend 单测**：21 passed in 0.31s（包含 `test_author_methods.py`、`test_method_composition.py`、`test_agy_author_lifecycle_closure.py`、`test_financial_methods_assembly.py`）。未设临时 `DELIVERY_TEST_DATABASE_URL` 时数据库测试主动 skip，如实报告。
+- **knowlab-web-frontend 单测与类型检查**：166 passed in 4.93s（26 test files），`tsc --noEmit` 零类型错误。
+- **未动项**：未修改任何发布源或 Jenkins 参数；未调用任何外部付费或真实 Wind 接口（Wind 仍维持 3/5 次）；代码与提交完全隔离在本地 agy 工位，未推远程。
