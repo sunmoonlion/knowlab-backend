@@ -113,12 +113,12 @@
         "contract": {
           "step_id": "fin_statement_restructure",
           "title": "财务三表标准化重构与口径对齐",
-          "summary": "读取原始披露三表，依CAS2024准则重构列报科目，统一货币计量单位并记录重分类调整溯源。",
+          "summary": "读取原始披露三表，按现行一般企业财务报表格式重构列报科目，全部金额统一换算为元，逐项记录重分类调整溯源；输出供下游勾稽与分析直接消费的标准化三表。",
           "why": "消除非标科目与列报口径差异，形成横向与跨期可比的基础分析底稿。",
           "input_refs": [
             "financial_data_intake"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取原始披露三表，依CAS2024准则重构列报科目，统一货币计量单位并记录重分类调整溯源。\n\n规则：\n1. 依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务基础数据接入）\n\n交回一个 JSON，包含：\n- standardized_balance_sheet：表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n- standardized_income_statement：表\n- standardized_cash_flow：表\n- reclassification_audit_trail：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取原始披露三表，按现行一般企业财务报表格式重构列报科目，全部金额统一换算为元，逐项记录重分类调整溯源；输出供下游勾稽与分析直接消费的标准化三表。\n\n规则：\n1. 依据：财政部《企业会计准则第30号——财务报表列报》（2014年修订）及一般企业财务报表格式通知（财会〔2019〕6号）\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：financial_data_intake（财务基础数据接入）\n\n交回一个 JSON，包含：\n- standardized_balance_sheet：表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n- standardized_income_statement：表\n- standardized_cash_flow：表\n- reclassification_audit_trail：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -374,12 +374,12 @@
         "contract": {
           "step_id": "non_recurring_items_purification",
           "title": "非经常性损益穿透与扣非还原",
-          "summary": "穿透政府补助、投资收益、资产处置等非经常性项目，还原单季度真实主营核心利润及持续经营盈利中枢。",
+          "summary": "按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。",
           "why": "剔除一次性与非经营偶发扰动，识别企业不可持续的利润粉饰，核准主业真实造血能力。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：穿透政府补助、投资收益、资产处置等非经常性项目，还原单季度真实主营核心利润及持续经营盈利中枢。\n\n规则：\n1. 依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- purified_net_profit：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- recurring_profit_margin：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- quarterly_unpacked_profits：列表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。\n\n规则：\n1. 依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- purified_net_profit：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- recurring_profit_margin：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- quarterly_unpacked_profits：列表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -609,12 +609,12 @@
         "contract": {
           "step_id": "solvency_liquidity_stress_check",
           "title": "偿债压力与流动性体检",
-          "summary": "计算流动比率、速动比率、现金短债比、利息保障倍数，并推演极端承压情景下的Altman Z-Score与流动性缺口。",
+          "summary": "计算流动比率、速动比率、现金短债比与Altman Z-Score，推演极端承压情景下的流动性缺口，并按Altman原始分区给出偿债风险分级（Z>2.99低、1.81–2.99中、<1.81高）。",
           "why": "全面评估短期偿债缓冲与长期资本结构稳健性，提前预警债务违约与资金链断裂断崖风险。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算流动比率、速动比率、现金短债比、利息保障倍数，并推演极端承压情景下的Altman Z-Score与流动性缺口。\n\n规则：\n1. 依据：Altman Z-Score破产预测模型及巴塞尔协议流动性覆盖率(LCR)框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- current_ratio：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- quick_ratio：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cash_to_current_debt：数\n- altman_z_score：数\n- solvency_risk_level：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算流动比率、速动比率、现金短债比与Altman Z-Score，推演极端承压情景下的流动性缺口，并按Altman原始分区给出偿债风险分级（Z>2.99低、1.81–2.99中、<1.81高）。\n\n规则：\n1. 依据：Altman（1968）Z-Score初始模型（制造业上市公司样本）；流动/速动/现金短债比为银行信贷与信用评级通行口径\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- current_ratio：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- quick_ratio：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cash_to_current_debt：数\n- altman_z_score：数\n- solvency_risk_level：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -717,12 +717,12 @@
         "contract": {
           "step_id": "working_capital_cash_cycle_analysis",
           "title": "营运资本周转与现金转化周期 CCC",
-          "summary": "测算存货周转天数(DIO)、应收账款周转天数(DSO)、应付账款周转天数(DPO)，合成现金转化周期(CCC=DIO+DSO-DPO)。",
+          "summary": "测算存货周转天数(DIO)、应收账款周转天数(DSO)、应付账款周转天数(DPO)，合成现金转化周期(CCC=DIO+DSO−DPO)；存货、应收、应付取期初期末算术平均，DIO=平均存货/营业成本×365，DSO=平均应收账款/营业收入×365，DPO=平均应付账款/营业成本×365，一律按365天。",
           "why": "衡量企业经营营运资金占用效率，洞察产业链上下游话语权及日常流动性造血循环节奏。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算存货周转天数(DIO)、应收账款周转天数(DSO)、应付账款周转天数(DPO)，合成现金转化周期(CCC=DIO+DSO-DPO)。\n\n规则：\n1. 依据：企业营运资本管理理论及现金循环周期(Cash Conversion Cycle)标准模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- dio_days：数\n- dso_days：数\n- dpo_days：数\n- cash_conversion_cycle_days：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- working_capital_turnover：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算存货周转天数(DIO)、应收账款周转天数(DSO)、应付账款周转天数(DPO)，合成现金转化周期(CCC=DIO+DSO−DPO)；存货、应收、应付取期初期末算术平均，DIO=平均存货/营业成本×365，DSO=平均应收账款/营业收入×365，DPO=平均应付账款/营业成本×365，一律按365天。\n\n规则：\n1. 依据：现金循环周期模型（Richards & Laughlin, 1980）及营运资本管理通行教材口径\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- dio_days：数\n- dso_days：数\n- dpo_days：数\n- cash_conversion_cycle_days：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- working_capital_turnover：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -808,12 +808,12 @@
         "contract": {
           "step_id": "earnings_quality_accrual_audit",
           "title": "收益质量分析与应计项排雷、FCF",
-          "summary": "测算经营性现金流/净利润比值、企业自由现金流(FCFF=OCF-CapEx)，运用修正琼斯模型测算操纵性应计利润异动。",
+          "summary": "测算经营性现金流/净利润比值、企业自由现金流(FCFF=OCF-CapEx)，并以总应计利润率((净利润−经营现金流)/总资产)的跨期异动标注应计排雷信号。",
           "why": "穿透权责发生制下的会计应计项异动，识别纸面富贵与利润不含金现象，防范收益质量劣化。",
           "input_refs": [
             "non_recurring_items_purification"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算经营性现金流/净利润比值、企业自由现金流(FCFF=OCF-CapEx)，运用修正琼斯模型测算操纵性应计利润异动。\n\n规则：\n1. 依据：Dechow & Dichev (2002) 收益质量与应计项异动检验理论及FCFF模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- operating_cf_to_net_income：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- free_cash_flow_firm：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- accrual_anomaly_score：数\n- earnings_quality_flag：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算经营性现金流/净利润比值、企业自由现金流(FCFF=OCF-CapEx)，并以总应计利润率((净利润−经营现金流)/总资产)的跨期异动标注应计排雷信号。\n\n规则：\n1. 依据：Dechow, Sloan & Sweeney（1995）修正琼斯模型（操纵性应计）与Dechow & Dichev（2002）应计质量框架；FCFF 口径见 Damodaran 估值教材\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- operating_cf_to_net_income：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- free_cash_flow_firm：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- accrual_anomaly_score：数\n- earnings_quality_flag：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -913,12 +913,12 @@
         "contract": {
           "step_id": "segment_volume_price_decomposition",
           "title": "主营业务分部量价拆解",
-          "summary": "按产品大类、业务分部及地理区域拆解收入构成，剥离销量增长率与平均单价变动效应。",
+          "summary": "按产品大类、业务分部及地理区域拆解收入构成，剥离销量增长率与平均单价变动效应：量增贡献=(本期量−上期量)×上期价，价变贡献=(本期价−上期价)×本期量，交叉项归入价变；分部未披露量价时用收入增速与销量增速近似并明确标注。",
           "why": "穿透收入表象，判定业务扩张究竟由终端放量还是提价驱动，研判核心业务成长质量。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按产品大类、业务分部及地理区域拆解收入构成，剥离销量增长率与平均单价变动效应。\n\n规则：\n1. 依据：财政部《企业会计准则第35号——分部报告》(CAS 35) 及量价因素分析法\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- segment_revenue_shares：列表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n- volume_growth_rates：列表\n- price_variance_effects：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按产品大类、业务分部及地理区域拆解收入构成，剥离销量增长率与平均单价变动效应：量增贡献=(本期量−上期量)×上期价，价变贡献=(本期价−上期价)×本期量，交叉项归入价变；分部未披露量价时用收入增速与销量增速近似并明确标注。\n\n规则：\n1. 依据：财政部《企业会计准则第35号——分部报告》(CAS 35)；管理会计因素分析（连环替代）法惯例\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- segment_revenue_shares：列表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n- volume_growth_rates：列表\n- price_variance_effects：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1100,12 +1100,12 @@
         "contract": {
           "step_id": "capex_capacity_cycle_tracker",
           "title": "资本开支与产能释放周期追踪",
-          "summary": "分析购建固定资产支付现金(CapEx)、在建工程结转固定资产进度及折旧摊销年限变动。",
+          "summary": "分析购建固定资产支付现金(CapEx)与当期折旧摊销之比、在建工程结转固定资产进度（本期转固/期初在建）及折旧摊销年限变动，定位产能周期阶段。",
           "why": "锚定企业在产能扩张周期中所处阶段，研判新增折旧压力与未来业绩释放时点。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：分析购建固定资产支付现金(CapEx)、在建工程结转固定资产进度及折旧摊销年限变动。\n\n规则：\n1. 依据：实业投资与产能周期理论及固定资产折旧会计估计核算\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- capex_to_depreciation：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cip_turnover_rate：数\n- capacity_expansion_stage：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：分析购建固定资产支付现金(CapEx)与当期折旧摊销之比、在建工程结转固定资产进度（本期转固/期初在建）及折旧摊销年限变动，定位产能周期阶段。\n\n规则：\n1. 依据：财政部《企业会计准则第4号——固定资产》(CAS 4) 折旧估计规范及产能周期分析通行框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- capex_to_depreciation：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cip_turnover_rate：数\n- capacity_expansion_stage：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1191,12 +1191,12 @@
         "contract": {
           "step_id": "rnd_capitalization_efficiency_eval",
           "title": "研发投入资本化与产出效能评估",
-          "summary": "核算研发费用占营收比重、研发支出资本化率，对标专利获批量及新产品收入转化周期。",
+          "summary": "核算研发投入强度(研发投入总额/营业收入，含费用化与资本化)、研发支出资本化率(资本化研发/研发投入总额)，对标专利获批量及新产品收入转化周期。",
           "why": "防范通过过度资本化虚增当期利润，衡量真实研发硬核科技转化效能。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：核算研发费用占营收比重、研发支出资本化率，对标专利获批量及新产品收入转化周期。\n\n规则：\n1. 依据：财政部《企业会计准则第6号——无形资产》(CAS 6) 研发支出资本化条件\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- rnd_intensity：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- capitalization_ratio：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- rnd_revenue_conversion：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：核算研发投入强度(研发投入总额/营业收入，含费用化与资本化)、研发支出资本化率(资本化研发/研发投入总额)，对标专利获批量及新产品收入转化周期。\n\n规则：\n1. 依据：财政部《企业会计准则第6号——无形资产》(CAS 6) 研发支出资本化条件\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- rnd_intensity：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- capitalization_ratio：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- rnd_revenue_conversion：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1287,12 +1287,12 @@
         "contract": {
           "step_id": "historical_cagr_trend_extrapolation",
           "title": "复合年均增长率与趋势外推",
-          "summary": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR)，拟合历史时序回归趋势。",
+          "summary": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。",
           "why": "消除单一年份周期波动假象，确立企业中长期历史内生增长基准轨道。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR)，拟合历史时序回归趋势。\n\n规则：\n1. 依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- revenue_cagr_3yr：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- net_profit_cagr_3yr：数\n- trend_projection_series：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。\n\n规则：\n1. 依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- revenue_cagr_3yr：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- net_profit_cagr_3yr：数\n- trend_projection_series：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1381,13 +1381,13 @@
         "contract": {
           "step_id": "three_statement_linked_forecasting",
           "title": "三表联动预测模型",
-          "summary": "基于历史基准、杜邦分解与营运资本假设，联动推演未来损益、资产负债与现金流，利用现金/债务平仓(Plug)保持资产负债平衡。",
+          "summary": "基于历史基准、杜邦分解与营运资本假设联动推演三表，输出覆盖未来两个季度、按悲观/基准/乐观三情景的区间预测；资产负债表用现金/短期债务作平衡项(Plug)保持配平，配平残差恒零。",
           "why": "构建逻辑自洽的前瞻财务沙盘，为内生估值与资本配置提供基准预测三表。",
           "input_refs": [
             "dupont_five_way_decomposition",
             "working_capital_cash_cycle_analysis"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于历史基准、杜邦分解与营运资本假设，联动推演未来损益、资产负债与现金流，利用现金/债务平仓(Plug)保持资产负债平衡。\n\n规则：\n1. 依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）、working_capital_cash_cycle_analysis（营运资本周转与现金转化周期 CCC）\n\n交回一个 JSON，包含：\n- forecast_income_statement：表\n- forecast_balance_sheet：表\n- forecast_cashflow_statement：表\n- balance_sheet_plug_zero：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于历史基准、杜邦分解与营运资本假设联动推演三表，输出覆盖未来两个季度、按悲观/基准/乐观三情景的区间预测；资产负债表用现金/短期债务作平衡项(Plug)保持配平，配平残差恒零。\n\n规则：\n1. 依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）、working_capital_cash_cycle_analysis（营运资本周转与现金转化周期 CCC）\n\n交回一个 JSON，包含：\n- forecast_income_statement：表\n- forecast_balance_sheet：表\n- forecast_cashflow_statement：表\n- balance_sheet_plug_zero：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1476,12 +1476,12 @@
         "contract": {
           "step_id": "dcf_intrinsic_valuation",
           "title": "企业自由现金流贴现估值 DCF",
-          "summary": "基于三表预测现金流，折算加权平均资本成本(WACC)，计算显性期FCFF现值与永续增长终值，推导股权内在价值。",
+          "summary": "以三表联动预测的FCFF为显性期现金流，按加权平均资本成本(WACC)贴现，加永续增长终值推导企业价值与每股内在价值；WACC的无风险利率、ERP、beta逐项标注来源，显性期长度与永续增长率随委托单列示取值与依据；输出WACC×永续增长率双变量敏感性表。",
           "why": "脱离短期二级市场噪音，立足企业终身自由现金流创造能力核算真实内在底线价值。",
           "input_refs": [
             "three_statement_linked_forecasting"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于三表预测现金流，折算加权平均资本成本(WACC)，计算显性期FCFF现值与永续增长终值，推导股权内在价值。\n\n规则：\n1. 依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：three_statement_linked_forecasting（三表联动预测模型）\n\n交回一个 JSON，包含：\n- enterprise_value_dcf：数\n- equity_value_dcf：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- per_share_intrinsic_value：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- wacc_used：数\n- sensitivity_table：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：以三表联动预测的FCFF为显性期现金流，按加权平均资本成本(WACC)贴现，加永续增长终值推导企业价值与每股内在价值；WACC的无风险利率、ERP、beta逐项标注来源，显性期长度与永续增长率随委托单列示取值与依据；输出WACC×永续增长率双变量敏感性表。\n\n规则：\n1. 依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：three_statement_linked_forecasting（三表联动预测模型）\n\n交回一个 JSON，包含：\n- enterprise_value_dcf：数\n- equity_value_dcf：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- per_share_intrinsic_value：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- wacc_used：数\n- sensitivity_table：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1580,12 +1580,12 @@
         "contract": {
           "step_id": "relative_multiple_valuation",
           "title": "相对估值与历史分位数对标",
-          "summary": "计算PE-TTM、PB-LF、EV/EBITDA乘数，测算所处历史3年/5年分位数，对标行业可比公司中位数。",
+          "summary": "计算PE-TTM、PB-LF、EV/EBITDA乘数（EV=市值+净债务），按日频分布测算所处历史3年/5年分位数，对标行业可比公司中位数。",
           "why": "衡量标的在横向行业及纵向历史估值谱系中的溢折价状态与安全边际。",
           "input_refs": [
             "non_recurring_items_purification"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算PE-TTM、PB-LF、EV/EBITDA乘数，测算所处历史3年/5年分位数，对标行业可比公司中位数。\n\n规则：\n1. 依据：相对估值乘数分析理论及中国证监会证券分析师专业估值实务\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- target_pe_ttm：数\n- target_pb_lf：数\n- historical_pe_percentile：数\n- implied_market_cap：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算PE-TTM、PB-LF、EV/EBITDA乘数（EV=市值+净债务），按日频分布测算所处历史3年/5年分位数，对标行业可比公司中位数。\n\n规则：\n1. 依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- target_pe_ttm：数\n- target_pb_lf：数\n- historical_pe_percentile：数\n- implied_market_cap：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1754,12 +1754,12 @@
         "contract": {
           "step_id": "goodwill_asset_impairment_stress_test",
           "title": "商誉减值与资产质量压力测试",
-          "summary": "测算商誉占净资产比重，对标并购标的业绩承诺完成率，测算商誉全额减值对当期损益与净资产的侵蚀厚度。",
+          "summary": "测算商誉占净资产比重、并购标的业绩承诺完成率(实际/承诺)，并测算商誉全额减值压力情景对当期损益与净资产的侵蚀幅度。",
           "why": "提前引爆商誉减值黑天鹅，评估资产负债表潜在存货跌价、坏账及商誉暴雷风险。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算商誉占净资产比重，对标并购标的业绩承诺完成率，测算商誉全额减值对当期损益与净资产的侵蚀厚度。\n\n规则：\n1. 依据：财政部《企业会计准则第8号——资产减值》(CAS 8) 及会计监管风险提示第8号——商誉减值\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- goodwill_to_net_assets：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cgu_recoverable_amount：数\n- impairment_stress_headroom：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：测算商誉占净资产比重、并购标的业绩承诺完成率(实际/承诺)，并测算商誉全额减值压力情景对当期损益与净资产的侵蚀幅度。\n\n规则：\n1. 依据：财政部《企业会计准则第8号——资产减值》(CAS 8) 及会计监管风险提示第8号——商誉减值\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- goodwill_to_net_assets：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cgu_recoverable_amount：数\n- impairment_stress_headroom：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1850,12 +1850,12 @@
         "contract": {
           "step_id": "kam_contingent_liability_audit",
           "title": "关键审计事项与或有负债排查",
-          "summary": "提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。",
+          "summary": "提取审计意见类型与关键审计事项（KAM），每条结论必须带原文引文及PDF物理页码（与印刷页码不一致时注明）；扫描附注中的对外担保、未决诉讼及承诺事项，或有负债按CAS 13口径归类。",
           "why": "倾听外部独立审计师的警示哨声，排查表外隐性负债对净资产的刚性求偿风险。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。\n\n规则：\n1. 依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- audit_opinion_type：文字\n- kam_topics_count：数\n- kam_matters：列表；每项带 quotes：一串 {material_id, page, text}，原文照读到的抄\n- external_guarantee_ratio：数\n- contingent_liability_risk_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取审计意见类型与关键审计事项（KAM），每条结论必须带原文引文及PDF物理页码（与印刷页码不一致时注明）；扫描附注中的对外担保、未决诉讼及承诺事项，或有负债按CAS 13口径归类。\n\n规则：\n1. 依据：中国注册会计师审计准则第1504号《在审计报告中沟通关键审计事项》及《企业会计准则第13号——或有事项》\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- audit_opinion_type：文字\n- kam_topics_count：数\n- kam_matters：列表；每项带 quotes：一串 {material_id, page, text}，原文照读到的抄\n- external_guarantee_ratio：数\n- contingent_liability_risk_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1972,12 +1972,12 @@
         "contract": {
           "step_id": "competitive_moat_thesis_synthesis",
           "title": "竞争壁垒与核心投资假说验证",
-          "summary": "综合ROIC与WACC利差，结合无形资产、转换成本、网络效应与成本优势，对照核心买入假说进行事实证伪。",
+          "summary": "综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。",
           "why": "将财务指标升华为商业壁垒研判，验证超额资本回报率的可持续性与竞争护城河深浅。",
           "input_refs": [
             "dupont_five_way_decomposition"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：综合ROIC与WACC利差，结合无形资产、转换成本、网络效应与成本优势，对照核心买入假说进行事实证伪。\n\n规则：\n1. 依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）\n\n交回一个 JSON，包含：\n- moat_rating：文字\n- roic_vs_wacc_spread：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- thesis_verification_matrix：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。\n\n规则：\n1. 依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）\n\n交回一个 JSON，包含：\n- moat_rating：文字\n- roic_vs_wacc_spread：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- thesis_verification_matrix：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2188,7 +2188,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003e8",
           "version": 1,
-          "digest": "sha256:c22bbdcce5bee72495df0c53bd6db44ead8a1a2c15ac4261bf017597e11ef01b",
+          "digest": "sha256:bad70805f8daa66b49dce76e62f7149898cbb3033cc399ef846dd1718924b9c7",
           "inputs": {
             "raw_data": "financial_data_intake"
           }
@@ -2198,7 +2198,7 @@
           "step": {
             "id": "method",
             "title": "财务三表标准化重构与口径对齐",
-            "does": "读取原始披露三表，依CAS2024准则重构列报科目，统一货币计量单位并记录重分类调整溯源。",
+            "does": "读取原始披露三表，按现行一般企业财务报表格式重构列报科目，全部金额统一换算为元，逐项记录重分类调整溯源；输出供下游勾稽与分析直接消费的标准化三表。",
             "why": "消除非标科目与列报口径差异，形成横向与跨期可比的基础分析底稿。",
             "uses": [
               "raw_data"
@@ -2206,7 +2206,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范"
+                "text": "依据：财政部《企业会计准则第30号——财务报表列报》（2014年修订）及一般企业财务报表格式通知（财会〔2019〕6号）"
               },
               {
                 "id": "r2",
@@ -2525,7 +2525,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ea",
           "version": 1,
-          "digest": "sha256:4166ec5bb03ee6f8dd42c57b2b2953560e6e246ff86b211bbd6cb1b95675c314",
+          "digest": "sha256:dca0a0363e4d15b65017e33c359d4ddcf768604442156fc93ca5290ebaa5656e",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -2535,7 +2535,7 @@
           "step": {
             "id": "method",
             "title": "非经常性损益穿透与扣非还原",
-            "does": "穿透政府补助、投资收益、资产处置等非经常性项目，还原单季度真实主营核心利润及持续经营盈利中枢。",
+            "does": "按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。",
             "why": "剔除一次性与非经营偶发扰动，识别企业不可持续的利润粉饰，核准主业真实造血能力。",
             "uses": [
               "reconciled"
@@ -2543,7 +2543,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》"
+                "text": "依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例"
               },
               {
                 "id": "r2",
@@ -2852,7 +2852,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ec",
           "version": 1,
-          "digest": "sha256:9f866ef9bf36d35398ce91bbe62afd55e4d1ddfac6f3a140579be30fa1c53542",
+          "digest": "sha256:43909f242c1cc48f2786667b36269099383fd1d203bc4cf30c281d0df3a65d50",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -2862,7 +2862,7 @@
           "step": {
             "id": "method",
             "title": "偿债压力与流动性体检",
-            "does": "计算流动比率、速动比率、现金短债比、利息保障倍数，并推演极端承压情景下的Altman Z-Score与流动性缺口。",
+            "does": "计算流动比率、速动比率、现金短债比与Altman Z-Score，推演极端承压情景下的流动性缺口，并按Altman原始分区给出偿债风险分级（Z>2.99低、1.81–2.99中、<1.81高）。",
             "why": "全面评估短期偿债缓冲与长期资本结构稳健性，提前预警债务违约与资金链断裂断崖风险。",
             "uses": [
               "reconciled"
@@ -2870,7 +2870,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：Altman Z-Score破产预测模型及巴塞尔协议流动性覆盖率(LCR)框架"
+                "text": "依据：Altman（1968）Z-Score初始模型（制造业上市公司样本）；流动/速动/现金短债比为银行信贷与信用评级通行口径"
               },
               {
                 "id": "r2",
@@ -3002,7 +3002,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ed",
           "version": 1,
-          "digest": "sha256:66fb4192aae9c27f7dc022834071e9092eba18baf386de74c2a3704b71d705a2",
+          "digest": "sha256:6a02a3eed672c9b79ffd52158c5fc5731771ded72da64228581eb1817fc93a91",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3012,7 +3012,7 @@
           "step": {
             "id": "method",
             "title": "营运资本周转与现金转化周期 CCC",
-            "does": "测算存货周转天数(DIO)、应收账款周转天数(DSO)、应付账款周转天数(DPO)，合成现金转化周期(CCC=DIO+DSO-DPO)。",
+            "does": "测算存货周转天数(DIO)、应收账款周转天数(DSO)、应付账款周转天数(DPO)，合成现金转化周期(CCC=DIO+DSO−DPO)；存货、应收、应付取期初期末算术平均，DIO=平均存货/营业成本×365，DSO=平均应收账款/营业收入×365，DPO=平均应付账款/营业成本×365，一律按365天。",
             "why": "衡量企业经营营运资金占用效率，洞察产业链上下游话语权及日常流动性造血循环节奏。",
             "uses": [
               "reconciled"
@@ -3020,7 +3020,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：企业营运资本管理理论及现金循环周期(Cash Conversion Cycle)标准模型"
+                "text": "依据：现金循环周期模型（Richards & Laughlin, 1980）及营运资本管理通行教材口径"
               },
               {
                 "id": "r2",
@@ -3135,7 +3135,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ee",
           "version": 1,
-          "digest": "sha256:04b4f7ab31f5fa40ece7397079a17cc5d0d625fb23a562f1ba4a17b62997051c",
+          "digest": "sha256:30d9fee6fe81bc0e1be9bfa9bd6b3b7fe53101cf57a686485a3e75be65fbabfe",
           "inputs": {
             "purified": "non_recurring_items_purification"
           }
@@ -3145,7 +3145,7 @@
           "step": {
             "id": "method",
             "title": "收益质量分析与应计项排雷、FCF",
-            "does": "测算经营性现金流/净利润比值、企业自由现金流(FCFF=OCF-CapEx)，运用修正琼斯模型测算操纵性应计利润异动。",
+            "does": "测算经营性现金流/净利润比值、企业自由现金流(FCFF=OCF-CapEx)，并以总应计利润率((净利润−经营现金流)/总资产)的跨期异动标注应计排雷信号。",
             "why": "穿透权责发生制下的会计应计项异动，识别纸面富贵与利润不含金现象，防范收益质量劣化。",
             "uses": [
               "purified"
@@ -3153,7 +3153,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：Dechow & Dichev (2002) 收益质量与应计项异动检验理论及FCFF模型"
+                "text": "依据：Dechow, Sloan & Sweeney（1995）修正琼斯模型（操纵性应计）与Dechow & Dichev（2002）应计质量框架；FCFF 口径见 Damodaran 估值教材"
               },
               {
                 "id": "r2",
@@ -3282,7 +3282,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ef",
           "version": 1,
-          "digest": "sha256:d4588164524d86a05d1667a08e7215468056fd4e452abd6406237555f950e2ca",
+          "digest": "sha256:f9bd0b2f4670f6ce90f6e86f3f3a4fcc42079d1b731fbf1bce2a8020b9929741",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3292,7 +3292,7 @@
           "step": {
             "id": "method",
             "title": "主营业务分部量价拆解",
-            "does": "按产品大类、业务分部及地理区域拆解收入构成，剥离销量增长率与平均单价变动效应。",
+            "does": "按产品大类、业务分部及地理区域拆解收入构成，剥离销量增长率与平均单价变动效应：量增贡献=(本期量−上期量)×上期价，价变贡献=(本期价−上期价)×本期量，交叉项归入价变；分部未披露量价时用收入增速与销量增速近似并明确标注。",
             "why": "穿透收入表象，判定业务扩张究竟由终端放量还是提价驱动，研判核心业务成长质量。",
             "uses": [
               "reconciled"
@@ -3300,7 +3300,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：财政部《企业会计准则第35号——分部报告》(CAS 35) 及量价因素分析法"
+                "text": "依据：财政部《企业会计准则第35号——分部报告》(CAS 35)；管理会计因素分析（连环替代）法惯例"
               },
               {
                 "id": "r2",
@@ -3537,7 +3537,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f1",
           "version": 1,
-          "digest": "sha256:f216814345d7be6bc33a058d7f77fd0a2e9b0f662b356387de3201e19cb775d4",
+          "digest": "sha256:12e2e8023fad5865d015a4c7d7e75a03bcd667bfdb76404b301cb551ef7faa76",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3547,7 +3547,7 @@
           "step": {
             "id": "method",
             "title": "资本开支与产能释放周期追踪",
-            "does": "分析购建固定资产支付现金(CapEx)、在建工程结转固定资产进度及折旧摊销年限变动。",
+            "does": "分析购建固定资产支付现金(CapEx)与当期折旧摊销之比、在建工程结转固定资产进度（本期转固/期初在建）及折旧摊销年限变动，定位产能周期阶段。",
             "why": "锚定企业在产能扩张周期中所处阶段，研判新增折旧压力与未来业绩释放时点。",
             "uses": [
               "reconciled"
@@ -3555,7 +3555,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：实业投资与产能周期理论及固定资产折旧会计估计核算"
+                "text": "依据：财政部《企业会计准则第4号——固定资产》(CAS 4) 折旧估计规范及产能周期分析通行框架"
               },
               {
                 "id": "r2",
@@ -3662,7 +3662,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f2",
           "version": 1,
-          "digest": "sha256:46c42bd9bc85d052ddd9eae7444a90987fb4354fb3c01c99f4409759851fdcf9",
+          "digest": "sha256:761ba8c2076fea3e482b2f9fa36680fc8aa23ccb4063c9f2ad2c9898e96ca826",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3672,7 +3672,7 @@
           "step": {
             "id": "method",
             "title": "研发投入资本化与产出效能评估",
-            "does": "核算研发费用占营收比重、研发支出资本化率，对标专利获批量及新产品收入转化周期。",
+            "does": "核算研发投入强度(研发投入总额/营业收入，含费用化与资本化)、研发支出资本化率(资本化研发/研发投入总额)，对标专利获批量及新产品收入转化周期。",
             "why": "防范通过过度资本化虚增当期利润，衡量真实研发硬核科技转化效能。",
             "uses": [
               "reconciled"
@@ -3792,7 +3792,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f3",
           "version": 1,
-          "digest": "sha256:f35a4f718cfd9a75c8adc6a252c9c15b10e5ca286523f3c54266bf6f89b074d0",
+          "digest": "sha256:1db8b8ea4291dcf5c106052e9fe436c3184c308424e15b8efe66ffb2e1c6fe1c",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3802,7 +3802,7 @@
           "step": {
             "id": "method",
             "title": "复合年均增长率与趋势外推",
-            "does": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR)，拟合历史时序回归趋势。",
+            "does": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。",
             "why": "消除单一年份周期波动假象，确立企业中长期历史内生增长基准轨道。",
             "uses": [
               "reconciled"
@@ -3920,7 +3920,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f4",
           "version": 1,
-          "digest": "sha256:acf49cbd2a96776b2f995c31b0d1ff36423f78351ae54fe6060cb7e7ecd396ab",
+          "digest": "sha256:c832caca1bc9e98b220455014e82eb9752f3fd62a610bfe59be4b0f94d7bb8a4",
           "inputs": {
             "dupont": "dupont_five_way_decomposition",
             "working_capital": "working_capital_cash_cycle_analysis"
@@ -3931,7 +3931,7 @@
           "step": {
             "id": "method",
             "title": "三表联动预测模型",
-            "does": "基于历史基准、杜邦分解与营运资本假设，联动推演未来损益、资产负债与现金流，利用现金/债务平仓(Plug)保持资产负债平衡。",
+            "does": "基于历史基准、杜邦分解与营运资本假设联动推演三表，输出覆盖未来两个季度、按悲观/基准/乐观三情景的区间预测；资产负债表用现金/短期债务作平衡项(Plug)保持配平，配平残差恒零。",
             "why": "构建逻辑自洽的前瞻财务沙盘，为内生估值与资本配置提供基准预测三表。",
             "uses": [
               "dupont",
@@ -3940,7 +3940,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架"
+                "text": "依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架"
               },
               {
                 "id": "r2",
@@ -4071,7 +4071,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f5",
           "version": 1,
-          "digest": "sha256:6581874f19587e3121b549dda77e75e09a27b2ed84e528e2092e6dfa19dade42",
+          "digest": "sha256:7934692ee2ad3074fb09cdbf68a5b7c34f2107d46497c0dd88233239b5a70871",
           "inputs": {
             "forecast": "three_statement_linked_forecasting"
           }
@@ -4081,7 +4081,7 @@
           "step": {
             "id": "method",
             "title": "企业自由现金流贴现估值 DCF",
-            "does": "基于三表预测现金流，折算加权平均资本成本(WACC)，计算显性期FCFF现值与永续增长终值，推导股权内在价值。",
+            "does": "以三表联动预测的FCFF为显性期现金流，按加权平均资本成本(WACC)贴现，加永续增长终值推导企业价值与每股内在价值；WACC的无风险利率、ERP、beta逐项标注来源，显性期长度与永续增长率随委托单列示取值与依据；输出WACC×永续增长率双变量敏感性表。",
             "why": "脱离短期二级市场噪音，立足企业终身自由现金流创造能力核算真实内在底线价值。",
             "uses": [
               "forecast"
@@ -4221,7 +4221,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f6",
           "version": 1,
-          "digest": "sha256:b2a9331e9d25a4dda5b84e6e3b8d245989b586c694046a9ae88cab9056886924",
+          "digest": "sha256:00389bce0146220b8400f016d722f8a38be2fca2d118d9a37745de4e12891f20",
           "inputs": {
             "purified": "non_recurring_items_purification"
           }
@@ -4231,7 +4231,7 @@
           "step": {
             "id": "method",
             "title": "相对估值与历史分位数对标",
-            "does": "计算PE-TTM、PB-LF、EV/EBITDA乘数，测算所处历史3年/5年分位数，对标行业可比公司中位数。",
+            "does": "计算PE-TTM、PB-LF、EV/EBITDA乘数（EV=市值+净债务），按日频分布测算所处历史3年/5年分位数，对标行业可比公司中位数。",
             "why": "衡量标的在横向行业及纵向历史估值谱系中的溢折价状态与安全边际。",
             "uses": [
               "purified"
@@ -4239,7 +4239,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：相对估值乘数分析理论及中国证监会证券分析师专业估值实务"
+                "text": "依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径"
               },
               {
                 "id": "r2",
@@ -4471,7 +4471,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f8",
           "version": 1,
-          "digest": "sha256:9894c0cf80b3333c3faf4edd719d5823b419b11e90df2b01d37f0bb17c7b5415",
+          "digest": "sha256:722c439ea1897a01057c564f22455b784c6a3d8a9d71e182f0fdbc5a11fc7683",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -4481,7 +4481,7 @@
           "step": {
             "id": "method",
             "title": "商誉减值与资产质量压力测试",
-            "does": "测算商誉占净资产比重，对标并购标的业绩承诺完成率，测算商誉全额减值对当期损益与净资产的侵蚀厚度。",
+            "does": "测算商誉占净资产比重、并购标的业绩承诺完成率(实际/承诺)，并测算商誉全额减值压力情景对当期损益与净资产的侵蚀幅度。",
             "why": "提前引爆商誉减值黑天鹅，评估资产负债表潜在存货跌价、坏账及商誉暴雷风险。",
             "uses": [
               "reconciled"
@@ -4601,7 +4601,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f9",
           "version": 1,
-          "digest": "sha256:441e6c9b5caec19f7c46022cf98003dde1d302dc484d21898b178d5a634402ce",
+          "digest": "sha256:197d9eec9ec170524206e20c952fb60505c9d314180af0b73073fb637df0a6e1",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -4611,7 +4611,7 @@
           "step": {
             "id": "method",
             "title": "关键审计事项与或有负债排查",
-            "does": "提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。",
+            "does": "提取审计意见类型与关键审计事项（KAM），每条结论必须带原文引文及PDF物理页码（与印刷页码不一致时注明）；扫描附注中的对外担保、未决诉讼及承诺事项，或有负债按CAS 13口径归类。",
             "why": "倾听外部独立审计师的警示哨声，排查表外隐性负债对净资产的刚性求偿风险。",
             "uses": [
               "reconciled"
@@ -4619,7 +4619,7 @@
             "rules": [
               {
                 "id": "r1",
-                "text": "依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》"
+                "text": "依据：中国注册会计师审计准则第1504号《在审计报告中沟通关键审计事项》及《企业会计准则第13号——或有事项》"
               },
               {
                 "id": "r2",
@@ -4765,7 +4765,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fa",
           "version": 1,
-          "digest": "sha256:5bddb907a5ccb03688645d1474c637d19f6ecb37a77458c4cba1c77e4a138b37",
+          "digest": "sha256:70b8c6fe1349b12a11ba4e6dc5ea63c7d14c684495f92c40094f3d07121cb488",
           "inputs": {
             "dupont": "dupont_five_way_decomposition"
           }
@@ -4775,7 +4775,7 @@
           "step": {
             "id": "method",
             "title": "竞争壁垒与核心投资假说验证",
-            "does": "综合ROIC与WACC利差，结合无形资产、转换成本、网络效应与成本优势，对照核心买入假说进行事实证伪。",
+            "does": "综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。",
             "why": "将财务指标升华为商业壁垒研判，验证超额资本回报率的可持续性与竞争护城河深浅。",
             "uses": [
               "dupont"
@@ -5175,7 +5175,7 @@
       "ref": "record:00000000-0000-0000-0000-000000000037"
     },
     {
-      "rule": "财务三表标准化重构与口径对齐：依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范",
+      "rule": "财务三表标准化重构与口径对齐：依据：财政部《企业会计准则第30号——财务报表列报》（2014年修订）及一般企业财务报表格式通知（财会〔2019〕6号）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000002b"
     },
@@ -5255,7 +5255,7 @@
       "ref": "record:00000000-0000-0000-0000-00000000005b"
     },
     {
-      "rule": "非经常性损益穿透与扣非还原：依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》",
+      "rule": "非经常性损益穿透与扣非还原：依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000052"
     },
@@ -5315,7 +5315,7 @@
       "ref": "record:00000000-0000-0000-0000-000000000082"
     },
     {
-      "rule": "偿债压力与流动性体检：依据：Altman Z-Score破产预测模型及巴塞尔协议流动性覆盖率(LCR)框架",
+      "rule": "偿债压力与流动性体检：依据：Altman（1968）Z-Score初始模型（制造业上市公司样本）；流动/速动/现金短债比为银行信贷与信用评级通行口径",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000078"
     },
@@ -5335,7 +5335,7 @@
       "ref": "record:00000000-0000-0000-0000-000000000092"
     },
     {
-      "rule": "营运资本周转与现金转化周期 CCC：依据：企业营运资本管理理论及现金循环周期(Cash Conversion Cycle)标准模型",
+      "rule": "营运资本周转与现金转化周期 CCC：依据：现金循环周期模型（Richards & Laughlin, 1980）及营运资本管理通行教材口径",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000008a"
     },
@@ -5365,7 +5365,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000000a3"
     },
     {
-      "rule": "收益质量分析与应计项排雷、FCF：依据：Dechow & Dichev (2002) 收益质量与应计项异动检验理论及FCFF模型",
+      "rule": "收益质量分析与应计项排雷、FCF：依据：Dechow, Sloan & Sweeney（1995）修正琼斯模型（操纵性应计）与Dechow & Dichev（2002）应计质量框架；FCFF 口径见 Damodaran 估值教材",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000009a"
     },
@@ -5390,7 +5390,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000000b2"
     },
     {
-      "rule": "主营业务分部量价拆解：依据：财政部《企业会计准则第35号——分部报告》(CAS 35) 及量价因素分析法",
+      "rule": "主营业务分部量价拆解：依据：财政部《企业会计准则第35号——分部报告》(CAS 35)；管理会计因素分析（连环替代）法惯例",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000ab"
     },
@@ -5440,7 +5440,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000000d0"
     },
     {
-      "rule": "资本开支与产能释放周期追踪：依据：实业投资与产能周期理论及固定资产折旧会计估计核算",
+      "rule": "资本开支与产能释放周期追踪：依据：财政部《企业会计准则第4号——固定资产》(CAS 4) 折旧估计规范及产能周期分析通行框架",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000c9"
     },
@@ -5510,7 +5510,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000000fd"
     },
     {
-      "rule": "三表联动预测模型：依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架",
+      "rule": "三表联动预测模型：依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000f6"
     },
@@ -5555,7 +5555,7 @@
       "ref": "record:00000000-0000-0000-0000-00000000011d"
     },
     {
-      "rule": "相对估值与历史分位数对标：依据：相对估值乘数分析理论及中国证监会证券分析师专业估值实务",
+      "rule": "相对估值与历史分位数对标：依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000116"
     },
@@ -5635,7 +5635,7 @@
       "ref": "record:00000000-0000-0000-0000-00000000014d"
     },
     {
-      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》",
+      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号《在审计报告中沟通关键审计事项》及《企业会计准则第13号——或有事项》",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000142"
     },
