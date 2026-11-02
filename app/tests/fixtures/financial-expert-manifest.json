@@ -2884,10 +2884,10 @@
               ],
               "field": "source",
               "values": [
-                "dupont_five_way_decomposition"
+                "dupont"
               ],
-              "label": "「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont_five_way_decomposition」；「metric」、「source」不能为空；「metric」的组合不重复",
-              "message": "没过：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont_five_way_decomposition」；「metric」、「source」不能为空；「metric」的组合不重复"
+              "label": "「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont」；「metric」、「source」不能为空；「metric」的组合不重复",
+              "message": "没过：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont」；「metric」、「source」不能为空；「metric」的组合不重复"
             },
             {
               "kind": "covers",
@@ -2921,10 +2921,10 @@
               ],
               "field": "source",
               "values": [
-                "accounting_statement_reconciliation"
+                "reconciliation"
               ],
-              "label": "「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「accounting_statement_reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
-              "message": "没过：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「accounting_statement_reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复"
+              "label": "「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
+              "message": "没过：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复"
             },
             {
               "kind": "covers",
@@ -2958,10 +2958,10 @@
               ],
               "field": "source",
               "values": [
-                "solvency_liquidity_stress_check"
+                "solvency"
               ],
-              "label": "「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency_liquidity_stress_check」；「metric」、「source」不能为空；「metric」的组合不重复",
-              "message": "没过：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency_liquidity_stress_check」；「metric」、「source」不能为空；「metric」的组合不重复"
+              "label": "「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency」；「metric」、「source」不能为空；「metric」的组合不重复",
+              "message": "没过：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency」；「metric」、「source」不能为空；「metric」的组合不重复"
             },
             {
               "kind": "covers",
@@ -2995,10 +2995,10 @@
               ],
               "field": "source",
               "values": [
-                "earnings_quality_accrual_audit"
+                "earnings_quality"
               ],
-              "label": "「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality_accrual_audit」；「metric」、「source」不能为空；「metric」的组合不重复",
-              "message": "没过：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality_accrual_audit」；「metric」、「source」不能为空；「metric」的组合不重复"
+              "label": "「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality」；「metric」、「source」不能为空；「metric」的组合不重复",
+              "message": "没过：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality」；「metric」、「source」不能为空；「metric」的组合不重复"
             },
             {
               "kind": "covers",
@@ -3032,10 +3032,10 @@
               ],
               "field": "source",
               "values": [
-                "dcf_intrinsic_valuation"
+                "valuation"
               ],
-              "label": "「valuation_evidence」每项都有「metric」、「source」，「source」只能是「dcf_intrinsic_valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
-              "message": "没过：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「dcf_intrinsic_valuation」；「metric」、「source」不能为空；「metric」的组合不重复"
+              "label": "「valuation_evidence」每项都有「metric」、「source」，「source」只能是「valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
+              "message": "没过：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「valuation」；「metric」、「source」不能为空；「metric」的组合不重复"
             },
             {
               "kind": "required_keys",
@@ -3083,14 +3083,14 @@
               ],
               "field": "source",
               "values": [
-                "accounting_statement_reconciliation",
-                "dupont_five_way_decomposition",
-                "solvency_liquidity_stress_check",
-                "earnings_quality_accrual_audit",
-                "dcf_intrinsic_valuation"
+                "reconciliation",
+                "dupont",
+                "solvency",
+                "earnings_quality",
+                "valuation"
               ],
-              "label": "「risk_factors」每项都有「text」、「source」，「source」只能是「accounting_statement_reconciliation」、「dupont_five_way_decomposition」、「solvency_liquidity_stress_check」、「earnings_quality_accrual_audit」、「dcf_intrinsic_valuation」；「text」、「source」不能为空；「text」的组合不重复",
-              "message": "没过：「risk_factors」每项都有「text」、「source」，「source」只能是「accounting_statement_reconciliation」、「dupont_five_way_decomposition」、「solvency_liquidity_stress_check」、「earnings_quality_accrual_audit」、「dcf_intrinsic_valuation」；「text」、「source」不能为空；「text」的组合不重复"
+              "label": "「risk_factors」每项都有「text」、「source」，「source」只能是「reconciliation」、「dupont」、「solvency」、「earnings_quality」、「valuation」；「text」、「source」不能为空；「text」的组合不重复",
+              "message": "没过：「risk_factors」每项都有「text」、「source」，「source」只能是「reconciliation」、「dupont」、「solvency」、「earnings_quality」、「valuation」；「text」、「source」不能为空；「text」的组合不重复"
             },
             {
               "kind": "covers",
@@ -7259,7 +7259,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fb",
           "version": 1,
-          "digest": "sha256:ee2601da5598c8fb7cb59d98e50a98ec52123d3014841cfad565abaa7ecd3827",
+          "digest": "sha256:50cab71f870d64ab8c5403917517febdffd4fe4f8569be596413dce9dc0c811a",
           "inputs": {
             "reconciliation": "accounting_statement_reconciliation",
             "dupont": "dupont_five_way_decomposition",
@@ -7422,7 +7422,7 @@
                   ],
                   "field": "source",
                   "values": [
-                    "dupont_five_way_decomposition"
+                    "dupont"
                   ]
                 }
               },
@@ -7460,7 +7460,7 @@
                   ],
                   "field": "source",
                   "values": [
-                    "accounting_statement_reconciliation"
+                    "reconciliation"
                   ]
                 }
               },
@@ -7498,7 +7498,7 @@
                   ],
                   "field": "source",
                   "values": [
-                    "solvency_liquidity_stress_check"
+                    "solvency"
                   ]
                 }
               },
@@ -7536,7 +7536,7 @@
                   ],
                   "field": "source",
                   "values": [
-                    "earnings_quality_accrual_audit"
+                    "earnings_quality"
                   ]
                 }
               },
@@ -7574,7 +7574,7 @@
                   ],
                   "field": "source",
                   "values": [
-                    "dcf_intrinsic_valuation"
+                    "valuation"
                   ]
                 }
               },
@@ -7625,11 +7625,11 @@
                   ],
                   "field": "source",
                   "values": [
-                    "accounting_statement_reconciliation",
-                    "dupont_five_way_decomposition",
-                    "solvency_liquidity_stress_check",
-                    "earnings_quality_accrual_audit",
-                    "dcf_intrinsic_valuation"
+                    "reconciliation",
+                    "dupont",
+                    "solvency",
+                    "earnings_quality",
+                    "valuation"
                   ]
                 }
               },
@@ -8767,7 +8767,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000001c6"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont_five_way_decomposition」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001c7"
     },
@@ -8782,7 +8782,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000001c9"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「accounting_statement_reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001ca"
     },
@@ -8797,7 +8797,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000001cc"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency_liquidity_stress_check」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001cd"
     },
@@ -8812,7 +8812,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000001cf"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality_accrual_audit」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001d0"
     },
@@ -8827,7 +8827,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000001d2"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「dcf_intrinsic_valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001d3"
     },
@@ -8852,7 +8852,7 @@
       "ref": "record:00000000-0000-0000-0000-0000000001d7"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」每项都有「text」、「source」，「source」只能是「accounting_statement_reconciliation」、「dupont_five_way_decomposition」、「solvency_liquidity_stress_check」、「earnings_quality_accrual_audi…",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」每项都有「text」、「source」，「source」只能是「reconciliation」、「dupont」、「solvency」、「earnings_quality」、「valuation」；「text」、「source」不能为空；「text」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001d8"
     },

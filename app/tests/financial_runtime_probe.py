@@ -250,7 +250,9 @@ def outputs(e):
     out = {
         "structured_dossier": "合成底稿",
         "executive_summary": "仅回归验证",
-        "risk_factors": [{"text": f"合成风险 {i}", "source": M04} for i in range(3)],
+        "risk_factors": [
+            {"text": f"合成风险 {i}", "source": "dupont"} for i in range(3)
+        ],
     }
     for r in units[M20].acceptance:
         if r.kind != "covers":
@@ -268,7 +270,14 @@ def outputs(e):
                 ]
             }
         out[r.path] = [
-            {"metric": row[r.source_field], "source": source}
+            {
+                "metric": row[r.source_field],
+                "source": next(
+                    c.values[0]
+                    for c in units[M20].acceptance
+                    if c.kind == "each_has" and c.path == r.path and c.field == "source"
+                ),
+            }
             for row in e.artifacts[source][path]
         ]
     all_outputs[M20] = out

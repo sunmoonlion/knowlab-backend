@@ -75,3 +75,62 @@ def test_method_boundaries_survive_freeze_bind_and_compile():
             assert spec[key] in unit["contract"]["method_text"]
             definition = manifest["pack"]["method_sources"][spec["id"]]["definition"]
             assert any(r["text"] == spec[key] for r in definition["step"]["rules"])
+
+
+def test_report_sources_use_neutral_slots_when_bound_under_different_aliases():
+    from uuid import UUID
+
+    from app.domain.knowbots.methods import BindMethod, MethodDefinition, bind
+    from app.domain.knowbots.workdraft import WorkdraftBody
+
+    manifest, problems = build_financial_expert_manifest()
+    assert not problems
+    definition = MethodDefinition.model_validate(
+        manifest["pack"]["method_sources"]["comprehensive_dossier_formatting"][
+            "definition"
+        ]
+    )
+    inputs = {slot: f"source_{i}" for i, slot in enumerate(definition.input_schemas)}
+    body = WorkdraftBody.model_validate(
+        {
+            "name": "另一个专家",
+            "planning": {
+                "method_text": "按作者方法核对",
+                "final_units": ["new_report"],
+                "max_steps": 10,
+                "max_replans": 1,
+                "reserve": "0.05",
+                "input_max_chars": 8000,
+            },
+            "steps": [
+                {
+                    "id": alias,
+                    "outputs": [
+                        {"name": key, "type": "table"}
+                        for key in definition.input_schemas[slot]
+                    ],
+                    "advanced": {"output_schema": definition.input_schemas[slot]},
+                }
+                for slot, alias in inputs.items()
+            ],
+        }
+    )
+    bound = bind(
+        definition,
+        body,
+        BindMethod(
+            request_id=UUID(int=1),
+            revision=1,
+            alias="new_report",
+            digest=definition.digest(),
+            inputs=inputs,
+            required=False,
+            max_calls=1,
+        ),
+    )
+    assert set(bound.uses) == set(inputs.values())
+    for rule in bound.checks:
+        if rule.template == "covers":
+            assert rule.params["source_step"] in inputs.values()
+        if rule.template == "each_has" and rule.params.get("field") == "source":
+            assert set(rule.params["values"]) <= set(inputs)

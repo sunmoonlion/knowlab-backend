@@ -1731,7 +1731,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 non_empty_keys=["metric", "source"],
                 unique_by=["metric"],
                 field="source",
-                values=["dupont_five_way_decomposition"],
+                values=["dupont"],
             ),
             check(
                 "covers",
@@ -1749,7 +1749,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 non_empty_keys=["metric", "source"],
                 unique_by=["metric"],
                 field="source",
-                values=["accounting_statement_reconciliation"],
+                values=["reconciliation"],
             ),
             check(
                 "covers",
@@ -1767,7 +1767,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 non_empty_keys=["metric", "source"],
                 unique_by=["metric"],
                 field="source",
-                values=["solvency_liquidity_stress_check"],
+                values=["solvency"],
             ),
             check(
                 "covers",
@@ -1785,7 +1785,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 non_empty_keys=["metric", "source"],
                 unique_by=["metric"],
                 field="source",
-                values=["earnings_quality_accrual_audit"],
+                values=["earnings_quality"],
             ),
             check(
                 "covers",
@@ -1803,7 +1803,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 non_empty_keys=["metric", "source"],
                 unique_by=["metric"],
                 field="source",
-                values=["dcf_intrinsic_valuation"],
+                values=["valuation"],
             ),
             CheckCell(
                 template="required",
@@ -1837,11 +1837,11 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                     "unique_by": ["text"],
                     "field": "source",
                     "values": [
-                        "accounting_statement_reconciliation",
-                        "dupont_five_way_decomposition",
-                        "solvency_liquidity_stress_check",
-                        "earnings_quality_accrual_audit",
-                        "dcf_intrinsic_valuation",
+                        "reconciliation",
+                        "dupont",
+                        "solvency",
+                        "earnings_quality",
+                        "valuation",
                     ],
                 },
             ),
