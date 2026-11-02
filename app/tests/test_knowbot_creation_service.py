@@ -164,6 +164,30 @@ async def test_revising_adds_a_version_and_keeps_the_old_one(parts):
 
 
 @pytest.mark.asyncio
+async def test_revising_test_rows_keeps_original_cases_and_idea(parts):
+    svc, repo, *_ = parts
+    request = await _accepted(svc)
+    previous = repo.versions[(request.id, 1)]
+    revised = _revision().model_dump(mode="json")
+    revised["cases"][0]["expectations"] = [
+        {
+            "artifact": "indicators",
+            "path": "annual_metrics",
+            "kind": "approx",
+            "value": 100,
+            "tolerance": 0.001,
+            "row": {"where": {"year": "2024"}, "field": "revenue"},
+        }
+    ]
+    await svc.revise(OWNER, str(request.id), RevisionIn.model_validate(revised))
+    latest = repo.versions[(request.id, 2)]
+    assert latest.cases == revised["cases"]
+    assert latest.idea == previous.idea
+    assert repo.versions[(request.id, 1)] == previous
+    assert "row" not in previous.cases[0]["expectations"][0]
+
+
+@pytest.mark.asyncio
 async def test_the_user_reviews_a_draft_before_it_is_tested(parts):
     svc, *_ = parts
     request, draft = await _reviewed_draft(svc)

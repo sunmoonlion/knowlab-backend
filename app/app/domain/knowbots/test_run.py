@@ -43,6 +43,27 @@ class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class RowSelection(Strict):
+    """在 path 指向的表中按列值唯一选行，再从该行的 field 点号路径取值。"""
+
+    where: dict[str, str | int | float | bool] = Field(min_length=1, max_length=8)
+    field: str = Field(min_length=1, max_length=256)
+
+    @model_validator(mode="after")
+    def _valid_columns(self) -> RowSelection:
+        import math
+
+        if any(not k.strip() or len(k) > 128 for k in self.where):
+            raise ValueError("row columns must be nonblank and at most 128 characters")
+        if any(
+            isinstance(v, float) and not math.isfinite(v) for v in self.where.values()
+        ):
+            raise ValueError("row values must be finite")
+        if not self.field.strip():
+            raise ValueError("row field must not be blank")
+        return self
+
+
 class Expectation(Strict):
     """用户定的「怎样算对」：在最后的交回物里，某一项应当等于、约等于或包含什么。"""
 
@@ -52,6 +73,9 @@ class Expectation(Strict):
     value: str | int | float | bool
     # approx 的相对误差，例如 0.01 是 1%；别的 kind 不用
     tolerance: float | None = Field(default=None, ge=0, le=1)
+    row: RowSelection | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _tolerance_only_for_approx(self) -> Expectation:
