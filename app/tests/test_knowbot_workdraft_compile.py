@@ -14,6 +14,7 @@ from app.domain.knowbots.compile import (
     DEFAULT_INPUT_MAX_CHARS,
     DEFAULT_RESERVE,
     DEFAULT_TOOLS,
+    PLATFORM_FILE_TAIL,
     PLATFORM_HEAD,
     PLATFORM_TAIL,
     V2_TOOLS,
@@ -376,6 +377,29 @@ def test_advanced_overrides_the_generated_engineering() -> None:
     assert (first["reserve"], first["input_max_chars"]) == ("0.2", 24000)
     assert first["output_schema"] == {"periods": ["string"]}
     assert first["output_file"] == "底稿/摸底.md"
+    assert first["method_text"].endswith(PLATFORM_FILE_TAIL)
+    assert "这一步不改任何文件" not in first["method_text"]
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_file_delivery_import_preserves_author_text_and_roundtrips(legacy):
+    doc = body()
+    doc["steps"][0]["advanced"] = {"output_file": "财务分析报告.md"}
+    manifest, problems = build(doc)
+    assert not problems
+    if legacy:
+        first = manifest["pack"]["workflow"][0]
+        first["method_text"] = first["method_text"].replace(
+            PLATFORM_FILE_TAIL, PLATFORM_TAIL
+        )
+    back, notes = decompile(manifest)
+    assert not notes
+    assert back.steps[0].does == doc["steps"][0]["does"]
+    assert back.steps[0].advanced.output_file == "财务分析报告.md"
+    rebuilt, errors = build(back.model_dump(mode="json"))
+    assert not errors
+    assert rebuilt["pack"]["workflow"][0]["method_text"].endswith(PLATFORM_FILE_TAIL)
+    assert rebuilt["pack"]["workflow"][1]["method_text"].endswith(PLATFORM_TAIL)
 
 
 def test_rule_sources_gather_rules_and_checks_with_their_refs() -> None:
