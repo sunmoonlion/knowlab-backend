@@ -188,3 +188,39 @@ async def test_the_platform_round_uses_the_same_formats(w: Wired) -> None:
     (sent,) = w.incubator.started
     assert [f.name for f in sent.data_formats] == ["2024 年报.pdf"]
     assert len(w.knowbase.tokens) == asked
+
+
+async def test_real_axes_reach_incubation_and_do_not_change_with_library(w: Wired):
+    w.knowbase.tables[MATERIAL] = [
+        {"name": "报表", "columns": ["项目", "2024"], "rows": ["收入"]}
+    ]
+    request = await w.request()
+    picked = await w.library.pick(
+        OWNER, str(request.id), revision=0, picks=[MATERIAL], user_token=token
+    )
+    assert picked.data_formats[MATERIAL]["tables"] == w.knowbase.tables[MATERIAL]
+    assert picked.data_formats[MATERIAL]["description"]["language"] == "zh"
+    w.knowbase.tables[MATERIAL] = []
+    await w.inc.start(OWNER, str(request.id), action="draft")
+    (sent,) = w.incubator.started
+    assert sent.data_formats[0].tables[0].rows == ("收入",)
+
+
+async def test_wrong_format_version_does_not_save_partial_picks(w: Wired):
+    from app.application.errors.exceptions import BadGatewayError
+
+    request = await w.request()
+    original = w.knowbase.read_format
+
+    async def wrong(*args):
+        result = await original(*args)
+        result["sha256"] = "b" * 64
+        return result
+
+    w.knowbase.read_format = wrong
+    with pytest.raises(BadGatewayError, match="selected version"):
+        await w.library.pick(
+            OWNER, str(request.id), revision=0, picks=[MATERIAL], user_token=token
+        )
+    stored = await w.repo.get_workdraft(request.id)
+    assert stored is None  # 失败发生在写事务前，不留下半份工作稿

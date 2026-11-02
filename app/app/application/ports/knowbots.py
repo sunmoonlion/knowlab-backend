@@ -868,6 +868,12 @@ class KnowbaseLibraryClient(Protocol):
         """一份资料某一版的各种读法与就绪与否（RenditionRead）。"""
         ...
 
+    async def read_format(
+        self, user_token: str, material_id: str, version_no: int
+    ) -> dict[str, Any]:
+        """某一版的 MaterialFormatRead：版本摘要与表轴，不取内容。"""
+        ...
+
 
 class IncubationClient(Protocol):
     """交运行方跑孵化的一轮（契约 knowbot-incubation/v1，服务关系 knowbench:incubate）。

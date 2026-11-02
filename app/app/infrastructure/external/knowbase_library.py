@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from app.application.errors.exceptions import BadGatewayError, NotFoundError
+from app.domain.knowbots.incubation import TableFormat
 from app.infrastructure.external.knowbase_client import (
     KnowbaseClient,
     KnowbaseRefused,
@@ -26,8 +29,37 @@ from app.infrastructure.external.knowbase_client import (
 COLUMN = "knowlab"
 
 
+class FormatTable(TableFormat):
+    # 提供方可增响应字段；保存时只投影孵化契约认识的字段。
+    model_config = ConfigDict(extra="ignore")
+
+
+class MaterialFormat(BaseModel):
+    material_id: str
+    version_no: int = Field(ge=1, strict=True)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    media_type: str
+    tables: list[FormatTable] = Field(max_length=50)
+
+
 class KnowbaseLibrary(KnowbaseClient):
     BASE = "/api/internal/v2/user-data"
+
+    async def read_format(
+        self, user_token: str, material_id: str, version_no: int
+    ) -> dict[str, Any]:
+        body = await self._get(
+            f"/materials/{_segment(material_id)}/versions/{version_no}/format",
+            user_token,
+        )
+        try:
+            parsed = MaterialFormat.model_validate(body)
+        except ValidationError:
+            raise BadGatewayError(
+                "knowbase answered format outside user-data/v2",
+                code="knowbase_contract_invalid",
+            ) from None
+        return parsed.model_dump(mode="json")
 
     async def _get(self, path: str, user_token: str) -> Any:
         try:

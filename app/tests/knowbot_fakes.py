@@ -1110,7 +1110,23 @@ class FakeLibrary:
             ]
         }
         self.tokens: list[str] = []
+        self.tables: dict[str, list[dict[str, Any]]] = {}
         self.fail = False
+
+    async def read_format(
+        self, user_token: str, material_id: str, version_no: int
+    ) -> dict[str, Any]:
+        self.tokens.append(user_token)
+        entry = next(
+            e for e in self.entries if e["material"]["material_id"] == material_id
+        )
+        return {
+            "material_id": material_id,
+            "version_no": version_no,
+            "sha256": entry["version"]["sha256"],
+            "media_type": entry["version"]["media_type"],
+            "tables": copy.deepcopy(self.tables.get(material_id, [])),
+        }
 
     async def column(self, user_token: str) -> list[dict[str, Any]]:
         if self.fail:

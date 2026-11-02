@@ -18,7 +18,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from app.application.errors.exceptions import BadRequestError
+from app.application.errors.exceptions import BadGatewayError, BadRequestError
 from app.application.ports.knowbots import (
     KnowbaseLibraryClient,
     KnowlabRepository,
@@ -33,7 +33,14 @@ from app.domain.knowbots.workdraft import apply
 
 UserToken = Callable[[], Awaitable[str]]
 MAX_PICKS = 50  # 一份工作稿最多挑几份（契约 data_formats 上限 200，留余量）
-DESCRIBED = ("subject", "doc_type", "period_start", "period_end", "data_format")
+DESCRIBED = (
+    "subject",
+    "doc_type",
+    "period_start",
+    "period_end",
+    "data_format",
+    "language",
+)
 
 
 def _text(value: Any, limit: int) -> str | None:
@@ -58,15 +65,19 @@ def shelf_item(entry: dict[str, Any]) -> dict[str, Any]:
             "status": described.get("status"),
         },
         "version_no": version.get("version_no"),
+        "sha256": version.get("sha256"),
         "media_type": version.get("media_type"),
         "size_bytes": version.get("size_bytes"),
         "created_at": material.get("created_at"),
     }
 
 
-def format_of(item: dict[str, Any], readings: Sequence[dict[str, Any]]) -> DataFormat:
-    """一份资料的格式（契约 DataFormat）：描述的几维、已就绪的读法；表头 knowbase
-    还不给本人读，tables 先空。"""
+def format_of(
+    item: dict[str, Any],
+    readings: Sequence[dict[str, Any]],
+    tables: Sequence[dict[str, Any]],
+) -> DataFormat:
+    """描述、读法与 knowbase 交回的表轴；不下载或解析原件。"""
     described = item.get("description") or {}
     ready = sorted(
         {
@@ -85,9 +96,10 @@ def format_of(item: dict[str, Any], readings: Sequence[dict[str, Any]]) -> DataF
                 "period_start": _text(described.get("period_start"), 10),
                 "period_end": _text(described.get("period_end"), 10),
                 "data_format": _text(described.get("data_format"), 64),
-                "language": None,
+                "language": _text(described.get("language"), 16),
             },
             "readings": ready[:10],
+            "tables": tables,
         }
     )
 
@@ -146,12 +158,23 @@ class KnowbotLibraryService:
             for material_id in wanted:
                 item = shown[material_id]
                 version = item.get("version_no")
-                readings = (
-                    await self.knowbase.renditions(token, material_id, int(version))
-                    if isinstance(version, int)
-                    else []
-                )
-                formats[material_id] = format_of(item, readings).model_dump(mode="json")
+                if type(version) is not int or version < 1:
+                    raise BadGatewayError(
+                        "knowbase omitted the version", code="knowbase_contract_invalid"
+                    )
+                shape = await self.knowbase.read_format(token, material_id, version)
+                if any(
+                    shape.get(key) != item.get(key)
+                    for key in ("material_id", "version_no", "sha256", "media_type")
+                ):
+                    raise BadGatewayError(
+                        "knowbase format does not match the selected version",
+                        code="knowbase_contract_invalid",
+                    )
+                readings = await self.knowbase.renditions(token, material_id, version)
+                formats[material_id] = format_of(
+                    item, readings, shape["tables"]
+                ).model_dump(mode="json")
         async with self.repo.transaction():
             current = await self.workdrafts.locked(request, revision)
             body = parse_body(apply(current.body, "data_picks", wanted))

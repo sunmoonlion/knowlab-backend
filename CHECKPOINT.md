@@ -180,3 +180,17 @@ DCF 的期限/WACC/FCFF 口径及各方法财务语义仍需作者逐项确认�
 首次测试调用了错误的方法名/参数，已修正并完整重跑；不隐藏为业务成功。
 
 当前 qwen 发布基线 f1bbcd3 不移动；本增量在独立分支，需与前端同版发布。
+
+
+## 2026-11-02 L4：挑资料时保存真实表轴，随孵化请求交模型
+
+从 knowbase 本人 format 接口读作者已展示资料的选定版本，核 material/version/sha256/
+media_type 与栏记录一致；异常不保存半份工作稿。数据格式保存表名、列/行标签及
+原描述语言，平台轮次仍用已保存快照，不重新拿作者令牌。只在 knowbase 解析原件，
+knowlab 不下载原件，不读取数据区数值。响应容忍增量字段，投影后按孵化模型验证。
+新 knowbase-user-data-lock 钉提供方契约；incubation v1 仅更新 DataFormat 说明，
+字段不变，knowbench 消费摘要同步。
+
+格式客户端/孵化/真实数据库持久化定向回归 59 passed，无跳过；ruff、pyright 通过。
+日志 /tmp/luna-lab-format-tests.log。需先部署 knowbase 新接口，再部署本消费者；
+旧 knowbase 的 404 不能被吞成空表轴。仍须作者实际孵化与接受方法；未导入候选资产。

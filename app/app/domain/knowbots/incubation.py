@@ -137,7 +137,8 @@ class DataDescription(Strict):
 class DataFormat(Strict):
     """作者挑的一份数据的格式（0029 第 6.4 节、专家孵化方案第 8.2 节）：名字、文件类型、
     描述的几维、有哪几种读法（正文、按页文字、表格……已就绪的），各表的表名、列标签、
-    行标签；不含内容。knowbase 现在不给本人读表头的接口，tables 先空着。"""
+    行标签；不含数据区内容。表轴来自 knowbase 的本人读格式接口；
+    不支持的文件类型留空。"""
 
     name: str = Field(min_length=1, max_length=255)
     media_type: str = Field(default="", max_length=128)
