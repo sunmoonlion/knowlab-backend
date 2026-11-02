@@ -4,12 +4,15 @@ Verifies:
 - All 20 author methods freeze with valid provider schema and independent slots.
 - Complete financial & valuation expert assembly compiles cleanly with 0 errors.
 - Compiled manifest strictly adheres to knowbench/dynamic-methods/v2 contract.
-- Read-only comparison against golden fixture (no overwrite in normal tests).
-- Negative test: Plan skipping analysis steps is strictly rejected by knowbench.
-- Positive test: Plan fulfilling full analysis DAG passes knowbench validate_plan.
+- Read-only comparison against golden fixture (assert manifest == golden).
+- Golden fixture tampering is detected and fails verification.
+- Isolated process execution: 2-step plan skipping analysis steps is rejected.
+- Isolated process execution: Plan fulfilling full analysis DAG passes validation.
 """
 
 import json
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +30,8 @@ from tests.financial_author_method_fixtures import (
 )
 
 PARENT = Path(__file__).resolve().parents[3]
+KNOWBENCH_APP_DIR = (PARENT.parent / "knowbench-app/knowbench-backend/app").resolve()
+GOLDEN_FIXTURE_PATH = Path(__file__).parent / "fixtures/financial-expert-manifest.json"
 
 
 def test_all_20_author_methods_validity() -> None:
@@ -83,268 +88,287 @@ def test_financial_expert_manifest_compilation_and_readonly_fixture() -> None:
     jsonschema.validate(pack, json.loads(schema_path.read_text()))
 
     # Read-only verification against tracked golden fixture (Luna requirement)
-    fixture_path = Path(__file__).parent / "fixtures/financial-expert-manifest.json"
-    assert fixture_path.exists(), "Golden fixture must exist"
-    golden = json.loads(fixture_path.read_text())
-    assert manifest["pack"]["title"] == golden["pack"]["title"]
-    assert len(manifest["pack"]["method_units"]) == len(golden["pack"]["method_units"])
-    assert len(manifest["pack"]["method_sources"]) == len(
-        golden["pack"]["method_sources"]
-    )
+    assert GOLDEN_FIXTURE_PATH.exists(), "Golden fixture must exist"
+    golden = json.loads(GOLDEN_FIXTURE_PATH.read_text())
+
+    # Strict full comparison per Luna Section 12 requirement
+    assert manifest == golden, "Compiled manifest must strictly equal golden fixture"
 
 
-def _load_knowbench_runtime() -> tuple[Any, Any, Any, Any, Any]:
-    import app
-    import app.domain
+def test_golden_manifest_tampering_is_detected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Luna Section 12 regression test: tampering with golden must fail verification."""
+    original_read_text = Path.read_text
 
-    kb_app = str(PARENT.parent / "knowbench-app/knowbench-backend/app/app")
-    kb_dom = str(PARENT.parent / "knowbench-app/knowbench-backend/app/app/domain")
-    if kb_app not in app.__path__:
-        app.__path__.append(kb_app)
-    if kb_dom not in app.domain.__path__:
-        app.domain.__path__.append(kb_dom)
+    def altered_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        contents = original_read_text(self, *args, **kwargs)
+        if self.name == "financial-expert-manifest.json":
+            body = json.loads(contents)
+            body["pack"]["method_units"][0]["contract"]["acceptance"] = []
+            return json.dumps(body)
+        return contents
 
-    import importlib
+    monkeypatch.setattr(Path, "read_text", altered_read_text)
+    with pytest.raises(AssertionError):
+        test_financial_expert_manifest_compilation_and_readonly_fixture()
 
-    catalog_mod = importlib.import_module("app.domain.workbench.method_catalog")
-    plan_mod = importlib.import_module("app.domain.workbench.method_plan")
 
-    return (
-        catalog_mod.ReferencedMethodCatalog,
-        plan_mod.validate_plan,
-        plan_mod.MethodPlan,
-        plan_mod.PlannedStep,
-        plan_mod.InputBinding,
+def _run_in_knowbench(script: str) -> subprocess.CompletedProcess[str]:
+    """Execute validation script in isolated knowbench runtime."""
+    clean_env = dict(os.environ)
+    clean_env.pop("VIRTUAL_ENV", None)
+    return subprocess.run(
+        ["uv", "run", "python", "-c", script],
+        cwd=KNOWBENCH_APP_DIR,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=clean_env,
     )
 
 
 def test_negative_two_step_plan_skipping_analysis_is_rejected() -> None:
     """Luna finding: A 2-step plan skipping analysis must NOT pass validation."""
-    manifest, errors = build_financial_expert_manifest()
-    assert not errors
+    runner_script = f"""
+import json
+from pathlib import Path
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+from app.domain.workbench.method_plan import (
+    validate_plan,
+    MethodPlan,
+    PlannedStep,
+    InputBinding,
+)
+from app.domain.workbench.errors import WorkbenchError
 
-    (
-        ref_catalog_cls,
-        validate_plan_fn,
-        method_plan_cls,
-        planned_step_cls,
-        input_binding_cls,
-    ) = _load_knowbench_runtime()
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
 
-    catalog = ref_catalog_cls.model_validate(manifest["pack"])
-
-    # Attempt 2-step plan: intake -> dossier directly
-    two_step_proposal = method_plan_cls(
-        contract="knowbench/method-plan/v1",
-        parent_version=0,
-        reason="attempt to skip analysis",
-        steps=(
-            planned_step_cls(
-                instance_id="intake_1",
-                method_id="financial_data_intake",
-                inputs=(),
-                tools=(),
-                reason="intake",
-            ),
-            planned_step_cls(
-                instance_id="report_1",
-                method_id="comprehensive_dossier_formatting",
-                inputs=(
-                    input_binding_cls(
-                        slot="financial_data_intake", instance_id="intake_1"
-                    ),
-                ),
-                tools=(),
-                reason="report",
-            ),
-        ),
-        final_outputs={"comprehensive_dossier_formatting": "report_1"},
-    )
-
-    with pytest.raises(ValueError, match="method inputs do not match the author slots"):
-        validate_plan_fn(
-            catalog,
-            two_step_proposal,
-            previous=None,
-            protected_prefix=0,
-            completed_prefix=0,
-            results={},
-            available_tools=set(),
-        )
-
-
-def test_positive_complete_analysis_dag_plan_is_accepted() -> None:
-    """Verify that a plan satisfying the full analysis DAG passes validation."""
-    manifest, errors = build_financial_expert_manifest()
-    assert not errors
-
-    (
-        ref_catalog_cls,
-        validate_plan_fn,
-        method_plan_cls,
-        planned_step_cls,
-        input_binding_cls,
-    ) = _load_knowbench_runtime()
-
-    catalog = ref_catalog_cls.model_validate(manifest["pack"])
-
-    valid_steps = (
-        planned_step_cls(
+bad_proposal = MethodPlan(
+    contract="knowbench/method-plan/v1",
+    parent_version=0,
+    reason="attempting to skip intermediate financial analysis steps",
+    steps=(
+        PlannedStep(
             instance_id="step_intake",
             method_id="financial_data_intake",
             inputs=(),
             tools=(),
-            reason="intake",
+            reason="intake only",
         ),
-        planned_step_cls(
-            instance_id="step_m01",
-            method_id="fin_statement_restructure",
-            inputs=(
-                input_binding_cls(
-                    slot="financial_data_intake", instance_id="step_intake"
-                ),
-            ),
-            tools=(),
-            reason="m01",
-        ),
-        planned_step_cls(
-            instance_id="step_m02",
-            method_id="accounting_statement_reconciliation",
-            inputs=(
-                input_binding_cls(
-                    slot="fin_statement_restructure", instance_id="step_m01"
-                ),
-            ),
-            tools=(),
-            reason="m02",
-        ),
-        planned_step_cls(
-            instance_id="step_m03",
-            method_id="non_recurring_items_purification",
-            inputs=(
-                input_binding_cls(
-                    slot="accounting_statement_reconciliation",
-                    instance_id="step_m02",
-                ),
-            ),
-            tools=(),
-            reason="m03",
-        ),
-        planned_step_cls(
-            instance_id="step_m04",
-            method_id="dupont_five_way_decomposition",
-            inputs=(
-                input_binding_cls(
-                    slot="non_recurring_items_purification",
-                    instance_id="step_m03",
-                ),
-            ),
-            tools=(),
-            reason="m04",
-        ),
-        planned_step_cls(
-            instance_id="step_m05",
-            method_id="solvency_liquidity_stress_check",
-            inputs=(
-                input_binding_cls(
-                    slot="accounting_statement_reconciliation",
-                    instance_id="step_m02",
-                ),
-            ),
-            tools=(),
-            reason="m05",
-        ),
-        planned_step_cls(
-            instance_id="step_m06",
-            method_id="working_capital_cash_cycle_analysis",
-            inputs=(
-                input_binding_cls(
-                    slot="accounting_statement_reconciliation",
-                    instance_id="step_m02",
-                ),
-            ),
-            tools=(),
-            reason="m06",
-        ),
-        planned_step_cls(
-            instance_id="step_m07",
-            method_id="earnings_quality_accrual_audit",
-            inputs=(
-                input_binding_cls(
-                    slot="non_recurring_items_purification",
-                    instance_id="step_m03",
-                ),
-            ),
-            tools=(),
-            reason="m07",
-        ),
-        planned_step_cls(
-            instance_id="step_m13",
-            method_id="three_statement_linked_forecasting",
-            inputs=(
-                input_binding_cls(
-                    slot="dupont_five_way_decomposition", instance_id="step_m04"
-                ),
-                input_binding_cls(
-                    slot="working_capital_cash_cycle_analysis",
-                    instance_id="step_m06",
-                ),
-            ),
-            tools=(),
-            reason="m13",
-        ),
-        planned_step_cls(
-            instance_id="step_m14",
-            method_id="dcf_intrinsic_valuation",
-            inputs=(
-                input_binding_cls(
-                    slot="three_statement_linked_forecasting",
-                    instance_id="step_m13",
-                ),
-            ),
-            tools=(),
-            reason="m14",
-        ),
-        planned_step_cls(
-            instance_id="step_m20",
+        PlannedStep(
+            instance_id="step_final",
             method_id="comprehensive_dossier_formatting",
             inputs=(
-                input_binding_cls(
-                    slot="accounting_statement_reconciliation",
-                    instance_id="step_m02",
-                ),
-                input_binding_cls(
-                    slot="dupont_five_way_decomposition", instance_id="step_m04"
-                ),
-                input_binding_cls(
-                    slot="solvency_liquidity_stress_check",
-                    instance_id="step_m05",
-                ),
-                input_binding_cls(
-                    slot="earnings_quality_accrual_audit",
-                    instance_id="step_m07",
-                ),
-                input_binding_cls(
-                    slot="dcf_intrinsic_valuation", instance_id="step_m14"
+                InputBinding(
+                    slot="financial_data_intake",
+                    instance_id="step_intake",
                 ),
             ),
             tools=(),
-            reason="m20",
+            reason="trying to directly assemble dossier without analysis",
         ),
-    )
-    valid_proposal = method_plan_cls(
-        contract="knowbench/method-plan/v1",
-        parent_version=0,
-        reason="valid full analysis plan",
-        steps=valid_steps,
-        final_outputs={"comprehensive_dossier_formatting": "step_m20"},
-    )
-    validate_plan_fn(
+    ),
+    final_outputs={{"comprehensive_dossier_formatting": "step_final"}},
+)
+
+try:
+    validate_plan(
         catalog,
-        valid_proposal,
+        bad_proposal,
         previous=None,
         protected_prefix=0,
         completed_prefix=0,
-        results={},
+        results={{}},
         available_tools=set(),
     )
+    print("UNEXPECTED_SUCCESS")
+except (WorkbenchError, ValueError) as exc:
+    print(f"EXPECTED_REJECTION: {{exc}}")
+"""
+    res = _run_in_knowbench(runner_script)
+    assert res.returncode == 0, f"Runner failed unexpectedly: {res.stderr}"
+    assert "EXPECTED_REJECTION" in res.stdout
+    assert "method inputs do not match the author slots" in res.stdout
+
+
+def test_positive_full_analysis_dag_plan_passes_validation() -> None:
+    """Full analysis DAG fulfilling M20 required inputs passes plan validation."""
+    runner_script = f"""
+import json
+from pathlib import Path
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+from app.domain.workbench.method_plan import (
+    validate_plan,
+    MethodPlan,
+    PlannedStep,
+    InputBinding,
+)
+
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
+
+valid_steps = (
+    PlannedStep(
+        instance_id="step_intake",
+        method_id="financial_data_intake",
+        inputs=(),
+        tools=(),
+        reason="intake",
+    ),
+    PlannedStep(
+        instance_id="step_m01",
+        method_id="fin_statement_restructure",
+        inputs=(
+            InputBinding(
+                slot="financial_data_intake", instance_id="step_intake"
+            ),
+        ),
+        tools=(),
+        reason="m01",
+    ),
+    PlannedStep(
+        instance_id="step_m02",
+        method_id="accounting_statement_reconciliation",
+        inputs=(
+            InputBinding(
+                slot="fin_statement_restructure", instance_id="step_m01"
+            ),
+        ),
+        tools=(),
+        reason="m02",
+    ),
+    PlannedStep(
+        instance_id="step_m03",
+        method_id="non_recurring_items_purification",
+        inputs=(
+            InputBinding(
+                slot="accounting_statement_reconciliation",
+                instance_id="step_m02",
+            ),
+        ),
+        tools=(),
+        reason="m03",
+    ),
+    PlannedStep(
+        instance_id="step_m04",
+        method_id="dupont_five_way_decomposition",
+        inputs=(
+            InputBinding(
+                slot="non_recurring_items_purification",
+                instance_id="step_m03",
+            ),
+        ),
+        tools=(),
+        reason="m04",
+    ),
+    PlannedStep(
+        instance_id="step_m05",
+        method_id="solvency_liquidity_stress_check",
+        inputs=(
+            InputBinding(
+                slot="accounting_statement_reconciliation",
+                instance_id="step_m02",
+            ),
+        ),
+        tools=(),
+        reason="m05",
+    ),
+    PlannedStep(
+        instance_id="step_m06",
+        method_id="working_capital_cash_cycle_analysis",
+        inputs=(
+            InputBinding(
+                slot="accounting_statement_reconciliation",
+                instance_id="step_m02",
+            ),
+        ),
+        tools=(),
+        reason="m06",
+    ),
+    PlannedStep(
+        instance_id="step_m07",
+        method_id="earnings_quality_accrual_audit",
+        inputs=(
+            InputBinding(
+                slot="non_recurring_items_purification",
+                instance_id="step_m03",
+            ),
+        ),
+        tools=(),
+        reason="m07",
+    ),
+    PlannedStep(
+        instance_id="step_m13",
+        method_id="three_statement_linked_forecasting",
+        inputs=(
+            InputBinding(
+                slot="dupont_five_way_decomposition", instance_id="step_m04"
+            ),
+            InputBinding(
+                slot="working_capital_cash_cycle_analysis",
+                instance_id="step_m06",
+            ),
+        ),
+        tools=(),
+        reason="m13",
+    ),
+    PlannedStep(
+        instance_id="step_m14",
+        method_id="dcf_intrinsic_valuation",
+        inputs=(
+            InputBinding(
+                slot="three_statement_linked_forecasting",
+                instance_id="step_m13",
+            ),
+        ),
+        tools=(),
+        reason="m14",
+    ),
+    PlannedStep(
+        instance_id="step_m20",
+        method_id="comprehensive_dossier_formatting",
+        inputs=(
+            InputBinding(
+                slot="accounting_statement_reconciliation",
+                instance_id="step_m02",
+            ),
+            InputBinding(
+                slot="dupont_five_way_decomposition", instance_id="step_m04"
+            ),
+            InputBinding(
+                slot="solvency_liquidity_stress_check",
+                instance_id="step_m05",
+            ),
+            InputBinding(
+                slot="earnings_quality_accrual_audit",
+                instance_id="step_m07",
+            ),
+            InputBinding(
+                slot="dcf_intrinsic_valuation", instance_id="step_m14"
+            ),
+        ),
+        tools=(),
+        reason="m20",
+    ),
+)
+valid_proposal = MethodPlan(
+    contract="knowbench/method-plan/v1",
+    parent_version=0,
+    reason="valid full analysis plan",
+    steps=valid_steps,
+    final_outputs={{"comprehensive_dossier_formatting": "step_m20"}},
+)
+validate_plan(
+    catalog,
+    valid_proposal,
+    previous=None,
+    protected_prefix=0,
+    completed_prefix=0,
+    results={{}},
+    available_tools=set(),
+)
+print("VALID_DAG_PLAN_PASSED")
+"""
+    res = _run_in_knowbench(runner_script)
+    assert res.returncode == 0, f"Runner failed unexpectedly: {res.stderr}"
+    assert "VALID_DAG_PLAN_PASSED" in res.stdout

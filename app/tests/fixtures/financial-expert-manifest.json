@@ -179,6 +179,44 @@
               "message": "没过：必须有：「standardized_balance_sheet」、「standardized_income_statement」、「standardized_cash_flow」、「reclassification_audit_trail」"
             },
             {
+              "kind": "list_min",
+              "path": "standardized_balance_sheet",
+              "min_items": 3,
+              "label": "「standardized_balance_sheet」至少 3 项",
+              "message": "没过：「standardized_balance_sheet」至少 3 项"
+            },
+            {
+              "kind": "list_min",
+              "path": "standardized_income_statement",
+              "min_items": 3,
+              "label": "「standardized_income_statement」至少 3 项",
+              "message": "没过：「standardized_income_statement」至少 3 项"
+            },
+            {
+              "kind": "list_min",
+              "path": "standardized_cash_flow",
+              "min_items": 3,
+              "label": "「standardized_cash_flow」至少 3 项",
+              "message": "没过：「standardized_cash_flow」至少 3 项"
+            },
+            {
+              "kind": "list_min",
+              "path": "reclassification_audit_trail",
+              "min_items": 1,
+              "label": "「reclassification_audit_trail」至少 1 项",
+              "message": "没过：「reclassification_audit_trail」至少 1 项"
+            },
+            {
+              "kind": "each_has",
+              "path": "standardized_balance_sheet",
+              "keys": [
+                "item",
+                "amount"
+              ],
+              "label": "「standardized_balance_sheet」每项都有「item」、「amount」",
+              "message": "没过：「standardized_balance_sheet」每项都有「item」、「amount」"
+            },
+            {
               "kind": "sourced",
               "path": "standardized_balance_sheet",
               "tolerance": 0.01,
@@ -213,7 +251,7 @@
           "input_refs": [
             "fin_statement_restructure"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：执行资产=负债+所有者权益等式校验(误差绝对值<1.00元)，校验净利润与未分配利润勾稽及前期追溯调整。\n\n规则：\n1. 依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：fin_statement_restructure（财务三表标准化重构与口径对齐）\n\n交回一个 JSON，包含：\n- reconciliation_status：文字\n- balance_sheet_balance_diff：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n- audit_reconciliations：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：执行资产=负债+所有者权益等式校验(误差绝对值<1.00元)，校验净利润与未分配利润勾稽及前期追溯调整。\n\n规则：\n1. 依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：fin_statement_restructure（财务三表标准化重构与口径对齐）\n\n交回一个 JSON，包含：\n- reconciliation_status：文字\n- balance_sheet_balance_diff：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- audit_reconciliations：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -233,7 +271,8 @@
             "balance_sheet_balance_diff": {
               "value": "number",
               "left_id": "string",
-              "right_id": "string"
+              "right_id": "string",
+              "compute_id": "string"
             },
             "audit_reconciliations": [
               "string"
@@ -266,6 +305,38 @@
               "message": "没过：必须有：「reconciliation_status」、「balance_sheet_balance_diff」、「audit_reconciliations」"
             },
             {
+              "kind": "non_empty",
+              "path": "reconciliation_status",
+              "label": "「reconciliation_status」不能空",
+              "message": "没过：「reconciliation_status」不能空"
+            },
+            {
+              "kind": "list_min",
+              "path": "audit_reconciliations",
+              "min_items": 1,
+              "label": "「audit_reconciliations」至少 1 项",
+              "message": "没过：「audit_reconciliations」至少 1 项"
+            },
+            {
+              "kind": "each_has",
+              "path": "audit_reconciliations",
+              "keys": [
+                "check_name",
+                "passed",
+                "diff"
+              ],
+              "label": "「audit_reconciliations」每项都有「check_name」、「passed」、「diff」",
+              "message": "没过：「audit_reconciliations」每项都有「check_name」、「passed」、「diff」"
+            },
+            {
+              "kind": "all_equal",
+              "path": "audit_reconciliations",
+              "field": "passed",
+              "equals": true,
+              "label": "「audit_reconciliations」每项的「passed」都是 True",
+              "message": "没过：「audit_reconciliations」每项的「passed」都是 True"
+            },
+            {
               "kind": "identity",
               "path": "balance_sheet_balance_diff",
               "tolerance": 1.0,
@@ -273,10 +344,12 @@
               "message": "没过：「balance_sheet_balance_diff」两边相等（容差 1.0）"
             },
             {
-              "kind": "non_empty",
-              "path": "reconciliation_status",
-              "label": "「reconciliation_status」不能空",
-              "message": "没过：「reconciliation_status」不能空"
+              "kind": "computed",
+              "path": "balance_sheet_balance_diff",
+              "tolerance": 1.0,
+              "expression": "abs(total_assets - (total_liabilities + equity))",
+              "label": "「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))）",
+              "message": "没过：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))）"
             },
             {
               "kind": "no_positioning_advice",
@@ -380,6 +453,13 @@
               "message": "没过：「recurring_profit_margin」的数都是用计算工具算的（算式 purified_net_profit / revenue）"
             },
             {
+              "kind": "list_min",
+              "path": "quarterly_unpacked_profits",
+              "min_items": 1,
+              "label": "「quarterly_unpacked_profits」至少 1 项",
+              "message": "没过：「quarterly_unpacked_profits」至少 1 项"
+            },
+            {
               "kind": "sourced",
               "path": "quarterly_unpacked_profits",
               "tolerance": 0.01,
@@ -414,7 +494,7 @@
           "input_refs": [
             "non_recurring_items_purification"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：将净资产收益率(ROE)精确分解为五大驱动乘积：税收负担率×利息负担率×息税前利润率×资产周转率×权益乘数。\n\n规则：\n1. 依据：经典杜邦财务分析体系五因素扩展模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- roe：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- dupont_chain_product：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n- tax_burden：数\n- interest_burden：数\n- ebit_margin：数\n- asset_turnover：数\n- equity_multiplier：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：将净资产收益率(ROE)精确分解为五大驱动乘积：税收负担率×利息负担率×息税前利润率×资产周转率×权益乘数。\n\n规则：\n1. 依据：经典杜邦财务分析体系五因素扩展模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- roe：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- dupont_chain_product：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n- tax_burden：数\n- interest_burden：数\n- ebit_margin：数\n- asset_turnover：数\n- equity_multiplier：数\n- dupont_evidence_items：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -443,7 +523,10 @@
             "interest_burden": "number",
             "ebit_margin": "number",
             "asset_turnover": "number",
-            "equity_multiplier": "number"
+            "equity_multiplier": "number",
+            "dupont_evidence_items": [
+              "string"
+            ]
           },
           "acceptance": [
             {
@@ -460,9 +543,10 @@
                 "interest_burden",
                 "ebit_margin",
                 "asset_turnover",
-                "equity_multiplier"
+                "equity_multiplier",
+                "dupont_evidence_items"
               ],
-              "label": "交回项都在：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」",
+              "label": "交回项都在：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」、「dupont_evidence_items」",
               "message": "缺交回项"
             },
             {
@@ -474,10 +558,18 @@
                 "interest_burden",
                 "ebit_margin",
                 "asset_turnover",
-                "equity_multiplier"
+                "equity_multiplier",
+                "dupont_evidence_items"
               ],
-              "label": "必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」",
-              "message": "没过：必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」"
+              "label": "必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」、「dupont_evidence_items」",
+              "message": "没过：必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」、「dupont_evidence_items」"
+            },
+            {
+              "kind": "list_min",
+              "path": "dupont_evidence_items",
+              "min_items": 6,
+              "label": "「dupont_evidence_items」至少 6 项",
+              "message": "没过：「dupont_evidence_items」至少 6 项"
             },
             {
               "kind": "computed",
@@ -579,6 +671,12 @@
               ],
               "label": "必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
               "message": "没过：必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」"
+            },
+            {
+              "kind": "non_empty",
+              "path": "solvency_risk_level",
+              "label": "「solvency_risk_level」不能空",
+              "message": "没过：「solvency_risk_level」不能空"
             },
             {
               "kind": "computed",
@@ -771,6 +869,12 @@
               "message": "没过：必须有：「operating_cf_to_net_income」、「free_cash_flow_firm」、「accrual_anomaly_score」、「earnings_quality_flag」"
             },
             {
+              "kind": "non_empty",
+              "path": "earnings_quality_flag",
+              "label": "「earnings_quality_flag」不能空",
+              "message": "没过：「earnings_quality_flag」不能空"
+            },
+            {
               "kind": "computed",
               "path": "free_cash_flow_firm",
               "tolerance": 0.01,
@@ -870,6 +974,13 @@
               "message": "没过：必须有：「segment_revenue_shares」、「volume_growth_rates」、「price_variance_effects」"
             },
             {
+              "kind": "list_min",
+              "path": "segment_revenue_shares",
+              "min_items": 1,
+              "label": "「segment_revenue_shares」至少 1 项",
+              "message": "没过：「segment_revenue_shares」至少 1 项"
+            },
+            {
               "kind": "sourced",
               "path": "segment_revenue_shares",
               "tolerance": 0.01,
@@ -954,6 +1065,12 @@
               "message": "没过：必须有：「top5_customer_ratio」、「top5_supplier_ratio」、「concentration_risk_rating」"
             },
             {
+              "kind": "non_empty",
+              "path": "concentration_risk_rating",
+              "label": "「concentration_risk_rating」不能空",
+              "message": "没过：「concentration_risk_rating」不能空"
+            },
+            {
               "kind": "sourced",
               "path": "top5_customer_ratio",
               "tolerance": 0.001,
@@ -1036,6 +1153,12 @@
               ],
               "label": "必须有：「capex_to_depreciation」、「cip_turnover_rate」、「capacity_expansion_stage」",
               "message": "没过：必须有：「capex_to_depreciation」、「cip_turnover_rate」、「capacity_expansion_stage」"
+            },
+            {
+              "kind": "non_empty",
+              "path": "capacity_expansion_stage",
+              "label": "「capacity_expansion_stage」不能空",
+              "message": "没过：「capacity_expansion_stage」不能空"
             },
             {
               "kind": "computed",
@@ -1219,6 +1342,13 @@
               ],
               "label": "必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」",
               "message": "没过：必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」"
+            },
+            {
+              "kind": "list_min",
+              "path": "trend_projection_series",
+              "min_items": 1,
+              "label": "「trend_projection_series」至少 1 项",
+              "message": "没过：「trend_projection_series」至少 1 项"
             },
             {
               "kind": "computed",
@@ -1725,7 +1855,7 @@
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。\n\n规则：\n1. 依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- audit_opinion_type：文字；每项带 quotes：一串 {material_id, page, text}，原文照读到的抄\n- kam_topics_count：数\n- external_guarantee_ratio：数\n- contingent_liability_risk_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：提取审计报告中的关键审计事项（KAM）、审计意见类型，扫描附注中的对外担保、未决诉讼及承诺事项等表外或有负债。\n\n规则：\n1. 依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- audit_opinion_type：文字\n- kam_topics_count：数\n- kam_matters：列表；每项带 quotes：一串 {material_id, page, text}，原文照读到的抄\n- external_guarantee_ratio：数\n- contingent_liability_risk_verdict：文字\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1741,17 +1871,19 @@
           ],
           "output_artifact": "kam_contingent_liability_audit",
           "output_schema": {
-            "audit_opinion_type": {
-              "text": "string",
-              "quotes": [
-                {
-                  "material_id": "string",
-                  "page": "integer",
-                  "text": "string"
-                }
-              ]
-            },
+            "audit_opinion_type": "string",
             "kam_topics_count": "number",
+            "kam_matters": [
+              {
+                "quotes": [
+                  {
+                    "material_id": "string",
+                    "page": "integer",
+                    "text": "string"
+                  }
+                ]
+              }
+            ],
             "external_guarantee_ratio": "number",
             "contingent_liability_risk_verdict": "string"
           },
@@ -1766,10 +1898,11 @@
               "keys": [
                 "audit_opinion_type",
                 "kam_topics_count",
+                "kam_matters",
                 "external_guarantee_ratio",
                 "contingent_liability_risk_verdict"
               ],
-              "label": "交回项都在：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+              "label": "交回项都在：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
               "message": "缺交回项"
             },
             {
@@ -1777,17 +1910,44 @@
               "keys": [
                 "audit_opinion_type",
                 "kam_topics_count",
+                "kam_matters",
                 "external_guarantee_ratio",
                 "contingent_liability_risk_verdict"
               ],
-              "label": "必须有：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
-              "message": "没过：必须有：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」"
+              "label": "必须有：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+              "message": "没过：必须有：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」"
+            },
+            {
+              "kind": "non_empty",
+              "path": "audit_opinion_type",
+              "label": "「audit_opinion_type」不能空",
+              "message": "没过：「audit_opinion_type」不能空"
+            },
+            {
+              "kind": "list_min",
+              "path": "kam_matters",
+              "min_items": 1,
+              "label": "「kam_matters」至少 1 项",
+              "message": "没过：「kam_matters」至少 1 项"
+            },
+            {
+              "kind": "each_has",
+              "path": "kam_matters",
+              "keys": [
+                "matter",
+                "audit_response",
+                "page"
+              ],
+              "label": "「kam_matters」每项都有「matter」、「audit_response」、「page」",
+              "message": "没过：「kam_matters」每项都有「matter」、「audit_response」、「page」"
             },
             {
               "kind": "quoted",
-              "path": "audit_opinion_type",
-              "label": "「audit_opinion_type」的说法附原文引文",
-              "message": "没过：「audit_opinion_type」的说法附原文引文"
+              "path": "kam_matters",
+              "field": "matter",
+              "equals": "收入确认与应收账款减值",
+              "label": "「kam_matters」的说法附原文引文",
+              "message": "没过：「kam_matters」的说法附原文引文"
             },
             {
               "kind": "no_positioning_advice",
@@ -1867,6 +2027,12 @@
               ],
               "label": "必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」",
               "message": "没过：必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」"
+            },
+            {
+              "kind": "non_empty",
+              "path": "moat_rating",
+              "label": "「moat_rating」不能空",
+              "message": "没过：「moat_rating」不能空"
             },
             {
               "kind": "computed",
@@ -1977,7 +2143,7 @@
               "kind": "covers",
               "path": "evidence_audit_trail",
               "field": "metric",
-              "source": "dupont_five_way_decomposition.roe",
+              "source": "dupont_five_way_decomposition.dupont_evidence_items",
               "label": "「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
               "message": "没过：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上"
             },
@@ -2002,7 +2168,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003e8",
           "version": 1,
-          "digest": "sha256:58d1b1148cb2be7192d7df743c20138eca82b883d29c0d5aedf12c74d873df1c",
+          "digest": "sha256:c22bbdcce5bee72495df0c53bd6db44ead8a1a2c15ac4261bf017597e11ef01b",
           "inputs": {
             "raw_data": "financial_data_intake"
           }
@@ -2059,6 +2225,44 @@
                     "standardized_income_statement",
                     "standardized_cash_flow",
                     "reclassification_audit_trail"
+                  ]
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "standardized_balance_sheet",
+                  "min": 3
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "standardized_income_statement",
+                  "min": 3
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "standardized_cash_flow",
+                  "min": 3
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "reclassification_audit_trail",
+                  "min": 1
+                }
+              },
+              {
+                "template": "each_has",
+                "params": {
+                  "path": "standardized_balance_sheet",
+                  "keys": [
+                    "item",
+                    "amount"
                   ]
                 }
               },
@@ -2134,7 +2338,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003e9",
           "version": 1,
-          "digest": "sha256:67e75c8dc52d4a9f374ebaf3db2d2ecc449be6ab8c5a140d79a6ab787338bee4",
+          "digest": "sha256:d12a88e633dbae21bccdb2daec59cb53c9a2318daadc6fbc8f6cdb0afca03155",
           "inputs": {
             "statements": "fin_statement_restructure"
           }
@@ -2189,6 +2393,38 @@
                 }
               },
               {
+                "template": "non_empty",
+                "params": {
+                  "path": "reconciliation_status"
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "audit_reconciliations",
+                  "min": 1
+                }
+              },
+              {
+                "template": "each_has",
+                "params": {
+                  "path": "audit_reconciliations",
+                  "keys": [
+                    "check_name",
+                    "passed",
+                    "diff"
+                  ]
+                }
+              },
+              {
+                "template": "all_equal",
+                "params": {
+                  "path": "audit_reconciliations",
+                  "field": "passed",
+                  "equals": true
+                }
+              },
+              {
                 "template": "identity",
                 "params": {
                   "path": "balance_sheet_balance_diff",
@@ -2196,9 +2432,11 @@
                 }
               },
               {
-                "template": "non_empty",
+                "template": "computed",
                 "params": {
-                  "path": "reconciliation_status"
+                  "path": "balance_sheet_balance_diff",
+                  "expression": "abs(total_assets - (total_liabilities + equity))",
+                  "tolerance": 1.0
                 }
               }
             ],
@@ -2227,7 +2465,8 @@
                 "balance_sheet_balance_diff": {
                   "value": "number",
                   "left_id": "string",
-                  "right_id": "string"
+                  "right_id": "string",
+                  "compute_id": "string"
                 },
                 "audit_reconciliations": [
                   "string"
@@ -2266,7 +2505,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ea",
           "version": 1,
-          "digest": "sha256:02283d13addc1c02293954114469257c86f5f1576f8d38948ddd85fb26ba1851",
+          "digest": "sha256:4166ec5bb03ee6f8dd42c57b2b2953560e6e246ff86b211bbd6cb1b95675c314",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -2337,6 +2576,13 @@
                 }
               },
               {
+                "template": "list_min",
+                "params": {
+                  "path": "quarterly_unpacked_profits",
+                  "min": 1
+                }
+              },
+              {
                 "template": "sourced",
                 "params": {
                   "path": "quarterly_unpacked_profits",
@@ -2394,7 +2640,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -2407,7 +2654,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003eb",
           "version": 1,
-          "digest": "sha256:37a4ae47c01055e6fec6cbff9889d02e00ca3606b8776fa65822bf2856dc3d0b",
+          "digest": "sha256:a89ad102bc5e1ad2a013fe184df92dc5c417a7ef5fa6bc468693d1fc174b37e6",
           "inputs": {
             "purified": "non_recurring_items_purification"
           }
@@ -2468,6 +2715,11 @@
                 "name": "equity_multiplier",
                 "type": "number",
                 "items": null
+              },
+              {
+                "name": "dupont_evidence_items",
+                "type": "list",
+                "items": null
               }
             ],
             "checks": [
@@ -2481,8 +2733,16 @@
                     "interest_burden",
                     "ebit_margin",
                     "asset_turnover",
-                    "equity_multiplier"
+                    "equity_multiplier",
+                    "dupont_evidence_items"
                   ]
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "dupont_evidence_items",
+                  "min": 6
                 }
               },
               {
@@ -2535,7 +2795,10 @@
                 "interest_burden": "number",
                 "ebit_margin": "number",
                 "asset_turnover": "number",
-                "equity_multiplier": "number"
+                "equity_multiplier": "number",
+                "dupont_evidence_items": [
+                  "string"
+                ]
               },
               "output_file": null
             },
@@ -2569,7 +2832,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ec",
           "version": 1,
-          "digest": "sha256:cbed72d529fc98933eec05b742550525284cc6d56a32769f72eec6b3113922a6",
+          "digest": "sha256:9f866ef9bf36d35398ce91bbe62afd55e4d1ddfac6f3a140579be30fa1c53542",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -2636,6 +2899,12 @@
                 }
               },
               {
+                "template": "non_empty",
+                "params": {
+                  "path": "solvency_risk_level"
+                }
+              },
+              {
                 "template": "computed",
                 "params": {
                   "path": "current_ratio",
@@ -2699,7 +2968,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -2712,7 +2982,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ed",
           "version": 1,
-          "digest": "sha256:574db0425d3b709791be9ea2279c23e8ce457c4608d94b75686f3f348475ed49",
+          "digest": "sha256:66fb4192aae9c27f7dc022834071e9092eba18baf386de74c2a3704b71d705a2",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -2831,7 +3101,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -2844,7 +3115,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ee",
           "version": 1,
-          "digest": "sha256:8cd3fe9eff7431da2be79349ee807728b16bdb05296e4f0bd3d59433782be773",
+          "digest": "sha256:04b4f7ab31f5fa40ece7397079a17cc5d0d625fb23a562f1ba4a17b62997051c",
           "inputs": {
             "purified": "non_recurring_items_purification"
           }
@@ -2902,6 +3173,12 @@
                     "accrual_anomaly_score",
                     "earnings_quality_flag"
                   ]
+                }
+              },
+              {
+                "template": "non_empty",
+                "params": {
+                  "path": "earnings_quality_flag"
                 }
               },
               {
@@ -2985,7 +3262,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ef",
           "version": 1,
-          "digest": "sha256:f527476d4a8b0eff50ec1447dadad48e067d849c680b871987825c20832e18f7",
+          "digest": "sha256:d4588164524d86a05d1667a08e7215468056fd4e452abd6406237555f950e2ca",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3037,6 +3314,13 @@
                     "volume_growth_rates",
                     "price_variance_effects"
                   ]
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "segment_revenue_shares",
+                  "min": 1
                 }
               },
               {
@@ -3095,7 +3379,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -3108,7 +3393,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f0",
           "version": 1,
-          "digest": "sha256:82a9c3aae2ecaf13d984bfbbd8cfcc97e720f842190c6815a18e6ac35487094c",
+          "digest": "sha256:77779f98e8a587a43edff67c8deb278a32f0049195ab8c61566cebef2a354000",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3163,6 +3448,12 @@
                 }
               },
               {
+                "template": "non_empty",
+                "params": {
+                  "path": "concentration_risk_rating"
+                }
+              },
+              {
                 "template": "sourced",
                 "params": {
                   "path": "top5_customer_ratio",
@@ -3212,7 +3503,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -3225,7 +3517,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f1",
           "version": 1,
-          "digest": "sha256:ec7af348c65f047ea3c332f6f0e8154a82b1fdd28109f99a2028273349375a1a",
+          "digest": "sha256:f216814345d7be6bc33a058d7f77fd0a2e9b0f662b356387de3201e19cb775d4",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3280,6 +3572,12 @@
                 }
               },
               {
+                "template": "non_empty",
+                "params": {
+                  "path": "capacity_expansion_stage"
+                }
+              },
+              {
                 "template": "computed",
                 "params": {
                   "path": "capex_to_depreciation",
@@ -3330,7 +3628,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -3343,7 +3642,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f2",
           "version": 1,
-          "digest": "sha256:6926dcff2b978be77e5755a489903cf42ffb0031735133556ccedeb74afb21b0",
+          "digest": "sha256:46c42bd9bc85d052ddd9eae7444a90987fb4354fb3c01c99f4409759851fdcf9",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3459,7 +3758,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -3472,7 +3772,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f3",
           "version": 1,
-          "digest": "sha256:6b7d0f804955ad6dfa16197e78d4dddb1801c9a768b6cc1bbba402207175d0e4",
+          "digest": "sha256:f35a4f718cfd9a75c8adc6a252c9c15b10e5ca286523f3c54266bf6f89b074d0",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -3524,6 +3824,13 @@
                     "net_profit_cagr_3yr",
                     "trend_projection_series"
                   ]
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "trend_projection_series",
+                  "min": 1
                 }
               },
               {
@@ -3579,7 +3886,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -3592,7 +3900,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f4",
           "version": 1,
-          "digest": "sha256:188a966d4738e72d15098452ef336a9aab6697ec29a0199af29c85fae0ddb4c1",
+          "digest": "sha256:acf49cbd2a96776b2f995c31b0d1ff36423f78351ae54fe6060cb7e7ecd396ab",
           "inputs": {
             "dupont": "dupont_five_way_decomposition",
             "working_capital": "working_capital_cash_cycle_analysis"
@@ -3721,7 +4029,10 @@
               "interest_burden": "number",
               "ebit_margin": "number",
               "asset_turnover": "number",
-              "equity_multiplier": "number"
+              "equity_multiplier": "number",
+              "dupont_evidence_items": [
+                "string"
+              ]
             },
             "working_capital": {
               "dio_days": "number",
@@ -4020,7 +4331,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f7",
           "version": 1,
-          "digest": "sha256:8406e2cbd909b682b8cabdce7fc45a82bf29a9edb993bd44c325e355484c9ea9",
+          "digest": "sha256:bd92e7f36f751301facfa62da56ead8dd3eb4cf8d1673918ee0367e6c6f18e3b",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -4126,7 +4437,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -4139,7 +4451,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f8",
           "version": 1,
-          "digest": "sha256:a0f0e3b597ac0e26392915fbd5a3af01ea14d0a8caf610a04c8621b3db85c401",
+          "digest": "sha256:9894c0cf80b3333c3faf4edd719d5823b419b11e90df2b01d37f0bb17c7b5415",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -4255,7 +4567,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -4268,7 +4581,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f9",
           "version": 1,
-          "digest": "sha256:70b0d9a768db5b47537d173cea9bc68a5487860367b2e6b323471ba368fa06b5",
+          "digest": "sha256:441e6c9b5caec19f7c46022cf98003dde1d302dc484d21898b178d5a634402ce",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -4306,6 +4619,11 @@
                 "items": null
               },
               {
+                "name": "kam_matters",
+                "type": "list",
+                "items": null
+              },
+              {
                 "name": "external_guarantee_ratio",
                 "type": "number",
                 "items": null
@@ -4323,15 +4641,42 @@
                   "keys": [
                     "audit_opinion_type",
                     "kam_topics_count",
+                    "kam_matters",
                     "external_guarantee_ratio",
                     "contingent_liability_risk_verdict"
                   ]
                 }
               },
               {
-                "template": "quoted",
+                "template": "non_empty",
                 "params": {
                   "path": "audit_opinion_type"
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "kam_matters",
+                  "min": 1
+                }
+              },
+              {
+                "template": "each_has",
+                "params": {
+                  "path": "kam_matters",
+                  "keys": [
+                    "matter",
+                    "audit_response",
+                    "page"
+                  ]
+                }
+              },
+              {
+                "template": "quoted",
+                "params": {
+                  "path": "kam_matters",
+                  "field": "matter",
+                  "equals": "收入确认与应收账款减值"
                 }
               }
             ],
@@ -4356,17 +4701,19 @@
               "reserve": "0.05",
               "input_max_chars": 8000,
               "output_schema": {
-                "audit_opinion_type": {
-                  "text": "string",
-                  "quotes": [
-                    {
-                      "material_id": "string",
-                      "page": "integer",
-                      "text": "string"
-                    }
-                  ]
-                },
+                "audit_opinion_type": "string",
                 "kam_topics_count": "number",
+                "kam_matters": [
+                  {
+                    "quotes": [
+                      {
+                        "material_id": "string",
+                        "page": "integer",
+                        "text": "string"
+                      }
+                    ]
+                  }
+                ],
                 "external_guarantee_ratio": "number",
                 "contingent_liability_risk_verdict": "string"
               },
@@ -4384,7 +4731,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -4397,7 +4745,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fa",
           "version": 1,
-          "digest": "sha256:596dbc644f6efa6f235e0a700c6388928ef73645728e10c08e138e2236576182",
+          "digest": "sha256:5bddb907a5ccb03688645d1474c637d19f6ecb37a77458c4cba1c77e4a138b37",
           "inputs": {
             "dupont": "dupont_five_way_decomposition"
           }
@@ -4449,6 +4797,12 @@
                     "roic_vs_wacc_spread",
                     "thesis_verification_matrix"
                   ]
+                }
+              },
+              {
+                "template": "non_empty",
+                "params": {
+                  "path": "moat_rating"
                 }
               },
               {
@@ -4513,7 +4867,10 @@
               "interest_burden": "number",
               "ebit_margin": "number",
               "asset_turnover": "number",
-              "equity_multiplier": "number"
+              "equity_multiplier": "number",
+              "dupont_evidence_items": [
+                "string"
+              ]
             }
           }
         }
@@ -4522,7 +4879,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fb",
           "version": 1,
-          "digest": "sha256:3a6d38108e824d90b1661b4345b395827d653f7a822f366df4726ac85a90b8a4",
+          "digest": "sha256:0e3b8276bfe39280786971195679e9a51f8df328b2b82f385ed2b2c92a35da38",
           "inputs": {
             "reconciliation": "accounting_statement_reconciliation",
             "dupont": "dupont_five_way_decomposition",
@@ -4608,7 +4965,7 @@
                   "path": "evidence_audit_trail",
                   "field": "metric",
                   "source_step": "dupont",
-                  "source_path": "roe"
+                  "source_path": "dupont_evidence_items"
                 }
               }
             ],
@@ -4656,7 +5013,8 @@
               "balance_sheet_balance_diff": {
                 "value": "number",
                 "left_id": "string",
-                "right_id": "string"
+                "right_id": "string",
+                "compute_id": "string"
               },
               "audit_reconciliations": [
                 "string"
@@ -4676,7 +5034,10 @@
               "interest_burden": "number",
               "ebit_margin": "number",
               "asset_turnover": "number",
-              "equity_multiplier": "number"
+              "equity_multiplier": "number",
+              "dupont_evidence_items": [
+                "string"
+              ]
             },
             "solvency": {
               "current_ratio": {
@@ -4735,9 +5096,34 @@
       "ref": "record:00000000-0000-0000-0000-000000000031"
     },
     {
-      "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」的数和原数据那一格对得上",
+      "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」至少 3 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000032"
+    },
+    {
+      "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_income_statement」至少 3 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000033"
+    },
+    {
+      "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_cash_flow」至少 3 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000034"
+    },
+    {
+      "rule": "财务三表标准化重构与口径对齐·怎样算对：「reclassification_audit_trail」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000035"
+    },
+    {
+      "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」每项都有「item」、「amount」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000036"
+    },
+    {
+      "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」的数和原数据那一格对得上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000037"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：依据：财政部《企业会计准则第30号——财务报表列报》(CAS 30) 及监管报表披露规范",
@@ -4752,437 +5138,517 @@
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：必须有：「reconciliation_status」、「balance_sheet_balance_diff」、「audit_reconciliations」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003f"
-    },
-    {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「balance_sheet_balance_diff」两边相等（容差 1.0）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000040"
+      "ref": "record:00000000-0000-0000-0000-000000000044"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「reconciliation_status」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000041"
+      "ref": "record:00000000-0000-0000-0000-000000000045"
     },
     {
-      "rule": "报表勾稽平衡与重述校验：依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003a"
+      "ref": "record:00000000-0000-0000-0000-000000000046"
     },
     {
-      "rule": "报表勾稽平衡与重述校验：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」每项都有「check_name」、「passed」、「diff」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003b"
+      "ref": "record:00000000-0000-0000-0000-000000000047"
     },
     {
-      "rule": "非经常性损益穿透与扣非还原·怎样算对：必须有：「purified_net_profit」、「recurring_profit_margin」、「quarterly_unpacked_profits」",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」每项的「passed」都是 True",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004e"
+      "ref": "record:00000000-0000-0000-0000-000000000048"
     },
     {
-      "rule": "非经常性损益穿透与扣非还原·怎样算对：「purified_net_profit」的数都是用计算工具算的（算式 net_profit - non_recurring_net）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000004f"
-    },
-    {
-      "rule": "非经常性损益穿透与扣非还原·怎样算对：「recurring_profit_margin」的数都是用计算工具算的（算式 purified_net_profit / revenue）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000050"
-    },
-    {
-      "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」的数和原数据那一格对得上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000051"
-    },
-    {
-      "rule": "非经常性损益穿透与扣非还原：依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「balance_sheet_balance_diff」两边相等（容差 1.0）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000049"
     },
     {
-      "rule": "非经常性损益穿透与扣非还原：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000004a"
     },
     {
-      "rule": "杜邦五步分解法·怎样算对：必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」",
+      "rule": "报表勾稽平衡与重述校验：依据：中国注册会计师审计准则第1501号及三表勾稽平衡公理",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000062"
+      "ref": "record:00000000-0000-0000-0000-00000000003f"
     },
     {
-      "rule": "杜邦五步分解法·怎样算对：「roe」的数都是用计算工具算的（算式 tax_burden * interest_burden * ebit_margin * asset_turnover * equity_multiplier）",
+      "rule": "报表勾稽平衡与重述校验：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000063"
+      "ref": "record:00000000-0000-0000-0000-000000000040"
     },
     {
-      "rule": "杜邦五步分解法·怎样算对：「dupont_chain_product」两边相等（容差 0.001）",
+      "rule": "非经常性损益穿透与扣非还原·怎样算对：必须有：「purified_net_profit」、「recurring_profit_margin」、「quarterly_unpacked_profits」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000064"
+      "ref": "record:00000000-0000-0000-0000-000000000057"
     },
     {
-      "rule": "杜邦五步分解法：依据：经典杜邦财务分析体系五因素扩展模型",
+      "rule": "非经常性损益穿透与扣非还原·怎样算对：「purified_net_profit」的数都是用计算工具算的（算式 net_profit - non_recurring_net）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000058"
+    },
+    {
+      "rule": "非经常性损益穿透与扣非还原·怎样算对：「recurring_profit_margin」的数都是用计算工具算的（算式 purified_net_profit / revenue）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000059"
     },
     {
-      "rule": "杜邦五步分解法：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」至少 1 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005a"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
+      "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000073"
+      "ref": "record:00000000-0000-0000-0000-00000000005b"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「current_ratio」的数都是用计算工具算的（算式 current_assets / current_liabilities）",
+      "rule": "非经常性损益穿透与扣非还原：依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000074"
+      "ref": "record:00000000-0000-0000-0000-000000000052"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「quick_ratio」的数都是用计算工具算的（算式 (current_assets - inventory) / current_liabilities）",
+      "rule": "非经常性损益穿透与扣非还原：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000075"
+      "ref": "record:00000000-0000-0000-0000-000000000053"
     },
     {
-      "rule": "偿债压力与流动性体检：依据：Altman Z-Score破产预测模型及巴塞尔协议流动性覆盖率(LCR)框架",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006c"
-    },
-    {
-      "rule": "偿债压力与流动性体检：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "杜邦五步分解法·怎样算对：必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」、「dupont_evidence_items」",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000006d"
     },
     {
+      "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」至少 6 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000006e"
+    },
+    {
+      "rule": "杜邦五步分解法·怎样算对：「roe」的数都是用计算工具算的（算式 tax_burden * interest_burden * ebit_margin * asset_turnover * equity_multiplier）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000006f"
+    },
+    {
+      "rule": "杜邦五步分解法·怎样算对：「dupont_chain_product」两边相等（容差 0.001）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000070"
+    },
+    {
+      "rule": "杜邦五步分解法：依据：经典杜邦财务分析体系五因素扩展模型",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000063"
+    },
+    {
+      "rule": "杜邦五步分解法：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000064"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000007f"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：「solvency_risk_level」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000080"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：「current_ratio」的数都是用计算工具算的（算式 current_assets / current_liabilities）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000081"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：「quick_ratio」的数都是用计算工具算的（算式 (current_assets - inventory) / current_liabilities）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000082"
+    },
+    {
+      "rule": "偿债压力与流动性体检：依据：Altman Z-Score破产预测模型及巴塞尔协议流动性覆盖率(LCR)框架",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000078"
+    },
+    {
+      "rule": "偿债压力与流动性体检：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000079"
+    },
+    {
       "rule": "营运资本周转与现金转化周期 CCC·怎样算对：必须有：「dio_days」、「dso_days」、「dpo_days」、「cash_conversion_cycle_days」、「working_capital_turnover」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000084"
+      "ref": "record:00000000-0000-0000-0000-000000000091"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC·怎样算对：「cash_conversion_cycle_days」的数都是用计算工具算的（算式 dio_days + dso_days - dpo_days）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000085"
+      "ref": "record:00000000-0000-0000-0000-000000000092"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：依据：企业营运资本管理理论及现金循环周期(Cash Conversion Cycle)标准模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007d"
+      "ref": "record:00000000-0000-0000-0000-00000000008a"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007e"
+      "ref": "record:00000000-0000-0000-0000-00000000008b"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：必须有：「operating_cf_to_net_income」、「free_cash_flow_firm」、「accrual_anomaly_score」、「earnings_quality_flag」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000093"
+      "ref": "record:00000000-0000-0000-0000-0000000000a0"
+    },
+    {
+      "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「earnings_quality_flag」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000a1"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「free_cash_flow_firm」的数都是用计算工具算的（算式 operating_cash_flow - capex）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000094"
+      "ref": "record:00000000-0000-0000-0000-0000000000a2"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「operating_cf_to_net_income」的数都是用计算工具算的（算式 operating_cash_flow / net_income）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000095"
+      "ref": "record:00000000-0000-0000-0000-0000000000a3"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：依据：Dechow & Dichev (2002) 收益质量与应计项异动检验理论及FCFF模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008d"
+      "ref": "record:00000000-0000-0000-0000-00000000009a"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008e"
+      "ref": "record:00000000-0000-0000-0000-00000000009b"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：必须有：「segment_revenue_shares」、「volume_growth_rates」、「price_variance_effects」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a2"
-    },
-    {
-      "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」的数和原数据那一格对得上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a3"
-    },
-    {
-      "rule": "主营业务分部量价拆解：依据：财政部《企业会计准则第35号——分部报告》(CAS 35) 及量价因素分析法",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009d"
-    },
-    {
-      "rule": "主营业务分部量价拆解：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009e"
-    },
-    {
-      "rule": "前五大客户与供应商集中度透视·怎样算对：必须有：「top5_customer_ratio」、「top5_supplier_ratio」、「concentration_risk_rating」",
-      "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000b0"
     },
     {
-      "rule": "前五大客户与供应商集中度透视·怎样算对：「top5_customer_ratio」的数和原数据那一格对得上",
+      "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」至少 1 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000b1"
     },
     {
-      "rule": "前五大客户与供应商集中度透视：依据：中国证监会及沪深交易所《股票上市规则》关于年报前五大客户与供应商披露规范",
+      "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」的数和原数据那一格对得上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000b2"
+    },
+    {
+      "rule": "主营业务分部量价拆解：依据：财政部《企业会计准则第35号——分部报告》(CAS 35) 及量价因素分析法",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000ab"
     },
     {
-      "rule": "前五大客户与供应商集中度透视：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "主营业务分部量价拆解：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000ac"
     },
     {
-      "rule": "资本开支与产能释放周期追踪·怎样算对：必须有：「capex_to_depreciation」、「cip_turnover_rate」、「capacity_expansion_stage」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000be"
-    },
-    {
-      "rule": "资本开支与产能释放周期追踪·怎样算对：「capex_to_depreciation」的数都是用计算工具算的（算式 capex / depreciation_amortization）",
+      "rule": "前五大客户与供应商集中度透视·怎样算对：必须有：「top5_customer_ratio」、「top5_supplier_ratio」、「concentration_risk_rating」",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000bf"
     },
     {
-      "rule": "资本开支与产能释放周期追踪：依据：实业投资与产能周期理论及固定资产折旧会计估计核算",
+      "rule": "前五大客户与供应商集中度透视·怎样算对：「concentration_risk_rating」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b9"
+      "ref": "record:00000000-0000-0000-0000-0000000000c0"
     },
     {
-      "rule": "资本开支与产能释放周期追踪：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "前五大客户与供应商集中度透视·怎样算对：「top5_customer_ratio」的数和原数据那一格对得上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000c1"
+    },
+    {
+      "rule": "前五大客户与供应商集中度透视：依据：中国证监会及沪深交易所《股票上市规则》关于年报前五大客户与供应商披露规范",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000ba"
     },
     {
-      "rule": "研发投入资本化与产出效能评估·怎样算对：必须有：「rnd_intensity」、「capitalization_ratio」、「rnd_revenue_conversion」",
+      "rule": "前五大客户与供应商集中度透视：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cc"
+      "ref": "record:00000000-0000-0000-0000-0000000000bb"
     },
     {
-      "rule": "研发投入资本化与产出效能评估·怎样算对：「rnd_intensity」的数都是用计算工具算的（算式 rnd_total_expenditure / revenue）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cd"
-    },
-    {
-      "rule": "研发投入资本化与产出效能评估·怎样算对：「capitalization_ratio」的数都是用计算工具算的（算式 rnd_capitalized / rnd_total_expenditure）",
+      "rule": "资本开支与产能释放周期追踪·怎样算对：必须有：「capex_to_depreciation」、「cip_turnover_rate」、「capacity_expansion_stage」",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000ce"
     },
     {
+      "rule": "资本开支与产能释放周期追踪·怎样算对：「capacity_expansion_stage」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000cf"
+    },
+    {
+      "rule": "资本开支与产能释放周期追踪·怎样算对：「capex_to_depreciation」的数都是用计算工具算的（算式 capex / depreciation_amortization）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000d0"
+    },
+    {
+      "rule": "资本开支与产能释放周期追踪：依据：实业投资与产能周期理论及固定资产折旧会计估计核算",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000c9"
+    },
+    {
+      "rule": "资本开支与产能释放周期追踪：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000ca"
+    },
+    {
+      "rule": "研发投入资本化与产出效能评估·怎样算对：必须有：「rnd_intensity」、「capitalization_ratio」、「rnd_revenue_conversion」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000dd"
+    },
+    {
+      "rule": "研发投入资本化与产出效能评估·怎样算对：「rnd_intensity」的数都是用计算工具算的（算式 rnd_total_expenditure / revenue）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000de"
+    },
+    {
+      "rule": "研发投入资本化与产出效能评估·怎样算对：「capitalization_ratio」的数都是用计算工具算的（算式 rnd_capitalized / rnd_total_expenditure）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000df"
+    },
+    {
       "rule": "研发投入资本化与产出效能评估：依据：财政部《企业会计准则第6号——无形资产》(CAS 6) 研发支出资本化条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c7"
+      "ref": "record:00000000-0000-0000-0000-0000000000d8"
     },
     {
       "rule": "研发投入资本化与产出效能评估：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c8"
+      "ref": "record:00000000-0000-0000-0000-0000000000d9"
     },
     {
       "rule": "复合年均增长率与趋势外推·怎样算对：必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000db"
+      "ref": "record:00000000-0000-0000-0000-0000000000ec"
+    },
+    {
+      "rule": "复合年均增长率与趋势外推·怎样算对：「trend_projection_series」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000ed"
     },
     {
       "rule": "复合年均增长率与趋势外推·怎样算对：「revenue_cagr_3yr」的数都是用计算工具算的（算式 (end_revenue / start_revenue) ** (1 / 3) - 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000dc"
+      "ref": "record:00000000-0000-0000-0000-0000000000ee"
     },
     {
       "rule": "复合年均增长率与趋势外推：依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d6"
+      "ref": "record:00000000-0000-0000-0000-0000000000e7"
     },
     {
       "rule": "复合年均增长率与趋势外推：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d7"
+      "ref": "record:00000000-0000-0000-0000-0000000000e8"
     },
     {
       "rule": "三表联动预测模型·怎样算对：必须有：「forecast_income_statement」、「forecast_balance_sheet」、「forecast_cashflow_statement」、「balance_sheet_plug_zero」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ea"
+      "ref": "record:00000000-0000-0000-0000-0000000000fc"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「balance_sheet_plug_zero」两边相等（容差 1.0）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000eb"
+      "ref": "record:00000000-0000-0000-0000-0000000000fd"
     },
     {
       "rule": "三表联动预测模型：依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e4"
+      "ref": "record:00000000-0000-0000-0000-0000000000f6"
     },
     {
       "rule": "三表联动预测模型：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e5"
+      "ref": "record:00000000-0000-0000-0000-0000000000f7"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：必须有：「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」、「sensitivity_table」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fa"
+      "ref": "record:00000000-0000-0000-0000-00000000010c"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「equity_value_dcf」的数都是用计算工具算的（算式 enterprise_value_dcf - net_debt）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fb"
+      "ref": "record:00000000-0000-0000-0000-00000000010d"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「per_share_intrinsic_value」的数都是用计算工具算的（算式 equity_value_dcf / shares_outstanding）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fc"
+      "ref": "record:00000000-0000-0000-0000-00000000010e"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF：依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f3"
+      "ref": "record:00000000-0000-0000-0000-000000000105"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f4"
+      "ref": "record:00000000-0000-0000-0000-000000000106"
     },
     {
       "rule": "相对估值与历史分位数对标·怎样算对：必须有：「target_pe_ttm」、「target_pb_lf」、「historical_pe_percentile」、「implied_market_cap」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010a"
+      "ref": "record:00000000-0000-0000-0000-00000000011c"
     },
     {
       "rule": "相对估值与历史分位数对标·怎样算对：「implied_market_cap」的数都是用计算工具算的（算式 purified_net_profit * target_pe_ttm）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010b"
+      "ref": "record:00000000-0000-0000-0000-00000000011d"
     },
     {
       "rule": "相对估值与历史分位数对标：依据：相对估值乘数分析理论及中国证监会证券分析师专业估值实务",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000104"
+      "ref": "record:00000000-0000-0000-0000-000000000116"
     },
     {
       "rule": "相对估值与历史分位数对标：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000105"
+      "ref": "record:00000000-0000-0000-0000-000000000117"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透·怎样算对：必须有：「controlling_shareholder_pledge_ratio」、「major_holder_reduction_plans」、「related_party_anomaly_score」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000118"
+      "ref": "record:00000000-0000-0000-0000-00000000012a"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透·怎样算对：「controlling_shareholder_pledge_ratio」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000119"
+      "ref": "record:00000000-0000-0000-0000-00000000012b"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透：依据：中国证监会《上市公司股东、董监高减持股份的若干规定》及《企业会计准则第36号——关联方披露》",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000113"
+      "ref": "record:00000000-0000-0000-0000-000000000125"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000114"
+      "ref": "record:00000000-0000-0000-0000-000000000126"
     },
     {
       "rule": "商誉减值与资产质量压力测试·怎样算对：必须有：「goodwill_to_net_assets」、「cgu_recoverable_amount」、「impairment_stress_headroom」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000126"
+      "ref": "record:00000000-0000-0000-0000-000000000138"
     },
     {
       "rule": "商誉减值与资产质量压力测试·怎样算对：「goodwill_to_net_assets」的数都是用计算工具算的（算式 goodwill_balance / net_assets）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000127"
+      "ref": "record:00000000-0000-0000-0000-000000000139"
     },
     {
       "rule": "商誉减值与资产质量压力测试·怎样算对：「impairment_stress_headroom」两边相等（容差 0.01）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000128"
+      "ref": "record:00000000-0000-0000-0000-00000000013a"
     },
     {
       "rule": "商誉减值与资产质量压力测试：依据：财政部《企业会计准则第8号——资产减值》(CAS 8) 及会计监管风险提示第8号——商誉减值",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000121"
+      "ref": "record:00000000-0000-0000-0000-000000000133"
     },
     {
       "rule": "商誉减值与资产质量压力测试：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000122"
+      "ref": "record:00000000-0000-0000-0000-000000000134"
     },
     {
-      "rule": "关键审计事项与或有负债排查·怎样算对：必须有：「audit_opinion_type」、「kam_topics_count」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+      "rule": "关键审计事项与或有负债排查·怎样算对：必须有：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000136"
+      "ref": "record:00000000-0000-0000-0000-000000000149"
     },
     {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」的说法附原文引文",
+      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000137"
+      "ref": "record:00000000-0000-0000-0000-00000000014a"
     },
     {
-      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》",
+      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000130"
+      "ref": "record:00000000-0000-0000-0000-00000000014b"
     },
     {
-      "rule": "关键审计事项与或有负债排查：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」每项都有「matter」、「audit_response」、「page」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000131"
+      "ref": "record:00000000-0000-0000-0000-00000000014c"
     },
     {
-      "rule": "竞争壁垒与核心投资假说验证·怎样算对：必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000144"
-    },
-    {
-      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「roic_vs_wacc_spread」的数都是用计算工具算的（算式 roic - wacc）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000145"
-    },
-    {
-      "rule": "竞争壁垒与核心投资假说验证：依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013f"
-    },
-    {
-      "rule": "竞争壁垒与核心投资假说验证：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000140"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：必须有：「structured_dossier」、「executive_summary」、「risk_factors」、「evidence_audit_trail」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000153"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「structured_dossier」不能空",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000154"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「executive_summary」不能空",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000155"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000156"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排：依据：证券投资咨询业务执业规范与合规研报底稿留痕归档指引",
+      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」的说法附原文引文",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000014d"
     },
     {
+      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号及《企业会计准则第13号——或有事项》",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000142"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000143"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证·怎样算对：必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015a"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「moat_rating」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015b"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「roic_vs_wacc_spread」的数都是用计算工具算的（算式 roic - wacc）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015c"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证：依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000155"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000156"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：必须有：「structured_dossier」、「executive_summary」、「risk_factors」、「evidence_audit_trail」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016a"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「structured_dossier」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016b"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「executive_summary」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016c"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016d"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排：依据：证券投资咨询业务执业规范与合规研报底稿留痕归档指引",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000164"
+    },
+    {
       "rule": "结构化研究底稿与报告成稿编排：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014e"
+      "ref": "record:00000000-0000-0000-0000-000000000165"
     },
     {
       "rule": "planning",
@@ -5332,382 +5798,382 @@
     {
       "rule": "steps/accounting_statement_reconciliation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000036"
+      "ref": "record:00000000-0000-0000-0000-00000000003b"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000037"
+      "ref": "record:00000000-0000-0000-0000-00000000003c"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000038"
+      "ref": "record:00000000-0000-0000-0000-00000000003d"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000039"
+      "ref": "record:00000000-0000-0000-0000-00000000003e"
     },
     {
       "rule": "steps/non_recurring_items_purification/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000045"
+      "ref": "record:00000000-0000-0000-0000-00000000004e"
     },
     {
       "rule": "steps/non_recurring_items_purification/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000046"
+      "ref": "record:00000000-0000-0000-0000-00000000004f"
     },
     {
       "rule": "steps/non_recurring_items_purification/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000047"
+      "ref": "record:00000000-0000-0000-0000-000000000050"
     },
     {
       "rule": "steps/non_recurring_items_purification/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000048"
+      "ref": "record:00000000-0000-0000-0000-000000000051"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000055"
+      "ref": "record:00000000-0000-0000-0000-00000000005f"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000056"
+      "ref": "record:00000000-0000-0000-0000-000000000060"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000057"
+      "ref": "record:00000000-0000-0000-0000-000000000061"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000058"
+      "ref": "record:00000000-0000-0000-0000-000000000062"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000068"
+      "ref": "record:00000000-0000-0000-0000-000000000074"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000069"
+      "ref": "record:00000000-0000-0000-0000-000000000075"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006a"
+      "ref": "record:00000000-0000-0000-0000-000000000076"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006b"
+      "ref": "record:00000000-0000-0000-0000-000000000077"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000079"
+      "ref": "record:00000000-0000-0000-0000-000000000086"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007a"
+      "ref": "record:00000000-0000-0000-0000-000000000087"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007b"
+      "ref": "record:00000000-0000-0000-0000-000000000088"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007c"
+      "ref": "record:00000000-0000-0000-0000-000000000089"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000089"
+      "ref": "record:00000000-0000-0000-0000-000000000096"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008a"
+      "ref": "record:00000000-0000-0000-0000-000000000097"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008b"
+      "ref": "record:00000000-0000-0000-0000-000000000098"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008c"
+      "ref": "record:00000000-0000-0000-0000-000000000099"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000099"
+      "ref": "record:00000000-0000-0000-0000-0000000000a7"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009a"
+      "ref": "record:00000000-0000-0000-0000-0000000000a8"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009b"
+      "ref": "record:00000000-0000-0000-0000-0000000000a9"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009c"
+      "ref": "record:00000000-0000-0000-0000-0000000000aa"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a7"
+      "ref": "record:00000000-0000-0000-0000-0000000000b6"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a8"
+      "ref": "record:00000000-0000-0000-0000-0000000000b7"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a9"
+      "ref": "record:00000000-0000-0000-0000-0000000000b8"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000aa"
+      "ref": "record:00000000-0000-0000-0000-0000000000b9"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b5"
+      "ref": "record:00000000-0000-0000-0000-0000000000c5"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b6"
+      "ref": "record:00000000-0000-0000-0000-0000000000c6"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b7"
+      "ref": "record:00000000-0000-0000-0000-0000000000c7"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b8"
+      "ref": "record:00000000-0000-0000-0000-0000000000c8"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c3"
+      "ref": "record:00000000-0000-0000-0000-0000000000d4"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c4"
+      "ref": "record:00000000-0000-0000-0000-0000000000d5"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c5"
+      "ref": "record:00000000-0000-0000-0000-0000000000d6"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c6"
+      "ref": "record:00000000-0000-0000-0000-0000000000d7"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d2"
+      "ref": "record:00000000-0000-0000-0000-0000000000e3"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d3"
+      "ref": "record:00000000-0000-0000-0000-0000000000e4"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d4"
+      "ref": "record:00000000-0000-0000-0000-0000000000e5"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d5"
+      "ref": "record:00000000-0000-0000-0000-0000000000e6"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e0"
+      "ref": "record:00000000-0000-0000-0000-0000000000f2"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e1"
+      "ref": "record:00000000-0000-0000-0000-0000000000f3"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e2"
+      "ref": "record:00000000-0000-0000-0000-0000000000f4"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e3"
+      "ref": "record:00000000-0000-0000-0000-0000000000f5"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ef"
+      "ref": "record:00000000-0000-0000-0000-000000000101"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f0"
+      "ref": "record:00000000-0000-0000-0000-000000000102"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f1"
+      "ref": "record:00000000-0000-0000-0000-000000000103"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f2"
+      "ref": "record:00000000-0000-0000-0000-000000000104"
     },
     {
       "rule": "steps/relative_multiple_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000100"
+      "ref": "record:00000000-0000-0000-0000-000000000112"
     },
     {
       "rule": "steps/relative_multiple_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000101"
+      "ref": "record:00000000-0000-0000-0000-000000000113"
     },
     {
       "rule": "steps/relative_multiple_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000102"
+      "ref": "record:00000000-0000-0000-0000-000000000114"
     },
     {
       "rule": "steps/relative_multiple_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000103"
+      "ref": "record:00000000-0000-0000-0000-000000000115"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010f"
+      "ref": "record:00000000-0000-0000-0000-000000000121"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000110"
+      "ref": "record:00000000-0000-0000-0000-000000000122"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000111"
+      "ref": "record:00000000-0000-0000-0000-000000000123"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000112"
+      "ref": "record:00000000-0000-0000-0000-000000000124"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011d"
+      "ref": "record:00000000-0000-0000-0000-00000000012f"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011e"
+      "ref": "record:00000000-0000-0000-0000-000000000130"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011f"
+      "ref": "record:00000000-0000-0000-0000-000000000131"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000120"
+      "ref": "record:00000000-0000-0000-0000-000000000132"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012c"
+      "ref": "record:00000000-0000-0000-0000-00000000013e"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012d"
+      "ref": "record:00000000-0000-0000-0000-00000000013f"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012e"
+      "ref": "record:00000000-0000-0000-0000-000000000140"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012f"
+      "ref": "record:00000000-0000-0000-0000-000000000141"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013b"
+      "ref": "record:00000000-0000-0000-0000-000000000151"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013c"
+      "ref": "record:00000000-0000-0000-0000-000000000152"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013d"
+      "ref": "record:00000000-0000-0000-0000-000000000153"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013e"
+      "ref": "record:00000000-0000-0000-0000-000000000154"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000149"
+      "ref": "record:00000000-0000-0000-0000-000000000160"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014a"
+      "ref": "record:00000000-0000-0000-0000-000000000161"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014b"
+      "ref": "record:00000000-0000-0000-0000-000000000162"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014c"
+      "ref": "record:00000000-0000-0000-0000-000000000163"
     }
   ]
 }

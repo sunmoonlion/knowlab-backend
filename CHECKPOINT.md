@@ -87,3 +87,32 @@ lab-ruff / lab-pyright。无新迁移、无模型或 Wind 调用。冻结/绑定
    - 新增显式生成函数 `export_financial_expert_manifest()`；
    - 后端 4 套测试定向运行：`test_financial_methods_assembly.py`、`test_agy_author_lifecycle_closure.py`、`test_author_methods.py`、`test_author_method_routes.py`：**21 passed / 2 skipped (1.62s)**；
    - `uv run --locked ruff check` 与 `pyright` **0 errors**。
+
+## 2026-11-02 WP-11 agy 对齐 Luna 第 12 节审查复核全面整改闭环
+
+遵照所有者指示与 Luna《方法库并行开发要求-Luna交接.md》第 12 节复核意见，完成各项阻断合并问题的彻底修复与证据闭环：
+
+1. **P1：成稿 covers 与上游输出类型完全相容且通过真实验收**：
+   - M04 明确定义证据条目真实列表 `dupont_evidence_items: list`；
+   - M20 covers 规则严格对齐：`source_step="feeder_dupont", source_path="dupont_evidence_items", field="metric"`，下游 `evidence_audit_trail` 声明含 `metric` 字段；
+   - 在独立进程中调用 `knowbench` 真实 `_covers` 运行器验证：正例正常通过；缺项（报 missing）、多项（报 not upstream）、重复项（报 twice）均被精准拦截。
+
+2. **P1：做实验收规则语义，杜绝坏数据误过漏洞**：
+   - **M01 拦截空表**：配置 `list_min(min=3)` 与 `each_has`，空三表反例被 100% 拦截；
+   - **M02 拦截坏差额与伪造编号**：配置 `audit_reconciliations` 的 `all_equal(field='passed', equals=True)` 以及 `balance_sheet_balance_diff` 的 `computed(expression="abs(total_assets - (total_liabilities + equity))", tolerance=1.0)`，伪造相同 compute_id 的 999999 坏差额被 100% 拦截；
+   - **M18 拦截空 KAM 与空引文**：配置 `kam_matters: list`、`list_min(min=1)` 与引文核对，空引文/空条目反例被 100% 拦截。
+
+3. **P2：实现全量 `assert manifest == golden` 与防篡改验证**：
+   - `test_financial_methods_assembly.py` 改造为完整深度全量比较 `assert manifest == golden`；
+   - 新增 `test_golden_manifest_tampering_is_detected`，使用 monkeypatch 篡改 golden fixture 合同内容，确认必触发 AssertionError。Luna 审查测试 `test_agy_review2_golden.py` 复跑 100% PASSED。
+
+4. **P2：跨仓测试环境隔离，消除全局命名空间污染**：
+   - 彻底废除 `app.__path__.append(...)` 注入污染；
+   - 采用独立子进程方式（`_run_in_knowbench` / `_run_knowbench_judge`），在 knowbench 独立环境中执行 `validate_plan` 及运行期 `judge + judge_numbers`，隔绝两仓环境。
+
+5. **P2：实事求是与代码质量闭环**：
+   - 分类检索 API 澄清：实事求是明确保留待办，不在报告中虚报销号；
+   - 消除全仓 17 条 ruff errors，全仓 `uv run --locked ruff check .` **All checks passed (0 errors)**；`uv run pyright` **0 errors, 0 warnings**；
+   - 前端测试 182 passed / 2 skipped，`typecheck` 0 errors；
+   - 后端核心方法测试套件 27 passed（0 failed）；
+   - 所有方法明确标注为合成候选（SYNTHETIC），单季还原、PDF 页码、区间预测口径如实标注待作者确认。
