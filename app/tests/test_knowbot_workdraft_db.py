@@ -16,6 +16,33 @@ from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
 from tests.test_knowbot_repository_db import ROOT, _drop, _run, _schema, _versions
 
+
+@pytest.mark.asyncio
+async def test_dynamic_author_catalog_round_trips_through_database():
+    from tests.dynamic_method_fixtures import body
+
+    engine, schema = await _schema(None)
+    try:
+        async with engine.begin() as c:
+            await _rows(c)
+        factory = make_session_factory(engine)
+        async with factory() as session:
+            works = KnowbotWorkdraftService(SqlKnowlabRepository(session))
+            await works.save(
+                OWNER, str(REQUEST), revision=0, edits=list(body().items())
+            )
+        # Re-open both the session and service; compilation must use stored provenance.
+        async with factory() as session:
+            works = KnowbotWorkdraftService(SqlKnowlabRepository(session))
+            draft = await works.publish(OWNER, str(REQUEST))
+            assert draft.manifest["schema"] == "knowbot-manifest/v3"
+            assert draft.manifest["pack"]["planning"] == body()["planning"]
+            assert "workflow" not in draft.manifest["pack"]
+            assert draft.status == "pending_test"
+    finally:
+        await _drop(engine, schema)
+
+
 TARGET = ROOT / "alembic/versions/20261028_0017_workdrafts.py"
 # 之后的迁移：真仓储按最新的模型读写，走服务前先升上去，退回时先退它们
 LATER = [p for p in _versions() if p.stem > TARGET.stem]

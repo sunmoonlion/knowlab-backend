@@ -21,6 +21,7 @@ from app.application.services.knowbot_workdraft import (
     KnowbotWorkdraftService,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn, draft_manifest_problems
+from tests.dynamic_method_fixtures import body as dynamic_body
 from tests.knowbot_fakes import (
     OWNER,
     FakeRuntime,
@@ -80,6 +81,69 @@ async def test_a_new_name_has_no_workdraft_until_the_first_save(wired) -> None:
     rule = saved.sources["steps/overview/rules/r1"]
     entry = repo.entries[uuid.UUID(rule["ref"].removeprefix("record:"))]
     assert rule["kind"] == "user_text" and entry.text == "合并、母公司都有时问用户。"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_author_boundaries_are_recorded_and_frozen_on_publish(wired):
+    repo, works, svc, _ = wired
+    request = await _request(svc)
+    doc = dynamic_body()
+    saved = await works.save(
+        OWNER, str(request.id), revision=0, edits=list(doc.items())
+    )
+    paths = {
+        "planning",
+        "steps/inspect/selection",
+        "steps/inspect/uses",
+        "steps/inspect/advanced",
+        "steps/inspect/on_fail",
+    }
+    for path in paths:
+        record = repo.entries[
+            uuid.UUID(saved.sources[path]["ref"].removeprefix("record:"))
+        ]
+        assert record.path == path and record.actor_subject == OWNER
+        assert record.actor_role == "author" and record.kind == "edit"
+    draft = await works.publish(OWNER, str(request.id))
+    assert draft.manifest["schema"] == "knowbot-manifest/v3"
+    assert draft.status == "pending_test"
+    refs = {s["ref"] for s in draft.manifest["rule_sources"]}
+    assert {saved.sources[p]["ref"] for p in paths} <= refs
+    original_pack = json.dumps(draft.manifest["pack"], sort_keys=True)
+    await works.save(
+        OWNER,
+        str(request.id),
+        revision=1,
+        edits=[
+            (
+                "steps/inspect/selection",
+                {
+                    "applies_when": "需要时",
+                    "required": True,
+                    "max_calls": 2,
+                },
+            )
+        ],
+    )
+    again = await works.publish(OWNER, str(request.id))
+    assert again.manifest["pack"] != draft.manifest["pack"]
+    assert json.dumps(draft.manifest["pack"], sort_keys=True) == original_pack
+
+
+@pytest.mark.asyncio
+async def test_dynamic_plan_policy_without_author_source_cannot_publish(wired):
+    repo, works, svc, _ = wired
+    request = await _request(svc)
+    saved = await works.save(
+        OWNER, str(request.id), revision=0, edits=list(dynamic_body().items())
+    )
+    sources = dict(saved.sources)
+    del sources["planning"]
+    await repo.update_workdraft(
+        saved.id, body=saved.body, revision=saved.revision, sources=sources
+    )
+    with pytest.raises(BadRequestError):
+        await works.publish(OWNER, str(request.id))
 
 
 @pytest.mark.asyncio

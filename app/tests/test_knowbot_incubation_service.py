@@ -356,6 +356,42 @@ async def test_gaps_become_my_questions_and_operators_never_see_them(w) -> None:
 
 # ---------- 接受建议 ----------
 @pytest.mark.asyncio
+async def test_planning_suggestion_only_becomes_author_method_after_acceptance(w):
+    from tests.dynamic_method_fixtures import body
+
+    request = await w.request()
+    record = await w.inc.start(OWNER, str(request.id), action="draft")
+    planning = body()["planning"]
+    w.hand_back(
+        record,
+        {
+            "sources": [{"path": "planning", "kind": "proposal"}],
+            "suggestions": [
+                {
+                    "id": "plan",
+                    "path": "planning",
+                    "op": "set",
+                    "value": planning,
+                    "reason": "请作者确认方法选择边界",
+                }
+            ],
+        },
+    )
+    done = await w.inc.refresh(OWNER, str(request.id), str(record.id))
+    _, before = await w.works.get(OWNER, str(request.id))
+    assert before is None or "planning" not in before.body
+    stored, _ = await w.inc.decide(
+        OWNER, str(request.id), str(done.id), "plan", action="accept", revision=0
+    )
+    assert stored is not None and stored.body["planning"] == planning
+    source = stored.sources["planning"]
+    assert source["kind"] == "user_confirmed"
+    entry = w.repo.entries[uuid.UUID(source["ref"].removeprefix("record:"))]
+    assert entry.kind == "accept" and entry.actor_subject == OWNER
+    assert entry.suggestion_ref == f"{done.id}:plan"
+
+
+@pytest.mark.asyncio
 async def test_accepting_an_idea_suggestion_cites_the_idea_sentence(w) -> None:
     request, done = await _first_round(w)
     stored, record = await w.inc.decide(

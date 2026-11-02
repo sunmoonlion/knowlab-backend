@@ -4,7 +4,8 @@
 挑的数据），每一步一处（叫什么、做什么、为什么、用上哪几步、规则、开步前问什么、交回哪几项、
 怎样算对、没过怎么办）。「高级」里是工程层（工具、额度、读入上限、手写结构、成稿文件），
 懂行的人才改；工程层、步骤顺序、用上哪几步、没过怎么办、挑的数据都不是作者的判断文字，不
-要出处。清单由 compile 按格子生成。
+要出处。动态方法显式带 planning 时，规划、选择条件及依赖/高级/失败边界也逐格记作者
+出处。清单由 compile 按格子生成：固定步骤 v2，动态目录 v3。
 
 格子的路径：`name`、`tagline`、`scope/does`、`scope/does_not`、`scope/elsewhere`、
 `steps/<步>/title`、`steps/<步>/does`、`steps/<步>/why`、`steps/<步>/rules/<规则>`、
@@ -35,6 +36,7 @@ import re
 import uuid
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -154,6 +156,39 @@ class Advanced(Strict):
     output_file: str | None = Field(default=None, max_length=256)
 
 
+class MethodSelection(Strict):
+    """作者确认的适用条件、必经与重复上限；不是任务模型新造的方法。"""
+
+    applies_when: str = Field(min_length=1, max_length=4000)
+    required: bool = Field(strict=True)
+    max_calls: int = Field(ge=1, le=100, strict=True)
+
+    @model_validator(mode="after")
+    def _nonblank(self) -> MethodSelection:
+        if not self.applies_when.strip():
+            raise ValueError("applies_when must not be blank")
+        return self
+
+
+class PlanningCell(Strict):
+    """显式选用动态方法；整格进入作者出处链。与运行方 PlanningContract 同约束。"""
+
+    method_text: str = Field(min_length=1, max_length=20000)
+    final_units: tuple[str, ...] = Field(min_length=1, max_length=30)
+    max_steps: int = Field(ge=1, le=100, strict=True)
+    max_replans: int = Field(ge=0, le=10, strict=True)
+    reserve: str = Field(pattern=r"^[0-9]{1,4}(\.[0-9]{1,4})?$")
+    input_max_chars: int = Field(ge=500, le=200000, strict=True)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> PlanningCell:
+        if not self.method_text.strip() or Decimal(self.reserve) <= 0:
+            raise ValueError("planning needs author text and a positive reserve")
+        if len(set(self.final_units)) != len(self.final_units):
+            raise ValueError("final_units must be unique")
+        return self
+
+
 class StepCell(Strict):
     id: str = Field(pattern=STEP_ID)
     title: str = Field(default="", max_length=80)
@@ -166,6 +201,9 @@ class StepCell(Strict):
     checks: tuple[CheckCell, ...] = Field(default=(), max_length=50)
     on_fail: OnFail = OnFail()
     advanced: Advanced = Advanced()
+    selection: MethodSelection | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _unique(self) -> StepCell:
@@ -186,6 +224,9 @@ class WorkdraftBody(Strict):
     # 从作者自己的 knowbase 挑的资料编号：交付时才冻结成 bindings，草稿里不写
     data_picks: tuple[str, ...] = Field(default=(), max_length=200)
     steps: tuple[StepCell, ...] = Field(default=(), max_length=MAX_STEPS)
+    planning: PlanningCell | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _consistent(self) -> WorkdraftBody:
@@ -223,11 +264,23 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
     text("scope/does", body.scope.does)
     text("scope/does_not", body.scope.does_not)
     text("scope/elsewhere", body.scope.elsewhere)
+    if body.planning is not None:
+        found["planning"] = canonical(body.planning.model_dump(mode="json"))
     for step in body.steps:
         base = f"steps/{step.id}"
         text(f"{base}/title", step.title)
         text(f"{base}/does", step.does)
         text(f"{base}/why", step.why)
+        if step.selection is not None:
+            found[f"{base}/selection"] = canonical(
+                step.selection.model_dump(mode="json")
+            )
+        if body.planning is not None:
+            # 动态单元的依赖、工具和失败边界也是作者冻结的选择范围。
+            for field in ("uses", "advanced", "on_fail"):
+                found[f"{base}/{field}"] = canonical(
+                    step.model_dump(mode="json")[field]
+                )
         for rule in step.rules:
             text(f"{base}/rules/{rule.id}", rule.text)
         for ask in step.ask_before:
@@ -256,6 +309,7 @@ STEP_FIELDS = frozenset(
         "checks",
         "on_fail",
         "advanced",
+        "selection",
     }
 )
 # 一条一条的格子：怎么认出是哪一条
@@ -292,7 +346,10 @@ def apply(body: Mapping[str, Any], path: str, value: Any) -> dict[str, Any]:
     if not parts or any(not p for p in parts):
         raise ValueError("empty path")
     head = parts[0]
-    if head in ("name", "tagline", "data_picks", "steps", "scope") and len(parts) == 1:
+    if (
+        head in ("name", "tagline", "data_picks", "steps", "scope", "planning")
+        and len(parts) == 1
+    ):
         doc[head] = value
         return doc
     if head == "scope" and len(parts) == 2:

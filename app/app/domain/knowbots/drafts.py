@@ -38,6 +38,7 @@ TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
 # 只收清单 v2（SDD 0043；decisions ⑰ 起不留 v1）：作者绑的数据交付时才冻结进
 # `bindings`，草稿里不写
 MANIFEST_SCHEMA = "knowbot-manifest/v2"
+DYNAMIC_MANIFEST_SCHEMA = "knowbot-manifest/v3"
 RULE_SOURCES = frozenset({"user_text", "user_confirmed"})
 
 
@@ -174,8 +175,9 @@ def draft_manifest_problems(
     if _size(doc) > MAX_MANIFEST_BYTES:
         return [f"manifest is larger than {MAX_MANIFEST_BYTES} bytes"]
     problems: list[str] = []
-    if doc.get("schema") != MANIFEST_SCHEMA:
-        return [f"schema must be {MANIFEST_SCHEMA}"]
+    if doc.get("schema") not in (MANIFEST_SCHEMA, DYNAMIC_MANIFEST_SCHEMA):
+        return ["schema must be knowbot-manifest/v2 or knowbot-manifest/v3"]
+    dynamic = doc["schema"] == DYNAMIC_MANIFEST_SCHEMA
     if doc.get("runtime") != runtime:
         problems.append(f"runtime must be {runtime}")
     if doc.get("version") != version:
@@ -186,6 +188,16 @@ def draft_manifest_problems(
     pack = doc.get("pack")
     if not isinstance(pack, dict) or not pack.get("pack_id"):
         problems.append("pack.pack_id is required")
+    elif dynamic:
+        if (
+            pack.get("runtime_contract") != "knowbench/dynamic-methods/v1"
+            or "workflow" in pack
+        ):
+            problems.append("v3 requires a dynamic catalog, without workflow")
+        if not isinstance(pack.get("method_units"), list) or not pack["method_units"]:
+            problems.append("pack.method_units must be a non-empty list")
+        if str(pack.get("version")) != version:
+            problems.append("pack.version must equal the version")
     elif not isinstance(pack.get("workflow"), list) or not pack["workflow"]:
         problems.append("pack.workflow must be a non-empty list")
     elif str(pack.get("version")) != version:

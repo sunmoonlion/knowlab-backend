@@ -25,17 +25,20 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from pydantic import ValidationError
 
-from app.domain.knowbots.drafts import MANIFEST_SCHEMA
+from app.domain.knowbots.drafts import DYNAMIC_MANIFEST_SCHEMA, MANIFEST_SCHEMA
 from app.domain.knowbots.workdraft import (
     NAME,
     STEP_ID,
     Advanced,
     CheckCell,
+    MethodSelection,
     OutputCell,
+    PlanningCell,
     Problem,
     StepCell,
     WorkdraftBody,
@@ -406,11 +409,25 @@ def compile_manifest(
     if not body.steps:
         problems.append(Problem("steps", "add at least one step"))
     earlier: dict[str, StepCell] = {}
+    dynamic = body.planning is not None
+    available = {s.id: s for s in body.steps}
     workflow: list[dict[str, Any]] = []
     rule_sources: list[dict[str, Any]] = []
     titles = {s.id: s.title for s in body.steps}
     for step in body.steps:
         base = f"steps/{step.id}"
+        inputs = (
+            {key: value for key, value in available.items() if key != step.id}
+            if dynamic
+            else earlier
+        )
+        if dynamic != (step.selection is not None):
+            problems.append(
+                Problem(
+                    f"{base}/selection",
+                    "selection is required only for dynamic methods",
+                )
+            )
         step_name = step.title or step.id
         if not step.title.strip():
             problems.append(Problem(f"{base}/title", "name this step"))
@@ -419,16 +436,16 @@ def compile_manifest(
         if not step.outputs:
             problems.append(Problem(f"{base}/outputs", "add at least one output"))
         for used in step.uses:
-            if used not in earlier:
+            if used not in inputs:
                 problems.append(
-                    Problem(f"{base}/uses", f"{used} is not an earlier step")
+                    Problem(f"{base}/uses", f"{used} is not an available input method")
                 )
         for ask in step.ask_before:
             if not ask.question.strip():
                 problems.append(
                     Problem(f"{base}/ask_before/{ask.id}", "write the question")
                 )
-        if step.on_fail.kind == "back" and step.on_fail.back_to not in earlier:
+        if step.on_fail.kind == "back" and step.on_fail.back_to not in inputs:
             problems.append(Problem(f"{base}/on_fail", "go back to an earlier step"))
         advanced = step.advanced
         if advanced.tools is not None and not set(advanced.tools) <= V2_TOOLS:
@@ -456,7 +473,7 @@ def compile_manifest(
                 }
             )
         for index, check in enumerate(step.checks):
-            rule, why = check_rule(check, step, earlier)
+            rule, why = check_rule(check, step, inputs)
             path = f"{base}/checks/{index}"
             if rule is None:
                 problems.append(Problem(path, why or "invalid check"))
@@ -546,6 +563,37 @@ def compile_manifest(
         },
         "rule_sources": rule_sources,
     }
+    if body.planning is not None:
+        manifest["schema"] = DYNAMIC_MANIFEST_SCHEMA
+        manifest["pack"].pop("workflow")
+        manifest["pack"].update(
+            {
+                "runtime_contract": "knowbench/dynamic-methods/v1",
+                "planning": body.planning.model_dump(mode="json"),
+                "method_units": [
+                    {
+                        "selection": step.selection.model_dump(mode="json")
+                        if step.selection
+                        else {},
+                        "contract": contract,
+                    }
+                    for step, contract in zip(body.steps, workflow, strict=True)
+                ],
+            }
+        )
+        # 规划方法、条件、必经检查及权限与作者编辑/接受记录使用同一出处链。
+        for path, source in sources.items():
+            if path == "planning" or path.endswith(
+                ("/selection", "/uses", "/advanced", "/on_fail")
+            ):
+                if isinstance(source, dict):
+                    rule_sources.append(
+                        {
+                            "rule": _label(path),
+                            "source": source.get("kind"),
+                            "ref": source.get("ref"),
+                        }
+                    )
     return manifest, problems
 
 
@@ -639,6 +687,8 @@ def pack_problems(pack: object) -> list[Problem]:
     """pack 结构自检（照 knowbench 专家包的形状与约束）：字段齐、类型对、引用对得上。"""
     if not isinstance(pack, dict):
         return [Problem("pack", "pack must be an object")]
+    if "runtime_contract" in pack or "method_units" in pack or "planning" in pack:
+        return _dynamic_pack_problems(pack)
     problems: list[Problem] = []
     for key in ("pack_id", "version", "title"):
         if not isinstance(pack.get(key), str) or not pack[key]:
@@ -728,6 +778,146 @@ def pack_problems(pack: object) -> list[Problem]:
         if isinstance(artifact, str):
             artifacts.append(artifact)
     return problems
+
+
+def _dynamic_pack_problems(pack: dict[str, Any]) -> list[Problem]:
+    """作者侧的早期诊断；运行方仍按自己的严格契约再核一遍。"""
+    problems: list[Problem] = []
+    keys = {
+        "runtime_contract",
+        "pack_id",
+        "version",
+        "title",
+        "name",
+        "tagline",
+        "scope",
+        "planning",
+        "method_units",
+    }
+    for key in sorted(set(pack) - keys):
+        problems.append(Problem(f"pack.{key}", "unknown dynamic catalog field"))
+    if pack.get("runtime_contract") != "knowbench/dynamic-methods/v1":
+        problems.append(
+            Problem("pack.runtime_contract", "unsupported runtime contract")
+        )
+    try:
+        planning = PlanningCell.model_validate(pack.get("planning"))
+    except ValidationError:
+        return [*problems, Problem("pack.planning", "invalid planning contract")]
+    raw_units = pack.get("method_units")
+    if not isinstance(raw_units, list) or not 1 <= len(raw_units) <= 30:
+        return [*problems, Problem("pack.method_units", "requires 1 to 30 methods")]
+    units: dict[str, dict[str, Any]] = {}
+    required = set(planning.final_units)
+    for index, unit in enumerate(raw_units):
+        where = f"pack.method_units[{index}]"
+        if not isinstance(unit, dict) or set(unit) != {"selection", "contract"}:
+            problems.append(Problem(where, "selection and contract are required"))
+            continue
+        try:
+            selection = MethodSelection.model_validate(unit["selection"])
+        except ValidationError:
+            problems.append(Problem(f"{where}.selection", "invalid selection"))
+            continue
+        contract = unit["contract"]
+        sid = contract.get("step_id") if isinstance(contract, dict) else None
+        if not isinstance(sid, str) or not re.fullmatch(STEP_ID, sid) or sid in units:
+            problems.append(Problem(where, "invalid or duplicate method id"))
+            continue
+        units[sid] = contract
+        if selection.required:
+            required.add(sid)
+        if contract.get("output_artifact") != sid:
+            problems.append(Problem(where, "output slot must equal method id"))
+        refs = contract.get("input_refs", [])
+        if (
+            not isinstance(refs, list)
+            or any(not isinstance(r, str) for r in refs)
+            or len(set(refs)) != len(refs)
+        ):
+            problems.append(Problem(where, "input slots must be unique names"))
+            continue
+        if contract.get("on_reject") == "back" and contract.get("back_to") not in refs:
+            problems.append(Problem(where, "back_to must name an input slot"))
+        if contract.get("on_reject") != "back" and contract.get("back_to") is not None:
+            problems.append(Problem(where, "only back rejection can name back_to"))
+        if contract.get("mode", "single") != "single":
+            problems.append(Problem(where, "competing attempts are not enabled"))
+        reserve = contract.get("reserve", DEFAULT_RESERVE)
+        if (
+            not isinstance(reserve, str)
+            or not re.fullmatch(r"[0-9]{1,4}(\.[0-9]{1,4})?", reserve)
+            or Decimal(reserve) <= 0
+        ):
+            problems.append(Problem(where, "reserve must be a positive amount"))
+        for key, minimum, maximum, default in (
+            ("max_reworks", 0, 5, 1),
+            ("max_backs", 0, 5, 1),
+            ("input_max_chars", 500, 200000, DEFAULT_INPUT_MAX_CHARS),
+        ):
+            value = contract.get(key, default)
+            if type(value) is not int or not minimum <= value <= maximum:
+                problems.append(Problem(where, f"invalid {key}"))
+        tools = contract.get("tools", [])
+        if not isinstance(tools, list) or any(not isinstance(t, str) for t in tools):
+            problems.append(Problem(where, "tools must be names"))
+        elif len(tools) != len(set(tools)):
+            problems.append(Problem(where, "tools must be unique"))
+        rules = contract.get("acceptance", [])
+        if not isinstance(rules, list) or any(
+            not isinstance(r, dict) or not isinstance(r.get("kind"), str) for r in rules
+        ):
+            problems.append(Problem(where, "invalid acceptance rules"))
+            continue
+        if not {"json_object", "required_keys", "no_positioning_advice"} <= {
+            r["kind"] for r in rules
+        }:
+            problems.append(Problem(where, "mandatory output checks are missing"))
+        for rule in rules:
+            source = rule.get("source")
+            if isinstance(source, str) and source.split(".")[0] not in refs:
+                problems.append(
+                    Problem(where, "acceptance must read a declared input slot")
+                )
+    if problems:
+        return problems
+    ordered: list[dict[str, Any]] = []
+    visited: set[str] = set()
+    visiting: set[str] = set()
+
+    def visit(sid: str) -> None:
+        if sid not in units or sid in visiting:
+            raise ValueError("unknown or cyclic method input")
+        if sid in visited:
+            return
+        visiting.add(sid)
+        for ref in units[sid].get("input_refs", []):
+            visit(ref)
+        visiting.remove(sid)
+        visited.add(sid)
+        ordered.append(units[sid])
+
+    try:
+        for sid in sorted(required):
+            visit(sid)
+        if len(visited) > planning.max_steps:
+            problems.append(
+                Problem(
+                    "pack.planning.max_steps",
+                    "cannot cover required methods and inputs",
+                )
+            )
+        for sid in units:
+            visit(sid)
+    except ValueError as exc:
+        return [*problems, Problem("pack.method_units", str(exc))]
+    # 仅为复用固定步骤的局部检查排序；不把它作为任务计划保存或交给运行方。
+    fixed = {
+        k: v
+        for k, v in pack.items()
+        if k not in {"runtime_contract", "planning", "method_units"}
+    }
+    return [*problems, *pack_problems({**fixed, "workflow": ordered})]
 
 
 # ---------- 导入：清单拆回格子 ----------
@@ -872,10 +1062,24 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
 
     不合格抛 ValueError。
     """
-    if not isinstance(manifest, dict) or manifest.get("schema") != MANIFEST_SCHEMA:
-        raise ValueError(f"only a {MANIFEST_SCHEMA} manifest is imported")
+    if not isinstance(manifest, dict) or manifest.get("schema") not in (
+        MANIFEST_SCHEMA,
+        DYNAMIC_MANIFEST_SCHEMA,
+    ):
+        raise ValueError("only a v2 fixed or v3 dynamic manifest is imported")
+    dynamic = manifest["schema"] == DYNAMIC_MANIFEST_SCHEMA
     pack = manifest.get("pack")
     workflow = pack.get("workflow") if isinstance(pack, dict) else None
+    if dynamic:
+        issues = pack_problems(pack)
+        if issues:
+            raise ValueError("invalid dynamic catalog: " + issues[0].message)
+        assert isinstance(pack, dict)
+        workflow = [unit["contract"] for unit in pack["method_units"]]
+    elif isinstance(pack, dict) and any(
+        k in pack for k in ("runtime_contract", "planning", "method_units")
+    ):
+        raise ValueError("dynamic methods require a v3 manifest")
     if not isinstance(pack, dict) or not isinstance(workflow, list) or not workflow:
         raise ValueError("the manifest has no pack.workflow")
     notes = [
@@ -886,6 +1090,9 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
     raw_scope = pack.get("scope")
     scope: dict[str, Any] = raw_scope if isinstance(raw_scope, dict) else {}
     artifacts: dict[str, str] = {}  # 交回物名 → 步骤编号
+    all_titles = {s["step_id"]: s["title"] for s in workflow} if dynamic else {}
+    if dynamic:
+        artifacts = {s["output_artifact"]: s["step_id"] for s in workflow}
     steps: list[dict[str, Any]] = []
     for index, raw in enumerate(workflow):
         if not isinstance(raw, dict):
@@ -968,7 +1175,10 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
             raise ValueError(f"step {sid} does not fit a workdraft: {exc}") from None
         if (
             ours is not None
-            and method_text(cell, {s["id"]: s["title"] for s in [*steps, step]}) != text
+            and method_text(
+                cell, all_titles or {s["id"]: s["title"] for s in [*steps, step]}
+            )
+            != text
         ):
             # 拆得不对（比如规则里自带「2. 」换行）：整段方法原文放进「做什么」
             cell = StepCell.model_validate(
@@ -1003,7 +1213,10 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         except ValidationError as exc:
             raise ValueError(f"step {sid} engineering does not fit: {exc}") from None
         cell = cell.model_copy(update={"advanced": advanced_cell})
-        steps.append(cell.model_dump(mode="json"))
+        dumped = cell.model_dump(mode="json")
+        if dynamic:
+            dumped["selection"] = pack["method_units"][index]["selection"]
+        steps.append(dumped)
         artifact = raw.get("output_artifact")
         if isinstance(artifact, str):
             artifacts[artifact] = sid
@@ -1017,8 +1230,12 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
                     for k in ("does", "does_not", "elsewhere")
                 },
                 "steps": steps,
+                **({"planning": pack["planning"]} if dynamic else {}),
             }
         )
     except ValidationError as exc:
         raise ValueError(f"the manifest does not fit a workdraft: {exc}") from None
+    if dynamic and notes:
+        # 不能把冻结的检查/权限丢掉后继续当作同一份作者方法。
+        raise ValueError("dynamic import would lose author constraints: " + notes[0])
     return body, notes

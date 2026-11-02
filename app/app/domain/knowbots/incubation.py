@@ -34,7 +34,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.knowbots.workdraft import CELL_ID, NAME, STEP_ID, WorkdraftBody
+from app.domain.knowbots.workdraft import (
+    CELL_ID,
+    NAME,
+    STEP_ID,
+    PlanningCell,
+    WorkdraftBody,
+)
 
 CONTRACT = "knowbot-incubation/v1"
 INCUBATION_ID = r"^[A-Za-z0-9._:-]{8,128}$"
@@ -53,8 +59,8 @@ _NAME = NAME[1:-1]
 # 一处。「高级」（工程层）、挑的数据、整份步骤列表都不在里面：AI 不写 method_text、
 # 不改「高级」，数据由作者自己挑（第 8.3 节）
 CELL_PATH = (
-    r"^(name|tagline|scope|scope/(does|does_not|elsewhere)"
-    rf"|steps/{_STEP}(/(title|does|why|uses|rules|ask_before|outputs|checks|on_fail))?"
+    r"^(name|tagline|planning|scope|scope/(does|does_not|elsewhere)"
+    rf"|steps/{_STEP}(/(title|does|why|uses|rules|ask_before|outputs|checks|on_fail|selection))?"
     rf"|steps/{_STEP}/rules/{_CELL}"
     rf"|steps/{_STEP}/ask_before/{_CELL}"
     rf"|steps/{_STEP}/outputs/{_NAME}"
@@ -334,7 +340,10 @@ class Suggestion(Strict):
             raise ValueError("move carries the new position, from 0")
         if self.op in ("set", "add") and self.value is None:
             raise ValueError(f"{self.op} carries a value")
-        if _engineering(self.value):
+        if self.path == "planning" and self.op in ("set", "add"):
+            # 这里的 method_text 是作者规划原文，不是 AI 重写单元的执行正文。
+            PlanningCell.model_validate(self.value)
+        elif _engineering(self.value):
             raise ValueError("a suggestion does not touch the engineering layer")
         return self
 
