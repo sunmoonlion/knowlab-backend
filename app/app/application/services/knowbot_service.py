@@ -65,6 +65,7 @@ from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
     OUTPUTS_KEEP_DAYS,
+    Idea,
     KnowbotRequestIn,
     RuntimeIncubationIn,
     amendment_status,
@@ -186,6 +187,20 @@ class KnowbotCreationService:
         self.knowbase = knowbase
 
     # ---------- 用户：申请与修改 ----------
+    async def _validate_method_choices(self, owner: str, idea: Idea) -> None:
+        # Reuse the method owner's immutable version/integrity checks. Local import
+        # avoids the existing methods -> creation-service helper dependency.
+        from app.application.services.knowbot_methods import KnowbotMethodService
+
+        methods = KnowbotMethodService(self.repo)
+        for choice in idea.method_choices or ():
+            record = await methods.get(owner, str(choice.method_id), choice.version)
+            if record.digest != choice.digest:
+                raise ConcurrencyConflictError(
+                    "Chosen method digest differs; reload the exact version",
+                    code="method_integrity",
+                )
+
     async def submit(self, owner_subject: str, body: KnowbotRequestIn) -> RequestRecord:
         """申请：出创意 v1。"""
         if not OWNER.fullmatch(owner_subject or ""):
@@ -195,6 +210,7 @@ class KnowbotCreationService:
                 "This runtime is not registered", code="runtime_not_registered"
             )
         async with self.repo.transaction():
+            await self._validate_method_choices(owner_subject, body.idea)
             created = await self.repo.create_request(
                 owner_subject=owner_subject,
                 title=body.title,
@@ -301,6 +317,7 @@ class KnowbotCreationService:
             assert current is not None
             if current.latest_version >= MAX_VERSIONS:
                 raise _conflict(f"At most {MAX_VERSIONS} versions", "too_many_versions")
+            await self._validate_method_choices(owner_subject, body.idea)
             added = await self.repo.add_version(
                 request_id=request.id,
                 version=current.latest_version + 1,

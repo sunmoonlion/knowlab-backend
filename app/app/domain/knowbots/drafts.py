@@ -21,6 +21,7 @@ import re
 from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -77,6 +78,14 @@ class SixAnswers(Strict):
     correctness: str = Field(min_length=1, max_length=4000)  # 怎样算对
 
 
+class IdeaMethodChoice(Strict):
+    """An author's shortlist, not an executable expert binding."""
+
+    method_id: UUID
+    version: int = Field(ge=1, le=999999, strict=True)
+    digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+
 class Idea(Strict):
     """用户的方法：六问、一份 skill 原文，或一句话问题（专家孵化方案第四节：方法由 AI
     按问题起草，作者改定）。逻辑只来自这里与作者在工作稿里写的（C-L1）。"""
@@ -85,9 +94,15 @@ class Idea(Strict):
     answers: SixAnswers | None = None
     skill: str | None = Field(default=None, max_length=20000)
     question: str | None = Field(default=None, max_length=2000)
+    method_choices: tuple[IdeaMethodChoice, ...] | None = Field(
+        default=None, max_length=30
+    )
 
     @model_validator(mode="after")
     def _one_form(self) -> Idea:
+        ids = [choice.method_id for choice in (self.method_choices or ())]
+        if len(ids) != len(set(ids)):
+            raise ValueError("choose at most one version of each method")
         given = {
             "six_questions": self.answers is not None,
             "skill": bool(self.skill),
