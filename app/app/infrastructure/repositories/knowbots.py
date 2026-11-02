@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import or_, select, text, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +25,7 @@ from app.application.ports.knowbots import (
     ExpertRecord,
     GrantRecord,
     IncubationRecord,
+    MethodVersionRecord,
     ProposalRecord,
     QuestionRecord,
     RequestRecord,
@@ -43,6 +44,8 @@ from app.infrastructure.models.knowbots import (
     KnowbotDraft,
     KnowbotExpert,
     KnowbotIncubation,
+    KnowbotMethod,
+    KnowbotMethodVersion,
     KnowbotPlatformGrant,
     KnowbotQuestion,
     KnowbotRequest,
@@ -1608,3 +1611,109 @@ class SqlKnowlabRepository:
             .where(KnowbotQuestion.id == question)
             .values(**changes)
         )
+
+    # ---------- 独立作者方法：版本只插，不覆盖 ----------
+    async def lock_method(self, method_id: uuid.UUID) -> None:
+        # Also serializes first creation, when no row exists yet.
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"knowlab-method:{method_id}"},
+        )
+
+    async def method_owner(self, method_id: uuid.UUID) -> str | None:
+        return (
+            await self.session.execute(
+                select(KnowbotMethod.owner_subject).where(KnowbotMethod.id == method_id)
+            )
+        ).scalar_one_or_none()
+
+    async def create_method(self, method_id: uuid.UUID, owner_subject: str) -> None:
+        self.session.add(KnowbotMethod(id=method_id, owner_subject=owner_subject))
+        await self.session.flush()
+
+    async def method_head(self, method_id: uuid.UUID) -> int:
+        return int(
+            (
+                await self.session.execute(
+                    select(func.max(KnowbotMethodVersion.version)).where(
+                        KnowbotMethodVersion.method_id == method_id
+                    )
+                )
+            ).scalar_one_or_none()
+            or 0
+        )
+
+    async def method_version(
+        self, method_id: uuid.UUID, version: int
+    ) -> MethodVersionRecord | None:
+        result = (
+            await self.session.execute(
+                select(KnowbotMethodVersion, KnowbotMethod.owner_subject)
+                .join(KnowbotMethod)
+                .where(
+                    KnowbotMethodVersion.method_id == method_id,
+                    KnowbotMethodVersion.version == version,
+                )
+            )
+        ).first()
+        if result is None:
+            return None
+        row, owner = result
+        return MethodVersionRecord(
+            method_id=row.method_id,
+            version=row.version,
+            owner_subject=owner,
+            digest=row.digest,
+            command_digest=row.command_digest,
+            definition=row.definition,
+            provenance=row.provenance,
+            source_workdraft_id=row.source_workdraft_id,
+            created_at=row.created_at,
+        )
+
+    async def insert_method_version(
+        self,
+        *,
+        method_id: uuid.UUID,
+        version: int,
+        digest: str,
+        command_digest: str,
+        definition: dict[str, Any],
+        provenance: dict[str, Any],
+        source_workdraft_id: uuid.UUID,
+    ) -> None:
+        self.session.add(
+            KnowbotMethodVersion(
+                method_id=method_id,
+                version=version,
+                digest=digest,
+                command_digest=command_digest,
+                definition=definition,
+                provenance=provenance,
+                source_workdraft_id=source_workdraft_id,
+            )
+        )
+        await self.session.flush()
+
+    async def list_methods(
+        self, owner_subject: str, *, limit: int, offset: int
+    ) -> Sequence[dict[str, Any]]:
+        latest = (
+            select(
+                KnowbotMethodVersion.method_id,
+                func.max(KnowbotMethodVersion.version).label("version"),
+            )
+            .group_by(KnowbotMethodVersion.method_id)
+            .subquery()
+        )
+        rows = (
+            await self.session.execute(
+                select(KnowbotMethod.id, KnowbotMethod.created_at, latest.c.version)
+                .join(latest, latest.c.method_id == KnowbotMethod.id)
+                .where(KnowbotMethod.owner_subject == owner_subject)
+                .order_by(KnowbotMethod.created_at.desc(), KnowbotMethod.id)
+                .limit(limit)
+                .offset(offset)
+            )
+        ).mappings()
+        return [dict(row) for row in rows]

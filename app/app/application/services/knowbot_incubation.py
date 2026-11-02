@@ -230,7 +230,9 @@ class KnowbotIncubationService:
         )
 
     # ---------- 发起 ----------
-    async def _answers(self, request: RequestRecord, mode: str = "self") -> list[QuestionRecord]:
+    async def _answers(
+        self, request: RequestRecord, mode: str = "self"
+    ) -> list[QuestionRecord]:
         """这个名称里作者答过的孵化缺口（第二轮起带上）。"""
         gaps = [
             q
@@ -740,14 +742,16 @@ class KnowbotIncubationService:
             if before.get(path) == text and path in sources:
                 continue
             if action == "accept_edited":
-                pending_entries.append({
-                    "kind": "edit",
-                    "path": path,
-                    "text": text,
-                    "source_kind": "user_text",
-                    "explicit_ref": None,
-                    "suggestion_ref": None,
-                })
+                pending_entries.append(
+                    {
+                        "kind": "edit",
+                        "path": path,
+                        "text": text,
+                        "source_kind": "user_text",
+                        "explicit_ref": None,
+                        "suggestion_ref": None,
+                    }
+                )
                 continue
             row = source_of(rows, path)
             explicit_ref: str | None = None
@@ -771,14 +775,16 @@ class KnowbotIncubationService:
                 source_kind = "user_confirmed"
                 explicit_ref = None
 
-            pending_entries.append({
-                "kind": "accept",
-                "path": path,
-                "text": text,
-                "source_kind": source_kind,
-                "explicit_ref": explicit_ref,
-                "suggestion_ref": f"{record.id}:{suggestion.id}",
-            })
+            pending_entries.append(
+                {
+                    "kind": "accept",
+                    "path": path,
+                    "text": text,
+                    "source_kind": source_kind,
+                    "explicit_ref": explicit_ref,
+                    "suggestion_ref": f"{record.id}:{suggestion.id}",
+                }
+            )
 
         made: list[str] = []
         for item in pending_entries:
@@ -793,9 +799,15 @@ class KnowbotIncubationService:
             )
             made.append(str(entry.id))
             if item.get("explicit_ref"):
-                sources[item["path"]] = {"kind": item["source_kind"], "ref": item["explicit_ref"]}
+                sources[item["path"]] = {
+                    "kind": item["source_kind"],
+                    "ref": item["explicit_ref"],
+                }
             else:
-                sources[item["path"]] = {"kind": item["source_kind"], "ref": f"record:{entry.id}"}
+                sources[item["path"]] = {
+                    "kind": item["source_kind"],
+                    "ref": f"record:{entry.id}",
+                }
         return body, sources, made
 
     async def accept_step(

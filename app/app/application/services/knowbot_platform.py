@@ -115,7 +115,11 @@ class KnowbotPlatformService:
                         g.id, status="revoked", ended_by=owner_subject, ended_at=now
                     )
             for inc in await self.repo.list_incubations(request_id=rid):
-                if inc.mode == "platform" and inc.status in ("queued", "running", "waiting"):
+                if inc.mode == "platform" and inc.status in (
+                    "queued",
+                    "running",
+                    "waiting",
+                ):
                     await self.repo.update_incubation(
                         inc.id,
                         status="canceled",
@@ -123,7 +127,11 @@ class KnowbotPlatformService:
                         last_error="The author took back the request",
                     )
             for t in await self.repo.list_tests(request_ids=[rid]):
-                if t.mode in ("platform", "rerun") and t.status in ("queued", "running", "waiting"):
+                if t.mode in ("platform", "rerun") and t.status in (
+                    "queued",
+                    "running",
+                    "waiting",
+                ):
                     await self.repo.update_test(
                         t.id,
                         status="platform_error",

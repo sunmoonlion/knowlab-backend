@@ -62,9 +62,12 @@ async def test_a_question_request_is_made_once_for_the_user_only() -> None:
     again, created = await w.svc.submit_from_runtime(OWNER, body(), runtime="knowbench")
     assert (again.id, created) == (found.id, False)  # 同一个钥匙只建一份
     from app.application.errors.exceptions import BadRequestError
+
     with pytest.raises(BadRequestError) as empty:
-        await w.svc.submit_from_runtime(OWNER, body(question="   "), runtime="knowbench")
-    assert empty.value.code == "question_empty" 
+        await w.svc.submit_from_runtime(
+            OWNER, body(question="   "), runtime="knowbench"
+        )
+    assert empty.value.code == "question_empty"
     # 运营看不到（自己来的名称）
     assert await KnowbotBoard(w.repo).lives(operator=True) == []
 

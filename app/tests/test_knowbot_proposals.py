@@ -241,10 +241,12 @@ async def test_operator_propose_remove_step_with_none_value(world) -> None:
     [removed] = await props.propose(
         rid,
         "admin-1",
-        [{"path": "steps/overview", "op": "remove", "value": None, "reason": "去掉"}]
+        [{"path": "steps/overview", "op": "remove", "value": None, "reason": "去掉"}],
     )
     assert removed.op == "remove"
     assert removed.value is None
-    stored, decided = await props.decide(OWNER, rid, str(removed.id), action="accept", revision=1)
+    stored, decided = await props.decide(
+        OWNER, rid, str(removed.id), action="accept", revision=1
+    )
     assert decided.state == "accepted"
     assert stored is not None and stored.body.get("steps") == []

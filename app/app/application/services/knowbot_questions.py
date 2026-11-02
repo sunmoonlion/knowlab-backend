@@ -42,9 +42,9 @@ from app.application.ports.knowbots import (
     RuntimeTestClient,
     TestRecord,
 )
+from app.application.services.knowbot_grants import live_incubation
 from app.domain.knowbots.drafts import case_question_digest
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
-from app.application.services.knowbot_grants import live_incubation
 from app.domain.knowbots.test_run import CONTRACT, Answer, AnswersV1
 
 
@@ -151,8 +151,7 @@ class KnowbotQuestionService:
             return True
         tests = await self.repo.list_tests(request_ids=[draft.request_id])
         if any(
-            t.draft_id == draft.id and t.mode in ("platform", "rerun")
-            for t in tests
+            t.draft_id == draft.id and t.mode in ("platform", "rerun") for t in tests
         ):
             return True
         return any(

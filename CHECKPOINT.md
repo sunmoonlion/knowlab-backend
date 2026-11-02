@@ -11,3 +11,18 @@
 改动文件 ruff 与域代码 pyright 通过；全仓既有 pyright 1 / ruff 11，与隔离解包的基线逐条一致，无新增（/tmp/luna-wp10-knowlab-baseline-comparison.json）。不是全仓静态检查绿色，后续总体验收前需处理遗留项。
 
 下一单元：knowbench 计划模型/校验/版本化存储与事务并发；之后接 Attempt、运行视图与 UI。动态运行入口尚未开放。财务专家须另孵化为作者确认的新版本，不能将合成测试样例或平台臆造方法冒充真实专家。Wind 仍 3/5 次，本单元零调用、无发布。
+
+
+## 2026-11-02 WP-10 单元 1a 第一段：独立方法主档
+
+基线 dad9b0e20a8270747cfd999bacd7dafc3b2df6b0，feat/dynamic-methods。依据所有者确认的三层关系（sunmoonun b01e7f18）：方法独立版本，专家精确引用，任务只动态组合。此段只完成作者主档与引用预览，不把预览当作专家引用落盘或跨应用执行完成。
+
+- domain/knowbots/methods.py：从已过作者出处/编译检查的动态工作稿冻结 MethodDefinition。结构 ID 归一为 method，命名输入槽取代来源专家别名，覆盖来源/回退目标一起映射；必经是专家组合属性，定义中 required=false，正文/工具/验收/调用上限不改。输入结构来自原上游作者定义；自由文本中的上下文依赖须作者另行整理，不用模型自动重写。
+- 同一 KnowlabRepository/事务保存 knowbot_method + knowbot_method_version，方法锁串行首建与升版，版本只增；请求摘要用于同版本幂等与冲突核对。定义摘要、来源工作稿/修订、作者与原单元/输入证据快照随版保存。读取精确版核摘要；数据库触发器拒绝 UPDATE/DELETE 版本。
+- web端新增本人方法列表、精确读版、PUT 冻结、POST 引用预览；遵守既有身份/CSRF/owner 隔离，无管理员代确认入口。预览检查输入类型、别名、调用次数及完整候选图，只回 preview_only=true；既不改目标工作稿也不出专家版本。接口与 provider schema 说明见父仓 contracts/author-method/v1/README.md；schema 由本模型生成，尚无运行消费者。
+- 迁移 20261102_0025（父版 20261101_0024），无旧数据回填；空库可退/升，存在方法身份即拒绝破坏性降级。应用回退保留扩展 schema；未迁移生产。
+- 全量 PostgreSQL（独立临时 schema）：760 passed / 5 skipped，117.99 秒，/tmp/luna-method-library-full.txt。全量之后只加 3 个故障/并发测试，最终四文件 32 passed，/tmp/luna-method-library-tests-final.txt。首次新测试 26 项、接口加入后 28 项均过。未调用模型、Wind 或生产接口。
+- 最终 uv run --locked ruff check app tests alembic/versions/20261102_0025_author_methods.py、uv run --locked pyright 均通过（从后端 app/ 运行；/tmp/luna-method-library-{ruff-final,pyright-final}.txt）。清理了基线的 lint 11 项（格式/导入）与 pyright 1 项：CategoryCode 改为明确 Literal、列表由 get_args 派生；与改前提交的类目取值及 DeliveryReviewIn schema 逐字比较相同，/tmp/luna-method-library-category-schema.txt。没有新增忽略规则或关闭检查。
+- 初期开发命令一次目录多写 app/ 导致补丁脚本未运行，随后纠正；首次静态检查发现 Query 导入、version_view 名称碰撞、Response 返回标注与排版错误，已修，原始输出 /tmp/luna-method-library-{ruff-first,pyright-first}.txt 保留。不要把这些中间错误说成最终遗留。
+
+下一段：保存专家 method 引用与输入绑定，作者明确选版本/确认升级，编译清单钉方法 ID/版本/摘要与编译器版；跨应用 schema/消费者锁和只读快照校验一起接。应使用此主档，不再复制一个方法库，也不能复制 preview 的 step 丢掉引用。随后才接动态运行与 UI。旧固定专家、knowmart/knowbench 代码及部署源本段未变；Wind 仍 3/5，发布归 qwen。

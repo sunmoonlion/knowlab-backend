@@ -870,3 +870,49 @@ class KnowbotWorkdraftProposal(Base):
         ),
         Index("ix_knowbot_workdraft_proposal_request", "request_id", "proposed_at"),
     )
+
+
+class KnowbotMethod(Base):
+    """An author's stable method identity, not an expert-local step alias."""
+
+    __tablename__ = "knowbot_method"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        Index("ix_knowbot_method_owner", "owner_subject", "created_at", "id"),
+    )
+
+
+class KnowbotMethodVersion(Base):
+    """Insert-only author definitions and evidence; old versions remain readable."""
+
+    __tablename__ = "knowbot_method_version"
+    method_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_method.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    command_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    source_workdraft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_workdraft.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_knowbot_method_version_positive"),
+        CheckConstraint(
+            "digest ~ '^sha256:[0-9a-f]{64}$' "
+            "AND command_digest ~ '^sha256:[0-9a-f]{64}$'",
+            name="ck_knowbot_method_version_digests",
+        ),
+    )

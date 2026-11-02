@@ -371,7 +371,8 @@ class KnowbotWorkdraftService:
             found = await self.repo.get_acceptance(request.id, request.latest_version)
             if found is None or found.kind != "formal" or not found.accepted:
                 raise ConcurrencyConflictError(
-                    "Incubate only from an accepted version", code="version_not_accepted"
+                    "Incubate only from an accepted version",
+                    code="version_not_accepted",
                 )
             current = await self.repo.get_workdraft(request.id, for_update=True)
             if current is None:

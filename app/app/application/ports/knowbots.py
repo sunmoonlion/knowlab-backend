@@ -131,6 +131,19 @@ class DraftRecord:
 
 
 @dataclass(frozen=True)
+class MethodVersionRecord:
+    method_id: uuid.UUID
+    version: int
+    owner_subject: str
+    digest: str
+    command_digest: str
+    definition: dict[str, Any] = field(repr=False)
+    provenance: dict[str, Any] = field(repr=False)
+    source_workdraft_id: uuid.UUID
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class WorkdraftRecord:
     """工作稿（专家孵化方案第五节）：一个名称一份。body 是方法层的格子，sources 是每格
     的出处（格子路径 → {kind, ref}）；revision 每存一次加 1。"""
@@ -661,6 +674,34 @@ class KnowlabRepository(Protocol):
     async def latest_test_set(self, request_id: uuid.UUID) -> TestSetRecord | None: ...
 
     # ---------- 工作稿（专家孵化方案） ----------
+    async def lock_method(self, method_id: uuid.UUID) -> None: ...
+
+    async def method_owner(self, method_id: uuid.UUID) -> str | None: ...
+
+    async def create_method(self, method_id: uuid.UUID, owner_subject: str) -> None: ...
+
+    async def method_head(self, method_id: uuid.UUID) -> int: ...
+
+    async def method_version(
+        self, method_id: uuid.UUID, version: int
+    ) -> MethodVersionRecord | None: ...
+
+    async def insert_method_version(
+        self,
+        *,
+        method_id: uuid.UUID,
+        version: int,
+        digest: str,
+        command_digest: str,
+        definition: dict[str, Any],
+        provenance: dict[str, Any],
+        source_workdraft_id: uuid.UUID,
+    ) -> None: ...
+
+    async def list_methods(
+        self, owner_subject: str, *, limit: int, offset: int
+    ) -> Sequence[dict[str, Any]]: ...
+
     async def get_workdraft(
         self, request_id: uuid.UUID, *, for_update: bool = False
     ) -> WorkdraftRecord | None: ...

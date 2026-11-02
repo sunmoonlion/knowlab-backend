@@ -252,7 +252,9 @@ class KnowbotCreationService:
                     },
                     reference_answer=(body.reference_answer or "").strip() or None,
                 )
-                await self.repo.add_acceptance(self_acceptance(created.id, 1, self.now()))
+                await self.repo.add_acceptance(
+                    self_acceptance(created.id, 1, self.now())
+                )
         except Exception:
             for mine in await self.repo.list_requests_for_owner(owner_subject):
                 if (mine.origin or {}).get("key") == body.key:
@@ -395,8 +397,7 @@ class KnowbotCreationService:
             return True
         tests = await self.repo.list_tests(request_ids=[draft.request_id])
         if any(
-            t.draft_id == draft.id and t.mode in ("platform", "rerun")
-            for t in tests
+            t.draft_id == draft.id and t.mode in ("platform", "rerun") for t in tests
         ):
             return True
         if any(

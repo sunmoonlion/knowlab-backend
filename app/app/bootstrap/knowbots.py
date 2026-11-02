@@ -12,6 +12,7 @@ from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import KnowbotExpertService
 from app.application.services.knowbot_incubation import KnowbotIncubationService
 from app.application.services.knowbot_library import KnowbotLibraryService
+from app.application.services.knowbot_methods import KnowbotMethodService
 from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import KnowbotQuestionService
@@ -153,3 +154,7 @@ def knowbot_platform_service(session: AsyncSession) -> KnowbotPlatformService:
 def knowbot_proposal_service(session: AsyncSession) -> KnowbotProposalService:
     """运营对工作稿的提议，作者逐条处理（专家孵化方案第十二节）。"""
     return KnowbotProposalService(SqlKnowlabRepository(session))
+
+
+def knowbot_method_service(session: AsyncSession) -> KnowbotMethodService:
+    return KnowbotMethodService(SqlKnowlabRepository(session))

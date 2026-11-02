@@ -23,14 +23,14 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.knowbots.platform_grants import MAX_BUDGET
 
 # knowmart 的类目表去掉「未分类」（契约 knowbot-delivery/v1 的 category 取值；锁测试核）
-CATEGORY_CODES: tuple[str, ...] = (
+CategoryCode = Literal[
     "finance.securities_advisory",
     "finance.public_fund",
     "finance.private_fund",
@@ -38,8 +38,8 @@ CATEGORY_CODES: tuple[str, ...] = (
     "tools.lookup",
     "tools.calculator",
     "business.management",
-)
-CategoryCode = Literal[CATEGORY_CODES]  # type: ignore[valid-type]
+]
+CATEGORY_CODES: tuple[str, ...] = get_args(CategoryCode)
 
 # 成稿里的投资建议说法（C-L5：荐股、目标价、评级、收益承诺）。按「说法」认，不按单个
 # 词认：
