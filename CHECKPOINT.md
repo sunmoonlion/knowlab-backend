@@ -26,3 +26,19 @@
 - 初期开发命令一次目录多写 app/ 导致补丁脚本未运行，随后纠正；首次静态检查发现 Query 导入、version_view 名称碰撞、Response 返回标注与排版错误，已修，原始输出 /tmp/luna-method-library-{ruff-first,pyright-first}.txt 保留。不要把这些中间错误说成最终遗留。
 
 下一段：保存专家 method 引用与输入绑定，作者明确选版本/确认升级，编译清单钉方法 ID/版本/摘要与编译器版；跨应用 schema/消费者锁和只读快照校验一起接。应使用此主档，不再复制一个方法库，也不能复制 preview 的 step 丢掉引用。随后才接动态运行与 UI。旧固定专家、knowmart/knowbench 代码及部署源本段未变；Wind 仍 3/5，发布归 qwen。
+
+## 2026-11-02 WP-10 单元 3 第六段：动态测试期望与产出契约
+
+基线 d1f151556f6dc6e696dd307f44758531c0d57cf1，接续开发分支 feat/method-execution-view。
+方法主档和精确引用实现仍沿用既有代码，作者方法内容/页面归 agy；本段仅补运行测试接口。
+
+- 动态 RunRequest 的 expectation.artifact 必须是作者声明的 final_units 别名。任务实例由
+  模型之后选择，作者无需猜编号；服务在建测试与签数据授权前将不合法请求返回明确 400。
+  不新增判据或测试接口版本，仍用原 equals/approx/contains。v3 运行准入仍未开放。
+- case-outputs 可选 plan_version/final_outputs/步骤 current；每份最终成果核引用、内容
+  与文件归属，未验成果不能附内容，重复身份拒绝。旧固定模型序列化不增加这些字段。
+  父仓生成文件与 knowbench 消费锁仅改变产出 schema；request/result/answers 字节不变。
+- 新增 10 项合成契约测试；与现有产出/作者服务目标测试 31 passed。全量隔离 PostgreSQL
+  791 passed / 5 skipped，112.59 秒（/tmp/luna-method-test-exports-lab-full.txt）。全仓
+  ruff、pyright 0 errors（/tmp/luna-method-exports-lab-{ruff,pyright}.txt）。无迁移、无真实
+  模型/Wind 调用、无生产/发布操作。作者 UI 需按父仓 contracts/README.md 接多成果展示。

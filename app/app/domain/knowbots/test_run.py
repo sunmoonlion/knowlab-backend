@@ -155,6 +155,24 @@ class RunRequestV1(Strict):
         ids = [c.case_id for c in self.cases]
         if len(ids) != len(set(ids)):
             raise ValueError("case ids must be unique")
+        if self.manifest.get("schema") == "knowbot-manifest/v3":
+            pack = self.manifest.get("pack")
+            planning = pack.get("planning") if isinstance(pack, dict) else None
+            finals = planning.get("final_units") if isinstance(planning, dict) else None
+            if (
+                not isinstance(finals, (list, tuple))
+                or not finals
+                or any(not isinstance(v, str) for v in finals)
+            ):
+                raise ValueError(
+                    "dynamic test manifests require declared final methods"
+                )
+            if any(
+                e.artifact not in finals for c in self.cases for e in c.expectations
+            ):
+                raise ValueError(
+                    "dynamic expectations must name a declared final method"
+                )
         return self
 
 
@@ -333,11 +351,46 @@ class StepOutput(Strict):
     artifact_omitted_bytes: int | None = Field(default=None, ge=0)  # 太大没带：原来多大
     returned_raw: str | None = Field(default=None, max_length=RAW_CHARS)
     checks: tuple[OutputCheck, ...] = Field(default=(), max_length=64)
+    current: bool | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def _artifact_fits(self) -> StepOutput:
         if self.artifact is not None and _bytes(self.artifact) > ARTIFACT_BYTES:
             raise ValueError("an artifact larger than the limit must be omitted")
+        return self
+
+
+class AcceptedOutputRef(Strict):
+    id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    version: int = Field(ge=1)
+    digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class FinalOutput(Strict):
+    """作者的最终方法名 → 此次计划选中的实例与确切已验成果。"""
+
+    method_id: str = Field(min_length=1, max_length=48)
+    instance_id: str = Field(min_length=1, max_length=48)
+    result: AcceptedOutputRef | None = None
+    artifact: Any = None
+    artifact_omitted_bytes: int | None = Field(default=None, ge=0)
+    deliverable: Deliverable | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _accepted_content_only(self) -> FinalOutput:
+        if self.result is None and any(
+            v is not None
+            for v in (self.artifact, self.artifact_omitted_bytes, self.deliverable)
+        ):
+            raise ValueError("final content requires an accepted result reference")
+        if self.artifact is not None and _bytes(self.artifact) > ARTIFACT_BYTES:
+            raise ValueError("an artifact larger than the limit must be omitted")
+        if self.deliverable and self.deliverable.step_id not in (
+            None,
+            self.instance_id,
+        ):
+            raise ValueError("final file belongs to another instance")
         return self
 
 
@@ -351,9 +404,23 @@ class CaseOutputsV1(Strict):
     error: str | None = Field(
         default=None, max_length=500
     )  # 取产出时出的错，不影响结论
+    plan_version: int | None = Field(
+        default=None, ge=1, exclude_if=lambda value: value is None
+    )
+    final_outputs: tuple[FinalOutput, ...] = Field(
+        default=(), max_length=30, exclude_if=lambda value: not value
+    )
 
     @model_validator(mode="after")
     def _fits(self) -> CaseOutputsV1:
+        if bool(self.final_outputs) != (self.plan_version is not None):
+            raise ValueError("dynamic final outputs require their plan version")
+        if len({f.method_id for f in self.final_outputs}) != len(
+            self.final_outputs
+        ) or len({f.instance_id for f in self.final_outputs}) != len(
+            self.final_outputs
+        ):
+            raise ValueError("final method and instance identifiers must be unique")
         if _bytes(self.model_dump(mode="json")) > OUTPUTS_BYTES:
             raise ValueError("the outputs of one case are larger than the limit")
         return self

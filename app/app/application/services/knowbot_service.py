@@ -32,6 +32,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from app.application.errors.exceptions import (
     AppException,
     BadRequestError,
@@ -106,6 +108,17 @@ REFRESH_BATCH = 200  # 后台一次最多刷新几个测试（多的下一次再
 
 def _conflict(message: str, code: str) -> ConcurrencyConflictError:
     return ConcurrencyConflictError(message, code=code)
+
+
+def _test_request(payload: dict[str, Any]) -> RunRequestV1:
+    """Reject incompatible author expectations before creating/charging a test."""
+    try:
+        return RunRequestV1.model_validate(payload)
+    except ValidationError:
+        raise BadRequestError(
+            "The test request is invalid; check the final output names and case inputs",
+            code="test_request_invalid",
+        ) from None
 
 
 async def require_model_key(
@@ -648,7 +661,7 @@ class KnowbotCreationService:
                     "cases_missing",
                 )
             test_id = uuid.uuid4()
-            run = RunRequestV1.model_validate(
+            run = _test_request(
                 {
                     "contract": CONTRACT,
                     "run_id": f"knowlab-test-{test_id}",
@@ -1150,7 +1163,7 @@ class KnowbotCreationService:
                     "Another test of this knowbot is running", "test_running"
                 )
             test_id = uuid.uuid4()
-            run = RunRequestV1.model_validate(
+            run = _test_request(
                 {
                     "contract": CONTRACT,
                     "run_id": f"knowlab-test-{test_id}",
