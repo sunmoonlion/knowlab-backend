@@ -107,7 +107,7 @@ def test_reference_validation_rejects_wrong_version_slots_or_wider_bounds(change
 def test_upstream_shape_must_satisfy_frozen_input_contract():
     value = definition()
     raw = body()
-    raw["steps"][1]["outputs"][0]["type"] = "number"
+    raw["steps"][1]["outputs"][0] = {"name": "rows", "type": "number"}
     with pytest.raises(ValueError, match="incompatible"):
         bind(value, WorkdraftBody.model_validate(raw), binding(value))
 

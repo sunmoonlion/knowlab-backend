@@ -59,6 +59,32 @@ async def publish(db, mid, rid, version=1, owner=OWNER, **changes):
         )
 
 
+async def test_impossible_coverage_cannot_be_frozen_and_author_can_correct_it(db):
+    rid, mid = await source(db), uuid.uuid4()
+    async with db() as session:
+        await KnowbotWorkdraftService(SqlKnowlabRepository(session)).save(
+            OWNER,
+            str(rid),
+            revision=1,
+            edits=[("steps/inspect/outputs", [{"name": "rows", "type": "number"}])],
+        )
+    with pytest.raises(BadRequestError) as exc:
+        await publish(db, mid, rid, revision=2)
+    assert exc.value.code == "method_source_invalid"
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        assert await repo.method_owner(mid) is None
+        await KnowbotWorkdraftService(repo).save(
+            OWNER,
+            str(rid),
+            revision=2,
+            edits=[("steps/inspect/outputs", body()["steps"][1]["outputs"])],
+        )
+    accepted = await publish(db, mid, rid, revision=3)
+    assert accepted.version == 1
+    assert accepted.definition["input_schemas"]["records"]["rows"] == [{"id": "string"}]
+
+
 def binding(rid, record, **changes):
     return BindMethod.model_validate(
         {

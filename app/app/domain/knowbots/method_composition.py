@@ -70,7 +70,7 @@ def restore(manifest: dict[str, Any]) -> WorkdraftBody:
     Recompile against embedded exact snapshots and reject any lossy conversion.
     The application then resolves those references against the author's registry.
     """
-    from app.domain.knowbots.compile import compile_manifest, decompile
+    from app.domain.knowbots.compile import _compile_manifest, decompile
 
     pack = manifest["pack"]
     if pack.get("method_compiler") != "knowlab/workdraft-compiler/v1":
@@ -106,7 +106,10 @@ def restore(manifest: dict[str, Any]) -> WorkdraftBody:
         }
     )
     validate_sources(body, raw_sources)
-    rebuilt, problems = compile_manifest(
+    # Replay immutable v1 evidence byte-for-byte, not today's authoring policy.
+    # Saving/binding/testing/publishing the imported draft still calls the public
+    # compiler and must satisfy its current authoring checks.
+    rebuilt, problems = _compile_manifest(
         body,
         {},
         pack_id=pack["pack_id"],

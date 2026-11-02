@@ -55,3 +55,24 @@ MethodDefinition 文档及摘要，避免前端自己编一份看似合法的契
 107.69 秒（/tmp/luna-author-ui-lab-full.txt）；全仓 ruff/pyright 0 errors，日志同前缀
 lab-ruff / lab-pyright。无新迁移、无模型或 Wind 调用。冻结/绑定仍用现有 API 和作者出处
 核验，没有导入 agy 财务夹具为正式方法。作者前端正在相邻子仓完成真实装配及冻结入口。
+
+
+## 2026-11-02 WP-10：编译期覆盖规则兼容检查
+
+新工作稿编译在固定/动态专家中检查 covers：源必须声明列表，source_field 必须存在，
+所有目标（包括 also）必须含覆盖字段且与源类型兼容。使用实际 output_schema，错误
+定位到步骤检查项。没有改运行器语义或自动补业务字段；无新契约字段、迁移。
+历史引用还原使用未改变的 v1 翻译，保持冻结快照字节/摘要及篡改校验；重新保存、绑定、
+冻结、测试走公开编译入口，必须满足新作者检查。真实 DB 验证错误定义不能入库，作者
+修正原工作稿后可以首次冻结。非财务跨端夹具显式声明对象行，不冒充财务业务验收。
+
+最终全量隔离 PostgreSQL：807 passed / 5 skipped（160.67 秒），日志
+/tmp/luna-coverage-knowlab-full-final.log；ruff/pyright 通过，日志
+/tmp/luna-coverage-{ruff,pyright}-final.log。定向编译/契约 108 passed，作者 DB 29 passed。
+首次定向 5 failed / 89 passed 暴露旧夹具隐式 string 行和 golden 不匹配，已显式纠正
+对象字段并通过开发生成步骤更新跨端快照，普通测试只读。首次全量 806 passed /
+5 skipped / 1 failed 为前端 golden 仍旧；更新真实编译产物后最终全量通过。原始日志
+保留 /tmp/luna-coverage-initial.log、/tmp/luna-coverage-knowlab-full.log。
+
+只在独立开发分支，不涉及发布、agy 应用树、线上任务或 Wind。历史数据无需迁移；
+回退应用会失去新的作者检查，但不应回写旧快照或篡改已冻结版本。

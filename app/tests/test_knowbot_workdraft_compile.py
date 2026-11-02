@@ -273,7 +273,14 @@ def test_output_schema_follows_outputs_and_what_the_checks_need() -> None:
 def test_each_check_template_becomes_an_acceptance_rule(
     template: str, params: dict[str, Any], expected: dict[str, Any]
 ) -> None:
-    manifest, problems = build(with_check(template, params))
+    doc = with_check(template, params)
+    if template == "covers":
+        doc["steps"][1]["outputs"][1] = {
+            "name": "note",
+            "type": "list",
+            "items": [{"name": "period"}],
+        }
+    manifest, problems = build(doc)
     assert problems == []
     rules = manifest["pack"]["workflow"][1]["acceptance"]
     made = [r for r in rules if r["kind"] == expected["kind"]][-1]
@@ -473,6 +480,7 @@ def test_a_foreign_pack_keeps_its_method_text_as_what_the_step_does() -> None:
                     "path": "rows",
                     "field": "k",
                     "source": "summary.rows",
+                    "source_field": "k",
                 }
             ],
             "on_reject": "human",
