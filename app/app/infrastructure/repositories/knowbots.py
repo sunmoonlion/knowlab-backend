@@ -1708,8 +1708,23 @@ class SqlKnowlabRepository:
         )
         rows = (
             await self.session.execute(
-                select(KnowbotMethod.id, KnowbotMethod.created_at, latest.c.version)
+                select(
+                    KnowbotMethod.id,
+                    KnowbotMethod.created_at,
+                    latest.c.version,
+                    KnowbotMethodVersion.definition["step"]["title"]
+                    .as_string()
+                    .label("title"),
+                    KnowbotMethodVersion.definition["step"]["does"]
+                    .as_string()
+                    .label("summary"),
+                )
                 .join(latest, latest.c.method_id == KnowbotMethod.id)
+                .join(
+                    KnowbotMethodVersion,
+                    (KnowbotMethodVersion.method_id == latest.c.method_id)
+                    & (KnowbotMethodVersion.version == latest.c.version),
+                )
                 .where(KnowbotMethod.owner_subject == owner_subject)
                 .order_by(KnowbotMethod.created_at.desc(), KnowbotMethod.id)
                 .limit(limit)

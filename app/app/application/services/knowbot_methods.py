@@ -83,6 +83,8 @@ class KnowbotMethodService:
                 "method_id": str(row["id"]),
                 "latest_version": row["version"],
                 "created_at": row["created_at"].isoformat(),
+                "title": str(row.get("title") or ""),
+                "summary": str(row.get("summary") or "")[:500],
             }
             for row in await self.repo.list_methods(owner, limit=limit, offset=offset)
         ]
