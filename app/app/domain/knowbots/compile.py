@@ -55,6 +55,11 @@ PLATFORM_TAIL = (
     "只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步"
     "不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。"
 )
+PLATFORM_FILE_TAIL = (
+    "只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步"
+    "不算过。先按运行时指定的项目内路径写好成稿文件，保留数据缺口与未验证说明，"
+    "再交回 JSON。调用工具时照工具说明带上这件委托的委托号。"
+)
 STEP_LINE = "这一步："
 RULES_LINE = "规则："
 USES_LINE = "用上："
@@ -412,7 +417,9 @@ def describe(output: OutputCell, extras: list[str]) -> str:
     return line
 
 
-def method_text(step: StepCell, titles: Mapping[str, str]) -> str:
+def method_text(
+    step: StepCell, titles: Mapping[str, str], *, legacy_file_tail: bool = False
+) -> str:
     """第 7.3 节的模板：平台固定文字 + 作者原文逐字 + 按交回项生成的说明。"""
     parts = [PLATFORM_HEAD, "", STEP_LINE + step.does]
     rules = [r for r in step.rules if r.text.strip()]
@@ -433,7 +440,9 @@ def method_text(step: StepCell, titles: Mapping[str, str]) -> str:
         OUTPUTS_LINE,
         *(describe(o, extras.get(o.name, [])) for o in step.outputs),
         "",
-        PLATFORM_TAIL,
+        PLATFORM_FILE_TAIL
+        if step.advanced.output_file and not legacy_file_tail
+        else PLATFORM_TAIL,
     ]
     return "\n".join(parts)
 
@@ -538,6 +547,7 @@ def _compile_manifest(
     runtime: str,
     fallback_name: str,
     method_sources: dict[str, Any] | None = None,
+    legacy_file_tail: bool = False,
 ) -> tuple[dict[str, Any], list[Problem]]:
     """工作稿 → 清单 v2 与编不出来的地方（按格子路径）。
 
@@ -663,7 +673,7 @@ def _compile_manifest(
             "summary": step.does,
             "why": step.why,
             "input_refs": [artifact_of(u) for u in step.uses],
-            "method_text": method_text(step, titles),
+            "method_text": method_text(step, titles, legacy_file_tail=legacy_file_tail),
             "tools": list(DEFAULT_TOOLS if advanced.tools is None else advanced.tools),
             "output_artifact": artifact_of(step.id),
             "output_schema": advanced.output_schema
@@ -1133,8 +1143,15 @@ _FIELD_TYPE = {v: k for k, v in FIELD_WORDS.items()}
 def _parse_ours(text: str) -> tuple[str, list[str], list[dict[str, Any]]] | None:
     """按第 7.3 节的模板拆回（做什么、规则、交回项）；不是这个模板拼的回 None。"""
     head = PLATFORM_HEAD + "\n\n" + STEP_LINE
-    tail = "\n\n" + PLATFORM_TAIL
-    if not text.startswith(head) or not text.endswith(tail):
+    tail = next(
+        (
+            "\n\n" + t
+            for t in (PLATFORM_TAIL, PLATFORM_FILE_TAIL)
+            if text.endswith("\n\n" + t)
+        ),
+        None,
+    )
+    if not text.startswith(head) or tail is None:
         return None
     middle = text[len(head) : -len(tail)]
     marker = "\n\n" + OUTPUTS_LINE + "\n"
@@ -1389,13 +1406,17 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
                 checks.remove(check)
         step["checks"] = checks
         try:
-            cell = StepCell.model_validate(step | {"advanced": {}})
+            cell = StepCell.model_validate(
+                step | {"advanced": {"output_file": raw.get("output_file")}}
+            )
         except ValidationError as exc:
             raise ValueError(f"step {sid} does not fit a workdraft: {exc}") from None
         if (
             ours is not None
             and method_text(
-                cell, all_titles or {s["id"]: s["title"] for s in [*steps, step]}
+                cell,
+                all_titles or {s["id"]: s["title"] for s in [*steps, step]},
+                legacy_file_tail=text.endswith(PLATFORM_TAIL),
             )
             != text
         ):

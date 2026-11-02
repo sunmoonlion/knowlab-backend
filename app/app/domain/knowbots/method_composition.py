@@ -70,7 +70,7 @@ def restore(manifest: dict[str, Any]) -> WorkdraftBody:
     Recompile against embedded exact snapshots and reject any lossy conversion.
     The application then resolves those references against the author's registry.
     """
-    from app.domain.knowbots.compile import _compile_manifest, decompile
+    from app.domain.knowbots.compile import PLATFORM_TAIL, _compile_manifest, decompile
 
     pack = manifest["pack"]
     if pack.get("method_compiler") != "knowlab/workdraft-compiler/v1":
@@ -117,6 +117,14 @@ def restore(manifest: dict[str, Any]) -> WorkdraftBody:
         runtime=manifest.get("runtime", "knowbench"),
         fallback_name=pack["title"],
         method_sources=raw_sources,
+        # Old frozen file-producing definitions contained the read-only tail.
+        # Replay that exact historical template for digest verification only;
+        # new author compilation always emits the file-producing template.
+        legacy_file_tail=any(
+            unit["contract"].get("output_file")
+            and unit["contract"]["method_text"].endswith(PLATFORM_TAIL)
+            for unit in pack["method_units"]
+        ),
     )
     if problems or rebuilt["pack"]["method_units"] != pack["method_units"]:
         raise ValueError("compiled methods differ from their pinned definitions")

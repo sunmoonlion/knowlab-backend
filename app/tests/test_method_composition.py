@@ -5,9 +5,36 @@ import json
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from app.domain.knowbots.compile import compile_manifest, decompile, pack_problems
 from tests.referenced_method_fixtures import build
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_file_method_keeps_exact_reference_across_template_upgrade(legacy):
+    from app.domain.knowbots.compile import PLATFORM_FILE_TAIL, PLATFORM_TAIL
+
+    manifest, errors = build(output_file="报告.md")
+    assert not errors
+    if legacy:
+        for unit in manifest["pack"]["method_units"]:
+            unit["contract"]["method_text"] = unit["contract"]["method_text"].replace(
+                PLATFORM_FILE_TAIL, PLATFORM_TAIL
+            )
+    body, notes = decompile(manifest)
+    assert not notes
+    pinned = manifest["pack"]["method_sources"]["report"]["reference"]
+    assert body.method_refs["report"].model_dump(mode="json") == pinned
+    assert (
+        next(s for s in body.steps if s.id == "report").advanced.output_file
+        == "报告.md"
+    )
+    # A forged author instruction is still rejected, regardless of template age.
+    manifest["pack"]["method_units"][0]["contract"]["method_text"] += " altered"
+    with pytest.raises(ValueError):
+        decompile(manifest)
+
 
 PARENT = Path(__file__).resolve().parents[3]
 
