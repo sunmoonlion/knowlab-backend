@@ -42,3 +42,16 @@
   791 passed / 5 skipped，112.59 秒（/tmp/luna-method-test-exports-lab-full.txt）。全仓
   ruff、pyright 0 errors（/tmp/luna-method-exports-lab-{ruff,pyright}.txt）。无迁移、无真实
   模型/Wind 调用、无生产/发布操作。作者 UI 需按父仓 contracts/README.md 接多成果展示。
+
+## 2026-11-02 WP-10 作者页面接线：列表元信息与跨端夹具
+
+作者方法列表在同一查询中读取确切最新版本的 title/summary（概要最多 500 字），回包
+仍为 items 列表；latest_version 只作提示，不改任何引用。这样页面可列本人实际方法，
+不需要写死财务方法表或逐项额外请求才能显示名字。原 owner 隔离/分页/精确读版保留。
+新增前端合成夹具的 provider 比较，核 WorkdraftBody 的 planning/selection、实际
+MethodDefinition 文档及摘要，避免前端自己编一份看似合法的契约。
+
+数据库定向 11 passed（/tmp/luna-author-listing-tests.txt），全量 792 passed / 5 skipped，
+107.69 秒（/tmp/luna-author-ui-lab-full.txt）；全仓 ruff/pyright 0 errors，日志同前缀
+lab-ruff / lab-pyright。无新迁移、无模型或 Wind 调用。冻结/绑定仍用现有 API 和作者出处
+核验，没有导入 agy 财务夹具为正式方法。作者前端正在相邻子仓完成真实装配及冻结入口。

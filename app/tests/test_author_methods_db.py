@@ -109,9 +109,10 @@ async def test_freeze_reopen_version_upgrade_and_old_references_are_stable(db):
             OWNER, str(mid), 2, binding(rid, second, revision=2)
         )
         assert upgraded["step"]["does"] != stable["step"]["does"]
-        assert (await service.listing(OWNER, limit=10, offset=0))[0][
-            "latest_version"
-        ] == 2
+        listed = (await service.listing(OWNER, limit=10, offset=0))[0]
+        assert listed["latest_version"] == 2
+        assert listed["title"] == second.definition["step"]["title"]
+        assert listed["summary"] == second.definition["step"]["does"]
         assert not await service.listing("someone-else", limit=10, offset=0)
         assert not await service.listing(OWNER, limit=10, offset=1)
 
