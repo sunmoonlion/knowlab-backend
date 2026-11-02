@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 from app.domain.knowbots.schema import DOCUMENTS, render
@@ -43,17 +44,26 @@ def test_contract_manifest_digests_match_the_schemas() -> None:
 
 def test_examples_satisfy_the_published_schemas() -> None:
     _require_contract()
-    jsonschema = pytest.importorskip("jsonschema")
     request = {
         "contract": CONTRACT,
         "run_id": "knowlab-run-0001",
         "owner_subject": "user-123",
+        "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-000000000001",
+            "workspace_root": "/synthetic/workspace",
+        },
         "manifest": manifest(),
         "cases": request_body()["cases"],
         "budget": {"limit": "20"},
         "timeout_seconds": 1800,
     }
     jsonschema.validate(request, _schema("test-run-request.schema.json"))
+    with pytest.raises(jsonschema.ValidationError, match="runner"):
+        jsonschema.validate(
+            {k: v for k, v in request.items() if k != "runner"},
+            _schema("test-run-request.schema.json"),
+        )
     answer = result("knowlab-run-0001", "failed").model_dump(mode="json")
     jsonschema.validate(answer, _schema("test-run-result.schema.json"))
     with pytest.raises(jsonschema.ValidationError):
@@ -101,7 +111,6 @@ def test_a_running_result_may_say_how_far_it_got() -> None:
     }
     got = RunResultV1.model_validate(base | {"progress": progress})
     assert got.progress is not None and got.progress.step == 3
-    jsonschema = pytest.importorskip("jsonschema")
     jsonschema.validate(
         got.model_dump(mode="json"), _schema("test-run-result.schema.json")
     )
@@ -133,7 +142,6 @@ def test_an_accepted_result_may_say_what_it_waits_for() -> None:
         "status": "accepted",
     }
     assert RunResultV1.model_validate(base).blocked is None
-    jsonschema = pytest.importorskip("jsonschema")
     for reason in ("computer_offline", "folder_not_ready"):
         got = RunResultV1.model_validate(base | {"blocked": reason})
         assert got.blocked == reason

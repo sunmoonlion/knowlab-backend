@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 from pydantic import ValidationError
 
@@ -158,7 +159,6 @@ def test_contract_manifest_digests_match_the_schemas() -> None:
 
 def test_examples_satisfy_the_published_schemas() -> None:
     _require_contract()
-    jsonschema = pytest.importorskip("jsonschema")
     jsonschema.validate(request(), _schema("incubation-request.schema.json"))
     draft = {
         k: v
@@ -271,7 +271,6 @@ def test_formats_carry_the_description_and_readings_and_revise_a_report() -> Non
         with pytest.raises(ValidationError):
             IncubationRequestV1.model_validate(wrong)
     _require_contract()
-    jsonschema = pytest.importorskip("jsonschema")
     jsonschema.validate(
         got.model_dump(mode="json"), _schema("incubation-request.schema.json")
     )

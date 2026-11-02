@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import jsonschema
 import pytest
 
 from app.domain.knowbots.data_request import DataRequest
@@ -71,7 +72,6 @@ def test_our_data_request_is_the_knowbase_data_request() -> None:
 
 def test_a_v2_draft_knowlab_accepts_satisfies_the_knowmart_v2_schema() -> None:
     schema = _sibling("knowmart-app", _read_lock(LOCK_V2))
-    jsonschema = pytest.importorskip("jsonschema")
     doc = manifest()
     assert draft_manifest_problems(doc, runtime="knowbench", version="1") == []
     jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))
