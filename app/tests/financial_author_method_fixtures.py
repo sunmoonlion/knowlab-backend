@@ -28,6 +28,7 @@ from app.domain.knowbots.workdraft import (
     CheckCell,
     MethodSelection,
     OutputCell,
+    OutputField,
     StepCell,
     WorkdraftBody,
     cells,
@@ -117,9 +118,11 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "tags": ["勾稽平衡", "资产平表", "追溯重述"],
         "does": (
             "对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，"
-            "尾差绝对值<1.00元；②净利润扣除分红与增发缴款后等于未分配利润变动额；"
+            "尾差绝对值<1.00元（数据一律经标准化层换算为元）；"
+            "②净利润扣除分红与增发缴款后等于未分配利润变动额，分红与增发取数自所有者权益变动表；"
             "③现金流量表净增加额=现金及现金等价物期末余额减期初余额；"
-            "④本期报表期初数与上年期末数逐项比对，不一致即识别为追溯重述并记录披露出处。"
+            "④本期报表期初数与上年期末数按披露行项目全量逐项比对，"
+            "不一致即识别为追溯重述并记录披露出处。"
         ),
         "why": (
             "验证三表横向纵向强勾稽平衡，排查会计不平衡或重述差错，建立分析可信基石。"
@@ -130,8 +133,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "——财务信息的更正及相关披露》（追溯重述部分）"
         ),
         "does_not": (
-            "不接科目口径调整与重分类（前置方法的事），不接审计意见真伪鉴定；"
-            "尾差容差1.00元为合成样例默认值，未经作者确认不得对外引用。"
+            "不接科目口径调整与重分类（前置方法的事），不接审计意见真伪鉴定。"
         ),
         "elsewhere": (
             "科目重分类与报表标准化找「财务三表标准化重构与口径对齐」；"
@@ -275,9 +277,11 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "category": "profitability",
         "tags": ["杜邦分析", "ROE分解", "杠杆乘数", "周转率"],
         "does": (
-            "将净资产收益率(ROE)分解为五因子乘积：税收负担率(净利润/税前利润)"
+            "将净资产收益率(ROE)分解为五因子乘积，净利润一律指扣非净利润"
+            "（接「非经常性损益穿透与扣非还原」产物）：税收负担率(扣非净利润/税前利润)"
             "×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)"
-            "×资产周转率(营业收入/总资产)×权益乘数(总资产/净资产)，"
+            "×资产周转率(营业收入/平均总资产)×权益乘数(平均总资产/平均净资产)；"
+            "资产与净资产取期初期末算术平均，首个报告期无期初数时退回期末值并在证据项标注；"
             "逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。"
         ),
         "why": (
@@ -290,8 +294,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         ),
         "does_not": (
             "不接银行、保险、券商等金融企业——其报表结构与监管口径不适用通用"
-            "杜邦分解；资产与权益取期末值还是平均值、ROE分子用净利润还是扣非"
-            "净利润，为待作者确认口径，见方法假设清单。"
+            "杜邦分解，金融版分解另列候选方法，不在本方法内打补丁。"
         ),
         "elsewhere": (
             "金融企业盈利结构分析需另行指定方法；"
@@ -1231,7 +1234,8 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的"
             "结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游"
             "证据编号，索引与上游证据清单一一对应（不多、不少、不重）；"
-            "同时输出执行摘要、风险因素与归档索引。"
+            "风险因素至少3条、每条带具体内容与来源标签；估值以区间加关键假设并列呈现，"
+            "不给单点目标价；同时输出执行摘要与归档索引。"
         ),
         "why": (
             "作为全流程最终交付单元，消费并核验全部已分析指标，"
@@ -1303,7 +1307,14 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "outputs": [
             OutputCell(name="structured_dossier", type="text"),
             OutputCell(name="executive_summary", type="text"),
-            OutputCell(name="risk_factors", type="list"),
+            OutputCell(
+                name="risk_factors",
+                type="list",
+                items=(
+                    OutputField(name="text", type="text"),
+                    OutputField(name="source", type="text"),
+                ),
+            ),
             OutputCell(name="evidence_audit_trail", type="list"),
         ],
         "checks": [
@@ -1325,6 +1336,14 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             CheckCell(
                 template="non_empty",
                 params={"path": "executive_summary"},
+            ),
+            CheckCell(
+                template="list_min",
+                params={"path": "risk_factors", "min": 3},
+            ),
+            CheckCell(
+                template="each_has",
+                params={"path": "risk_factors", "keys": ["text", "source"]},
             ),
             CheckCell(
                 template="covers",

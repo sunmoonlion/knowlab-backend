@@ -217,7 +217,11 @@ class MockRepo:
 output = {{
     "structured_dossier": "研究底稿",
     "executive_summary": "摘要",
-    "risk_factors": ["行业竞争加剧"],
+    "risk_factors": [
+        {{"text": "行业竞争加剧", "source": "competitive_moat_hypothesis_testing"}},
+        {{"text": "商誉减值风险", "source": "goodwill_impairment_stress_test"}},
+        {{"text": "客户集中度高", "source": "top5_customer_supplier_concentration"}},
+    ],
     "evidence_audit_trail": [
         {{"metric": "roe"}},
         {{"metric": "net_profit_margin"}},
@@ -281,7 +285,14 @@ async def run(trail):
     output = {{
         "structured_dossier": "研究底稿",
         "executive_summary": "摘要",
-        "risk_factors": ["风险"],
+        "risk_factors": [
+            {{"text": "行业竞争加剧", "source": "competitive_moat_hypothesis_testing"}},
+            {{"text": "商誉减值风险", "source": "goodwill_impairment_stress_test"}},
+            {{
+                "text": "客户集中度高",
+                "source": "top5_customer_supplier_concentration",
+            }},
+        ],
         "evidence_audit_trail": trail,
     }}
     return await judge_numbers(
@@ -323,6 +334,70 @@ asyncio.run(main())
     res = _run_knowbench_judge(script)
     assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
     assert "ALL_COVERS_NEGATIVE_CASES_REJECTED" in res.stdout
+
+
+def test_m20_thin_or_sourceless_risk_factors_must_fail() -> None:
+    """M20: fewer than 3 risk factors, or factors without a source, must fail."""
+    step = "comprehensive_dossier_formatting"
+    script = f"""
+import asyncio
+import json
+from pathlib import Path
+from app.application.workbench.acceptance import judge
+from app.application.workbench.acceptance_numbers import judge_numbers
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
+unit = next(u for u in catalog.method_units if u.contract.step_id == "{step}")
+rules = unit.contract.acceptance
+
+class MockRepo:
+    async def list_task_events(self, task_id, **kw):
+        return []
+    async def list_artifacts_with_content(self, task_id):
+        return [{{
+            "kind": "step",
+            "name": "dupont_five_way_decomposition",
+            "content": {{"dupont_evidence_items": ["roe"]}},
+        }}]
+
+async def run(risk_factors):
+    output = {{
+        "structured_dossier": "研究底稿",
+        "executive_summary": "摘要",
+        "risk_factors": risk_factors,
+        "evidence_audit_trail": [{{"metric": "roe"}}],
+    }}
+    return await judge_numbers(
+        judge(json.dumps(output), rules),
+        rules,
+        repo=MockRepo(),
+        task={{"id": "test-task"}},
+    )
+
+async def main():
+    v_few = await run([
+        {{"text": "行业竞争加剧", "source": "competitive_moat_hypothesis_testing"}},
+    ])
+    assert not v_few.ok
+    assert any("risk_factors" in f for f in v_few.failures)
+
+    v_nosource = await run([
+        {{"text": "行业竞争加剧"}},
+        {{"text": "商誉减值风险", "source": "goodwill_impairment_stress_test"}},
+        {{"text": "客户集中度高", "source": "top5_customer_supplier_concentration"}},
+    ])
+    assert not v_nosource.ok
+    assert any("risk_factors" in f for f in v_nosource.failures)
+
+    print("THIN_OR_SOURCELESS_RISK_FACTORS_REJECTED")
+
+asyncio.run(main())
+"""
+    res = _run_knowbench_judge(script)
+    assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
+    assert "THIN_OR_SOURCELESS_RISK_FACTORS_REJECTED" in res.stdout
 
 
 def test_m02_realistic_reconciled_payload_passes() -> None:

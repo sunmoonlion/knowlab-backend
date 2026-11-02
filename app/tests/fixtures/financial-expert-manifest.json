@@ -246,12 +246,12 @@
         "contract": {
           "step_id": "accounting_statement_reconciliation",
           "title": "报表勾稽平衡与重述校验",
-          "summary": "对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，尾差绝对值<1.00元；②净利润扣除分红与增发缴款后等于未分配利润变动额；③现金流量表净增加额=现金及现金等价物期末余额减期初余额；④本期报表期初数与上年期末数逐项比对，不一致即识别为追溯重述并记录披露出处。",
+          "summary": "对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，尾差绝对值<1.00元（数据一律经标准化层换算为元）；②净利润扣除分红与增发缴款后等于未分配利润变动额，分红与增发取数自所有者权益变动表；③现金流量表净增加额=现金及现金等价物期末余额减期初余额；④本期报表期初数与上年期末数按披露行项目全量逐项比对，不一致即识别为追溯重述并记录披露出处。",
           "why": "验证三表横向纵向强勾稽平衡，排查会计不平衡或重述差错，建立分析可信基石。",
           "input_refs": [
             "fin_statement_restructure"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，尾差绝对值<1.00元；②净利润扣除分红与增发缴款后等于未分配利润变动额；③现金流量表净增加额=现金及现金等价物期末余额减期初余额；④本期报表期初数与上年期末数逐项比对，不一致即识别为追溯重述并记录披露出处。\n\n规则：\n1. 依据：《企业会计准则——基本准则》会计等式；中国注册会计师审计准则第1313号《分析程序》；证监会《公开发行证券的公司信息披露编报规则第19号——财务信息的更正及相关披露》（追溯重述部分）\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：fin_statement_restructure（财务三表标准化重构与口径对齐）\n\n交回一个 JSON，包含：\n- reconciliation_status：文字\n- balance_sheet_balance_diff：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- audit_reconciliations：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，尾差绝对值<1.00元（数据一律经标准化层换算为元）；②净利润扣除分红与增发缴款后等于未分配利润变动额，分红与增发取数自所有者权益变动表；③现金流量表净增加额=现金及现金等价物期末余额减期初余额；④本期报表期初数与上年期末数按披露行项目全量逐项比对，不一致即识别为追溯重述并记录披露出处。\n\n规则：\n1. 依据：《企业会计准则——基本准则》会计等式；中国注册会计师审计准则第1313号《分析程序》；证监会《公开发行证券的公司信息披露编报规则第19号——财务信息的更正及相关披露》（追溯重述部分）\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：fin_statement_restructure（财务三表标准化重构与口径对齐）\n\n交回一个 JSON，包含：\n- reconciliation_status：文字\n- balance_sheet_balance_diff：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- audit_reconciliations：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -489,12 +489,12 @@
         "contract": {
           "step_id": "dupont_five_way_decomposition",
           "title": "杜邦五步分解法",
-          "summary": "将净资产收益率(ROE)分解为五因子乘积：税收负担率(净利润/税前利润)×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)×资产周转率(营业收入/总资产)×权益乘数(总资产/净资产)，逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。",
+          "summary": "将净资产收益率(ROE)分解为五因子乘积，净利润一律指扣非净利润（接「非经常性损益穿透与扣非还原」产物）：税收负担率(扣非净利润/税前利润)×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)×资产周转率(营业收入/平均总资产)×权益乘数(平均总资产/平均净资产)；资产与净资产取期初期末算术平均，首个报告期无期初数时退回期末值并在证据项标注；逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。",
           "why": "结构化解构盈利源动力，精准厘清ROE变动究竟由主营盈利、财务杠杆还是运营周转所驱动。",
           "input_refs": [
             "non_recurring_items_purification"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：将净资产收益率(ROE)分解为五因子乘积：税收负担率(净利润/税前利润)×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)×资产周转率(营业收入/总资产)×权益乘数(总资产/净资产)，逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。\n\n规则：\n1. 依据：杜邦公司财务分析体系（Donaldson Brown, 1914）的五因子扩展；CFA Institute《Financial Reporting and Analysis》杜邦分解框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- roe：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- dupont_chain_product：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n- tax_burden：数\n- interest_burden：数\n- ebit_margin：数\n- asset_turnover：数\n- equity_multiplier：数\n- dupont_evidence_items：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：将净资产收益率(ROE)分解为五因子乘积，净利润一律指扣非净利润（接「非经常性损益穿透与扣非还原」产物）：税收负担率(扣非净利润/税前利润)×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)×资产周转率(营业收入/平均总资产)×权益乘数(平均总资产/平均净资产)；资产与净资产取期初期末算术平均，首个报告期无期初数时退回期末值并在证据项标注；逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。\n\n规则：\n1. 依据：杜邦公司财务分析体系（Donaldson Brown, 1914）的五因子扩展；CFA Institute《Financial Reporting and Analysis》杜邦分解框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- roe：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- dupont_chain_product：数；每项写成 {left_id, right_id}：要相等的两次 compute 的编号\n- tax_burden：数\n- interest_burden：数\n- ebit_margin：数\n- asset_turnover：数\n- equity_multiplier：数\n- dupont_evidence_items：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2065,7 +2065,7 @@
         "contract": {
           "step_id": "comprehensive_dossier_formatting",
           "title": "结构化研究底稿与报告成稿编排",
-          "summary": "聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游证据编号，索引与上游证据清单一一对应（不多、不少、不重）；同时输出执行摘要、风险因素与归档索引。",
+          "summary": "聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游证据编号，索引与上游证据清单一一对应（不多、不少、不重）；风险因素至少3条、每条带具体内容与来源标签；估值以区间加关键假设并列呈现，不给单点目标价；同时输出执行摘要与归档索引。",
           "why": "作为全流程最终交付单元，消费并核验全部已分析指标，杜绝跳过核心分析两步直通。",
           "input_refs": [
             "accounting_statement_reconciliation",
@@ -2074,7 +2074,7 @@
             "earnings_quality_accrual_audit",
             "dcf_intrinsic_valuation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游证据编号，索引与上游证据清单一一对应（不多、不少、不重）；同时输出执行摘要、风险因素与归档索引。\n\n规则：\n1. 依据：中国证券业协会《发布证券研究报告执业规范》（2020年修订）研报底稿与留痕要求；《证券分析师执业行为准则》信息来源披露义务\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）、dupont_five_way_decomposition（杜邦五步分解法）、solvency_liquidity_stress_check（偿债压力与流动性体检）、earnings_quality_accrual_audit（收益质量分析与应计项排雷、FCF）、dcf_intrinsic_valuation（企业自由现金流贴现估值 DCF）\n\n交回一个 JSON，包含：\n- structured_dossier：文字\n- executive_summary：文字\n- risk_factors：列表\n- evidence_audit_trail：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游证据编号，索引与上游证据清单一一对应（不多、不少、不重）；风险因素至少3条、每条带具体内容与来源标签；估值以区间加关键假设并列呈现，不给单点目标价；同时输出执行摘要与归档索引。\n\n规则：\n1. 依据：中国证券业协会《发布证券研究报告执业规范》（2020年修订）研报底稿与留痕要求；《证券分析师执业行为准则》信息来源披露义务\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）、dupont_five_way_decomposition（杜邦五步分解法）、solvency_liquidity_stress_check（偿债压力与流动性体检）、earnings_quality_accrual_audit（收益质量分析与应计项排雷、FCF）、dcf_intrinsic_valuation（企业自由现金流贴现估值 DCF）\n\n交回一个 JSON，包含：\n- structured_dossier：文字\n- executive_summary：文字\n- risk_factors：列表，每项有：text（文字）、source（文字）\n- evidence_audit_trail：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2093,7 +2093,10 @@
             "structured_dossier": "string",
             "executive_summary": "string",
             "risk_factors": [
-              "string"
+              {
+                "text": "string",
+                "source": "string"
+              }
             ],
             "evidence_audit_trail": [
               "string"
@@ -2138,6 +2141,23 @@
               "path": "executive_summary",
               "label": "「executive_summary」不能空",
               "message": "没过：「executive_summary」不能空"
+            },
+            {
+              "kind": "list_min",
+              "path": "risk_factors",
+              "min_items": 3,
+              "label": "「risk_factors」至少 3 项",
+              "message": "没过：「risk_factors」至少 3 项"
+            },
+            {
+              "kind": "each_has",
+              "path": "risk_factors",
+              "keys": [
+                "text",
+                "source"
+              ],
+              "label": "「risk_factors」每项都有「text」、「source」",
+              "message": "没过：「risk_factors」每项都有「text」、「source」"
             },
             {
               "kind": "covers",
@@ -2338,7 +2358,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003e9",
           "version": 1,
-          "digest": "sha256:222c88f3eb93568314a87031ff1ce50176e5a8be4d1cd5b98d791eef96bf2c78",
+          "digest": "sha256:d849121d100c0a47a92c03bd92ed3b30ed7843544024c5951e812f0c56df0218",
           "inputs": {
             "statements": "fin_statement_restructure"
           }
@@ -2348,7 +2368,7 @@
           "step": {
             "id": "method",
             "title": "报表勾稽平衡与重述校验",
-            "does": "对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，尾差绝对值<1.00元；②净利润扣除分红与增发缴款后等于未分配利润变动额；③现金流量表净增加额=现金及现金等价物期末余额减期初余额；④本期报表期初数与上年期末数逐项比对，不一致即识别为追溯重述并记录披露出处。",
+            "does": "对标准化三表执行四层勾稽校验：①资产=负债+所有者权益，期末与期初分别校验，尾差绝对值<1.00元（数据一律经标准化层换算为元）；②净利润扣除分红与增发缴款后等于未分配利润变动额，分红与增发取数自所有者权益变动表；③现金流量表净增加额=现金及现金等价物期末余额减期初余额；④本期报表期初数与上年期末数按披露行项目全量逐项比对，不一致即识别为追溯重述并记录披露出处。",
             "why": "验证三表横向纵向强勾稽平衡，排查会计不平衡或重述差错，建立分析可信基石。",
             "uses": [
               "statements"
@@ -2654,7 +2674,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003eb",
           "version": 1,
-          "digest": "sha256:391cce8d52b5d011cb9d4829d660389bff7f3155ee18c503af4528c4267003f5",
+          "digest": "sha256:d13fc0e2009589f957e5ea76bd3434342fd0c7e843abf7f96df8c548dad1f0be",
           "inputs": {
             "purified": "non_recurring_items_purification"
           }
@@ -2664,7 +2684,7 @@
           "step": {
             "id": "method",
             "title": "杜邦五步分解法",
-            "does": "将净资产收益率(ROE)分解为五因子乘积：税收负担率(净利润/税前利润)×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)×资产周转率(营业收入/总资产)×权益乘数(总资产/净资产)，逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。",
+            "does": "将净资产收益率(ROE)分解为五因子乘积，净利润一律指扣非净利润（接「非经常性损益穿透与扣非还原」产物）：税收负担率(扣非净利润/税前利润)×利息负担率(税前利润/息税前利润)×息税前利润率(EBIT/营业收入)×资产周转率(营业收入/平均总资产)×权益乘数(平均总资产/平均净资产)；资产与净资产取期初期末算术平均，首个报告期无期初数时退回期末值并在证据项标注；逐因子给出取值来源与计算记录编号，乘积与ROE直接值互核。",
             "why": "结构化解构盈利源动力，精准厘清ROE变动究竟由主营盈利、财务杠杆还是运营周转所驱动。",
             "uses": [
               "purified"
@@ -4879,7 +4899,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fb",
           "version": 1,
-          "digest": "sha256:bea94128a3702f2424ab2b755820eed8ed82e74a83268d94125500eb461cf0fb",
+          "digest": "sha256:9af6772c4e5048877d26f9380529e5f6666064dcaeebef534083880e89bfc6d7",
           "inputs": {
             "reconciliation": "accounting_statement_reconciliation",
             "dupont": "dupont_five_way_decomposition",
@@ -4893,7 +4913,7 @@
           "step": {
             "id": "method",
             "title": "结构化研究底稿与报告成稿编排",
-            "does": "聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游证据编号，索引与上游证据清单一一对应（不多、不少、不重）；同时输出执行摘要、风险因素与归档索引。",
+            "does": "聚合勾稽校验、杜邦分解、偿债流动性、收益质量与DCF估值五个上游单元的结构化产物，编排研究底稿：进入底稿的每项指标必须在证据审计索引中带上游证据编号，索引与上游证据清单一一对应（不多、不少、不重）；风险因素至少3条、每条带具体内容与来源标签；估值以区间加关键假设并列呈现，不给单点目标价；同时输出执行摘要与归档索引。",
             "why": "作为全流程最终交付单元，消费并核验全部已分析指标，杜绝跳过核心分析两步直通。",
             "uses": [
               "reconciliation",
@@ -4927,7 +4947,16 @@
               {
                 "name": "risk_factors",
                 "type": "list",
-                "items": null
+                "items": [
+                  {
+                    "name": "text",
+                    "type": "text"
+                  },
+                  {
+                    "name": "source",
+                    "type": "text"
+                  }
+                ]
               },
               {
                 "name": "evidence_audit_trail",
@@ -4957,6 +4986,23 @@
                 "template": "non_empty",
                 "params": {
                   "path": "executive_summary"
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "risk_factors",
+                  "min": 3
+                }
+              },
+              {
+                "template": "each_has",
+                "params": {
+                  "path": "risk_factors",
+                  "keys": [
+                    "text",
+                    "source"
+                  ]
                 }
               },
               {
@@ -4993,7 +5039,10 @@
                 "structured_dossier": "string",
                 "executive_summary": "string",
                 "risk_factors": [
-                  "string"
+                  {
+                    "text": "string",
+                    "source": "string"
+                  }
                 ],
                 "evidence_audit_trail": [
                   "string"
@@ -5636,9 +5685,19 @@
       "ref": "record:00000000-0000-0000-0000-00000000016c"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」至少 3 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000016d"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」每项都有「text」、「source」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016e"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016f"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：依据：中国证券业协会《发布证券研究报告执业规范》（2020年修订）研报底稿与留痕要求；《证券分析师执业行为准则》信息来源披露义务",
