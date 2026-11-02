@@ -1,3 +1,12 @@
+# 2026-11-02 Wind 通用查询与年报证据（开发候选，未发布）
+
+基线 `256e726b33cd003c3151d7aefc4c79cccb0765d7`。本轮本人要求第二轨作为主演示、巨潮保底，财务与年报都纳入、不限制为财务专线。
+
+对齐可选 source_query 契约，作者可显式选 discovery；历史 v1 编译 DEFAULT_TOOLS 保持，不把新能力偷偷写进旧版本/摘要。
+全量 806 passed / 5 skipped / 1 failed，唯一失败为默认工具等于完整新词表的旧断言；修正为固定历史默认与新 discovery 显式选择后，编译/锁定回归 54 passed（/tmp/luna-wind-lab-corrected.log）。ruff/pyright 通过。agy 资产未合并，未声明真实孵化/业务验收通过。
+
+发布由 qwen/Jenkins；不代点用户采单、不修改线上任务。以下为此前历史：
+
 # 2026-11-02 WP-10 单元 1：作者动态方法契约
 
 基线 70555a6401fa03be4b109bf58c246eff4d71fa4a，独立分支 feat/dynamic-methods；qwen 的发布源与保底专家未动。
@@ -116,3 +125,24 @@ lab-ruff / lab-pyright。无新迁移、无模型或 Wind 调用。冻结/绑定
    - 前端测试 182 passed / 2 skipped，`typecheck` 0 errors；
    - 后端核心方法测试套件 27 passed（0 failed）；
    - 所有方法明确标注为合成候选（SYNTHETIC），单季还原、PDF 页码、区间预测口径如实标注待作者确认。
+
+
+## 2026-11-02 WP-10：编译期覆盖规则兼容检查
+
+新工作稿编译在固定/动态专家中检查 covers：源必须声明列表，source_field 必须存在，
+所有目标（包括 also）必须含覆盖字段且与源类型兼容。使用实际 output_schema，错误
+定位到步骤检查项。没有改运行器语义或自动补业务字段；无新契约字段、迁移。
+历史引用还原使用未改变的 v1 翻译，保持冻结快照字节/摘要及篡改校验；重新保存、绑定、
+冻结、测试走公开编译入口，必须满足新作者检查。真实 DB 验证错误定义不能入库，作者
+修正原工作稿后可以首次冻结。非财务跨端夹具显式声明对象行，不冒充财务业务验收。
+
+最终全量隔离 PostgreSQL：807 passed / 5 skipped（160.67 秒），日志
+/tmp/luna-coverage-knowlab-full-final.log；ruff/pyright 通过，日志
+/tmp/luna-coverage-{ruff,pyright}-final.log。定向编译/契约 108 passed，作者 DB 29 passed。
+首次定向 5 failed / 89 passed 暴露旧夹具隐式 string 行和 golden 不匹配，已显式纠正
+对象字段并通过开发生成步骤更新跨端快照，普通测试只读。首次全量 806 passed /
+5 skipped / 1 failed 为前端 golden 仍旧；更新真实编译产物后最终全量通过。原始日志
+保留 /tmp/luna-coverage-initial.log、/tmp/luna-coverage-knowlab-full.log。
+
+只在独立开发分支，不涉及发布、agy 应用树、线上任务或 Wind。历史数据无需迁移；
+回退应用会失去新的作者检查，但不应回写旧快照或篡改已冻结版本。

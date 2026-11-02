@@ -73,10 +73,15 @@ DATA_MCP_TOOLS = frozenset(
         "lookup",
     }
 )
-V2_TOOLS = DATA_MCP_TOOLS | {"compute", "request_data", "find_subject"}
+V2_TOOLS = DATA_MCP_TOOLS | {
+    "compute",
+    "request_data",
+    "find_subject",
+    "discover_source_tools",
+}
 # 默认给的：全部——只读读数据（含查引文 search_evidence）、计算、要数据、查主体。专家跑的
 # 途中也可以再要数据、查主体（请专家方案第 4.3 节第 7 条），不只第 0 步；「高级」里能删
-DEFAULT_TOOLS: tuple[str, ...] = tuple(sorted(V2_TOOLS))
+DEFAULT_TOOLS: tuple[str, ...] = tuple(sorted(V2_TOOLS - {"discover_source_tools"}))
 # 与 knowbench `StepContract` 的默认值一致
 DEFAULT_RESERVE = "0.05"
 DEFAULT_INPUT_MAX_CHARS = 8000
@@ -389,6 +394,96 @@ def method_text(step: StepCell, titles: Mapping[str, str]) -> str:
 
 # ---------- 整份 ----------
 def compile_manifest(
+    body: WorkdraftBody,
+    sources: Mapping[str, Any],
+    *,
+    pack_id: str,
+    version: str,
+    runtime: str,
+    fallback_name: str,
+    method_sources: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[Problem]]:
+    """Compile a new author workdraft and diagnose unsatisfiable coverage rules.
+
+    Historical snapshot replay uses the unchanged v1 translation below; new
+    freeze, bind, test and delivery operations must use this authoring entry.
+    """
+    manifest, problems = _compile_manifest(
+        body,
+        sources,
+        pack_id=pack_id,
+        version=version,
+        runtime=runtime,
+        fallback_name=fallback_name,
+        method_sources=method_sources,
+    )
+    return manifest, [*problems, *_coverage_problems(body)]
+
+
+def _shape_at(schema: Any, path: str) -> Any:
+    for part in path.split("."):
+        if not isinstance(schema, dict) or part not in schema:
+            return None
+        schema = schema[part]
+    return schema
+
+
+def _coverage_shape_problem(
+    rule: dict[str, Any], own: dict[str, Any], upstream: dict[str, Any]
+) -> str | None:
+    # These are the compiler's output descriptors, not JSON Schema. Traverse
+    # only object keys, just as runtime value_at does (no array indices).
+    source, _, path = rule["source"].partition(".")
+    shape = _shape_at(upstream.get(source), path)
+    if not isinstance(shape, list) or len(shape) != 1:
+        return "covers source must declare a list with one item schema"
+    wanted = shape[0]
+    source_field = rule.get("source_field")
+    if source_field:
+        if not isinstance(wanted, dict) or source_field not in wanted:
+            return "covers source_field must exist on each source item"
+        wanted = wanted[source_field]
+    for path in (rule["path"], *rule.get("also", [])):
+        shape = _shape_at(own, path)
+        item = shape[0] if isinstance(shape, list) and len(shape) == 1 else shape
+        if not isinstance(item, dict) or rule["field"] not in item:
+            return f"covers {path} must declare objects containing {rule['field']}"
+        actual = item[rule["field"]]
+        numeric = (
+            isinstance(actual, str)
+            and isinstance(wanted, str)
+            and actual in ("number", "integer")
+            and wanted in ("number", "integer")
+        )
+        if actual != wanted and not numeric:
+            return f"covers {path}.{rule['field']} must match the source value type"
+    return None
+
+
+def _coverage_problems(body: WorkdraftBody) -> list[Problem]:
+    schemas = {
+        s.id: s.advanced.output_schema
+        if s.advanced.output_schema is not None
+        else output_schema(s)
+        for s in body.steps
+    }
+    available = {s.id: s for s in body.steps}
+    earlier: dict[str, StepCell] = {}
+    problems = []
+    for step in body.steps:
+        for index, check in enumerate(step.checks):
+            if check.template != "covers":
+                continue
+            rule, _ = check_rule(check, step, available if body.planning else earlier)
+            if rule is not None:
+                why = _coverage_shape_problem(rule, schemas[step.id], schemas)
+                if why:
+                    problems.append(Problem(f"steps/{step.id}/checks/{index}", why))
+        earlier[step.id] = step
+    return problems
+
+
+def _compile_manifest(
     body: WorkdraftBody,
     sources: Mapping[str, Any],
     *,

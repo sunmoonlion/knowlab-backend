@@ -145,7 +145,9 @@ def test_engineering_defaults_follow_knowbench() -> None:
     first, second = manifest["pack"]["workflow"]
     assert first["tools"] == list(DEFAULT_TOOLS)
     # 跑的途中也能再要数据、查主体（请专家方案第 4.3 节第 7 条）
-    assert set(DEFAULT_TOOLS) == V2_TOOLS
+    # Preserve the implicit tools of historical v1 snapshots; newly added
+    # supplier discovery is opt-in for author steps and available to intake.
+    assert set(DEFAULT_TOOLS) == V2_TOOLS - {"discover_source_tools"}
     assert {"request_data", "find_subject", "compute"} <= set(DEFAULT_TOOLS)
     assert "search_evidence" in DEFAULT_TOOLS  # 查引文
     assert (first["reserve"], first["input_max_chars"]) == (
@@ -273,7 +275,14 @@ def test_output_schema_follows_outputs_and_what_the_checks_need() -> None:
 def test_each_check_template_becomes_an_acceptance_rule(
     template: str, params: dict[str, Any], expected: dict[str, Any]
 ) -> None:
-    manifest, problems = build(with_check(template, params))
+    doc = with_check(template, params)
+    if template == "covers":
+        doc["steps"][1]["outputs"][1] = {
+            "name": "note",
+            "type": "list",
+            "items": [{"name": "period"}],
+        }
+    manifest, problems = build(doc)
     assert problems == []
     rules = manifest["pack"]["workflow"][1]["acceptance"]
     made = [r for r in rules if r["kind"] == expected["kind"]][-1]
@@ -473,6 +482,7 @@ def test_a_foreign_pack_keeps_its_method_text_as_what_the_step_does() -> None:
                     "path": "rows",
                     "field": "k",
                     "source": "summary.rows",
+                    "source_field": "k",
                 }
             ],
             "on_reject": "human",
