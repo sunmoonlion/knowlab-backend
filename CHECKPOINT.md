@@ -1,3 +1,12 @@
+# 2026-11-02 Wind 通用查询与年报证据（开发候选，未发布）
+
+基线 `256e726b33cd003c3151d7aefc4c79cccb0765d7`。本轮本人要求第二轨作为主演示、巨潮保底，财务与年报都纳入、不限制为财务专线。
+
+对齐可选 source_query 契约，作者可显式选 discovery；历史 v1 编译 DEFAULT_TOOLS 保持，不把新能力偷偷写进旧版本/摘要。
+全量 806 passed / 5 skipped / 1 failed，唯一失败为默认工具等于完整新词表的旧断言；修正为固定历史默认与新 discovery 显式选择后，编译/锁定回归 54 passed（/tmp/luna-wind-lab-corrected.log）。ruff/pyright 通过。agy 资产未合并，未声明真实孵化/业务验收通过。
+
+发布由 qwen/Jenkins；不代点用户采单、不修改线上任务。以下为此前历史：
+
 # 2026-11-02 WP-10 单元 1：作者动态方法契约
 
 基线 70555a6401fa03be4b109bf58c246eff4d71fa4a，独立分支 feat/dynamic-methods；qwen 的发布源与保底专家未动。

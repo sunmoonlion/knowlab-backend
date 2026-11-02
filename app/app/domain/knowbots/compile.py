@@ -73,10 +73,15 @@ DATA_MCP_TOOLS = frozenset(
         "lookup",
     }
 )
-V2_TOOLS = DATA_MCP_TOOLS | {"compute", "request_data", "find_subject"}
+V2_TOOLS = DATA_MCP_TOOLS | {
+    "compute",
+    "request_data",
+    "find_subject",
+    "discover_source_tools",
+}
 # 默认给的：全部——只读读数据（含查引文 search_evidence）、计算、要数据、查主体。专家跑的
 # 途中也可以再要数据、查主体（请专家方案第 4.3 节第 7 条），不只第 0 步；「高级」里能删
-DEFAULT_TOOLS: tuple[str, ...] = tuple(sorted(V2_TOOLS))
+DEFAULT_TOOLS: tuple[str, ...] = tuple(sorted(V2_TOOLS - {"discover_source_tools"}))
 # 与 knowbench `StepContract` 的默认值一致
 DEFAULT_RESERVE = "0.05"
 DEFAULT_INPUT_MAX_CHARS = 8000

@@ -145,7 +145,9 @@ def test_engineering_defaults_follow_knowbench() -> None:
     first, second = manifest["pack"]["workflow"]
     assert first["tools"] == list(DEFAULT_TOOLS)
     # 跑的途中也能再要数据、查主体（请专家方案第 4.3 节第 7 条）
-    assert set(DEFAULT_TOOLS) == V2_TOOLS
+    # Preserve the implicit tools of historical v1 snapshots; newly added
+    # supplier discovery is opt-in for author steps and available to intake.
+    assert set(DEFAULT_TOOLS) == V2_TOOLS - {"discover_source_tools"}
     assert {"request_data", "find_subject", "compute"} <= set(DEFAULT_TOOLS)
     assert "search_evidence" in DEFAULT_TOOLS  # 查引文
     assert (first["reserve"], first["input_max_chars"]) == (
