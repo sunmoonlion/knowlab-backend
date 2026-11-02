@@ -112,6 +112,66 @@ def test_upstream_shape_must_satisfy_frozen_input_contract():
         bind(value, WorkdraftBody.model_validate(raw), binding(value))
 
 
+def test_input_slots_freeze_the_effective_advanced_output_schema():
+    raw = body()
+    expected = {"rows": {"type": "array", "description": "author schema"}}
+    raw["steps"][1]["advanced"]["output_schema"] = expected
+    parsed = WorkdraftBody.model_validate(raw)
+    value = freeze(
+        parsed,
+        FreezeMethod(
+            request_id=uuid.uuid4(),
+            revision=1,
+            step_id="report",
+            input_slots={"inspect": "records"},
+        ),
+    )
+    assert value.input_schemas["records"] == expected
+    assert bind(value, parsed, binding(value)).id == "report"
+    with pytest.raises(ValueError, match="incompatible"):
+        bind(value, WorkdraftBody.model_validate(body()), binding(value))
+
+
+def test_frozen_method_cannot_inherit_later_compiler_defaults(monkeypatch):
+    import app.domain.knowbots.compile as compiler
+
+    raw = body()
+    raw["steps"][0]["advanced"] = {}
+    parsed = WorkdraftBody.model_validate(raw)
+    value = freeze(
+        parsed,
+        FreezeMethod(
+            request_id=uuid.uuid4(),
+            revision=1,
+            step_id="report",
+            input_slots={"inspect": "records"},
+        ),
+    )
+    frozen = value.document()
+    selected = bind(value, parsed, binding(value))
+    assert selected.advanced.tools == compiler.DEFAULT_TOOLS
+    assert selected.advanced.reserve == compiler.DEFAULT_RESERVE
+    assert selected.advanced.input_max_chars == compiler.DEFAULT_INPUT_MAX_CHARS
+    monkeypatch.setattr(compiler, "DEFAULT_TOOLS", ("unexpected",))
+    monkeypatch.setattr(compiler, "DEFAULT_RESERVE", "99")
+    monkeypatch.setattr(compiler, "DEFAULT_INPUT_MAX_CHARS", 12345)
+    raw["steps"][0] = selected.model_dump(mode="json")
+    manifest, errors = compiler.compile_manifest(
+        WorkdraftBody.model_validate(raw),
+        {},
+        pack_id="stable",
+        version="1",
+        runtime="knowbench",
+        fallback_name="stable",
+    )
+    assert not errors
+    compiled = manifest["pack"]["method_units"][0]["contract"]
+    assert compiled["tools"] == list(selected.advanced.tools)
+    assert compiled["reserve"] == selected.advanced.reserve
+    assert compiled["input_max_chars"] == selected.advanced.input_max_chars
+    assert value.document() == frozen
+
+
 def test_method_changes_create_different_digest_but_not_a_new_binding_digest():
     value = definition()
     raw = copy.deepcopy(value.document())

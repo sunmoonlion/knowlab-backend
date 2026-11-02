@@ -217,6 +217,23 @@ class StepCell(Strict):
         return self
 
 
+class MethodReference(Strict):
+    method_id: uuid.UUID
+    version: int = Field(ge=1, le=999999, strict=True)
+    digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    inputs: dict[str, str] = Field(default_factory=dict, max_length=30)
+
+    @model_validator(mode="after")
+    def _names(self) -> MethodReference:
+        if any(
+            not re.fullmatch(STEP_ID, name)
+            for pair in self.inputs.items()
+            for name in pair
+        ):
+            raise ValueError("method bindings must name slots and expert aliases")
+        return self
+
+
 class WorkdraftBody(Strict):
     name: str = Field(default="", max_length=80)
     tagline: str = Field(default="", max_length=200)
@@ -227,6 +244,12 @@ class WorkdraftBody(Strict):
     planning: PlanningCell | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    method_refs: dict[str, MethodReference] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_STEPS,
+        exclude_if=lambda value: value is None,
+    )
 
     @model_validator(mode="after")
     def _consistent(self) -> WorkdraftBody:
@@ -235,6 +258,10 @@ class WorkdraftBody(Strict):
             raise ValueError("step ids must be unique")
         if any(not p or len(p) > 64 for p in self.data_picks):
             raise ValueError("each data pick is 1 to 64 characters")
+        if self.method_refs and (
+            self.planning is None or not self.method_refs.keys() <= set(ids)
+        ):
+            raise ValueError("method references require declared dynamic aliases")
         return self
 
 
@@ -266,6 +293,8 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
     text("scope/elsewhere", body.scope.elsewhere)
     if body.planning is not None:
         found["planning"] = canonical(body.planning.model_dump(mode="json"))
+    for alias, reference in (body.method_refs or {}).items():
+        found[f"method_refs/{alias}"] = canonical(reference.model_dump(mode="json"))
     for step in body.steps:
         base = f"steps/{step.id}"
         text(f"{base}/title", step.title)

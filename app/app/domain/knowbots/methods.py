@@ -13,7 +13,12 @@ from uuid import UUID
 
 from pydantic import Field, model_validator
 
-from app.domain.knowbots.compile import output_schema
+from app.domain.knowbots.compile import (
+    DEFAULT_INPUT_MAX_CHARS,
+    DEFAULT_RESERVE,
+    DEFAULT_TOOLS,
+    output_schema,
+)
 from app.domain.knowbots.workdraft import (
     STEP_ID,
     StepCell,
@@ -77,6 +82,16 @@ def digest(document: Any) -> str:
     return "sha256:" + hashlib.sha256(canonical(document).encode()).hexdigest()
 
 
+def _input_schema(step: StepCell) -> dict[str, Any]:
+    # Freeze the schema the compiler actually publishes, including an author's
+    # explicit engineering override; never infer a different input contract.
+    return (
+        step.advanced.output_schema
+        if step.advanced.output_schema is not None
+        else output_schema(step)
+    )
+
+
 def _remap(step: StepCell, alias: str, inputs: dict[str, str]) -> dict[str, Any]:
     doc = step.model_dump(mode="json")
     doc["id"] = alias
@@ -103,12 +118,22 @@ def freeze(body: WorkdraftBody, command: FreezeMethod) -> MethodDefinition:
         raise ValueError("method is reserved for the neutral method identity")
     doc = _remap(step, "method", slots)
     doc["selection"]["required"] = False
+    # A reusable method must not inherit future platform defaults when another
+    # expert binds the same version. Resolve author engineering defaults once.
+    doc["advanced"].update(
+        tools=list(
+            DEFAULT_TOOLS if step.advanced.tools is None else step.advanced.tools
+        ),
+        reserve=step.advanced.reserve or DEFAULT_RESERVE,
+        input_max_chars=step.advanced.input_max_chars or DEFAULT_INPUT_MAX_CHARS,
+        output_schema=_input_schema(step),
+    )
     return MethodDefinition.model_validate(
         {
             "schema": "knowlab/method-definition/v1",
             "step": doc,
             "input_schemas": {
-                slot: output_schema(units[source]) for source, slot in slots.items()
+                slot: _input_schema(units[source]) for source, slot in slots.items()
             },
         }
     )
@@ -145,7 +170,7 @@ def bind(
         source = upstream.get(alias)
         if source is None:
             raise ValueError("input binding names an unknown expert method")
-        provided = output_schema(source)
+        provided = _input_schema(source)
         expected = definition.input_schemas[slot]
         if any(
             key not in provided or provided[key] != value

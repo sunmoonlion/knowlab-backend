@@ -1,8 +1,7 @@
-"""Author-only freeze/read and binding preview for independent method versions.
+"""Author method versions and explicit expert reference binding.
 
-One existing repository transaction owns the method and workdraft locks. This
-service cannot alter a released expert or attach a method without a later,
-explicit expert-reference operation. Preview is not publication or execution.
+One repository transaction owns method and workdraft locks. Binding changes
+only the target workdraft; neither binding nor preview publishes or executes.
 """
 
 from __future__ import annotations
@@ -16,7 +15,12 @@ from app.application.errors.exceptions import (
     ConcurrencyConflictError,
     NotFoundError,
 )
-from app.application.ports.knowbots import KnowlabRepository, MethodVersionRecord
+from app.application.ports.knowbots import (
+    KnowlabRepository,
+    MethodVersionRecord,
+    RequestRecord,
+    WorkdraftRecord,
+)
 from app.application.services.knowbot_service import parse_id
 from app.application.services.knowbot_workdraft import (
     KnowbotWorkdraftService,
@@ -29,6 +33,7 @@ from app.domain.knowbots.methods import (
     bind,
     freeze,
 )
+from app.domain.knowbots.workdraft import WorkdraftBody, bundle_text, cells
 
 
 def method_version_view(record: MethodVersionRecord) -> dict[str, Any]:
@@ -45,7 +50,7 @@ def method_version_view(record: MethodVersionRecord) -> dict[str, Any]:
 def _definition(record: MethodVersionRecord) -> MethodDefinition:
     try:
         value = MethodDefinition.model_validate(record.definition)
-        if value.digest() != record.digest:
+        if value.digest() != record.digest or value.document() != record.definition:
             raise ValueError("method digest mismatch")
         return value
     except ValueError:
@@ -155,45 +160,63 @@ class KnowbotMethodService:
             assert result is not None
             return result
 
+    async def _candidate(
+        self, owner: str, method_id: str, version: int, command: BindMethod
+    ) -> tuple[MethodVersionRecord, RequestRecord, WorkdraftRecord, WorkdraftBody]:
+        record = await self.get(owner, method_id, version)
+        request = await self.workdrafts._request(owner, str(command.request_id))
+        current = await self.workdrafts.locked(request, command.revision)
+        body = parse_body(current.body)
+        try:
+            step = bind(_definition(record), body, command)
+            raw = body.model_dump(mode="json")
+            raw["steps"] = [
+                s.model_dump(mode="json") for s in body.steps if s.id != command.alias
+            ]
+            position = next(
+                (i for i, s in enumerate(body.steps) if s.id == command.alias),
+                len(body.steps),
+            )
+            raw["steps"].insert(position, step.model_dump(mode="json"))
+            raw["method_refs"] = {
+                **raw.get("method_refs", {}),
+                command.alias: {
+                    "method_id": str(record.method_id),
+                    "version": version,
+                    "digest": record.digest,
+                    "inputs": dict(command.inputs),
+                },
+            }
+            candidate = parse_body(raw)
+            from app.domain.knowbots.compile import compile_manifest, pack_problems
+
+            manifest, problems = compile_manifest(
+                candidate,
+                {},
+                pack_id="binding-preview",
+                version="1",
+                runtime=request.runtime,
+                fallback_name=request.title,
+                method_sources=await self.workdrafts.method_sources(owner, candidate),
+            )
+            problems += pack_problems(manifest["pack"])
+            if problems:
+                raise ValueError("invalid expert composition")
+        except (ValueError, ValidationError):
+            raise BadRequestError(
+                "Method does not fit the proposed expert binding",
+                code="method_binding_invalid",
+            ) from None
+        return record, request, current, candidate
+
     async def preview_binding(
         self, owner: str, method_id: str, version: int, command: BindMethod
     ) -> dict[str, Any]:
         async with self.repo.transaction():
-            record = await self.get(owner, method_id, version)
-            request = await self.workdrafts._request(owner, str(command.request_id))
-            current = await self.workdrafts.locked(request, command.revision)
-            body = parse_body(current.body)
-            try:
-                step = bind(_definition(record), body, command)
-                # Replacement is just a candidate. Re-run graph, mandatory-output
-                # and compiler checks against the whole target expert.
-                raw = body.model_dump(mode="json")
-                old = next(
-                    (i for i, s in enumerate(body.steps) if s.id == command.alias), None
-                )
-                if old is None:
-                    raw["steps"].append(step.model_dump(mode="json"))
-                else:
-                    raw["steps"][old] = step.model_dump(mode="json")
-                candidate = parse_body(raw)
-                from app.domain.knowbots.compile import compile_manifest, pack_problems
-
-                manifest, problems = compile_manifest(
-                    candidate,
-                    {},
-                    pack_id="binding-preview",
-                    version="1",
-                    runtime=request.runtime,
-                    fallback_name=request.title,
-                )
-                problems += pack_problems(manifest["pack"])
-                if problems:
-                    raise ValueError("invalid expert composition")
-            except (ValueError, ValidationError):
-                raise BadRequestError(
-                    "Method does not fit the proposed expert binding",
-                    code="method_binding_invalid",
-                ) from None
+            record, _, current, candidate = await self._candidate(
+                owner, method_id, version, command
+            )
+            step = next(s for s in candidate.steps if s.id == command.alias)
             return {
                 "method_id": str(record.method_id),
                 "version": record.version,
@@ -203,3 +226,45 @@ class KnowbotMethodService:
                 "step": step.model_dump(mode="json"),
                 "preview_only": True,
             }
+
+    async def bind_version(
+        self, owner: str, method_id: str, version: int, command: BindMethod
+    ) -> WorkdraftRecord:
+        """Author selects an exact version and confirms its composition bounds."""
+        async with self.repo.transaction():
+            record, _, current, candidate = await self._candidate(
+                owner, method_id, version, command
+            )
+            if candidate.model_dump(mode="json") == current.body:
+                return current
+            found = cells(candidate)
+            selected = {
+                path: value
+                for path, value in found.items()
+                if path.startswith(f"steps/{command.alias}/")
+                or path == f"method_refs/{command.alias}"
+            }
+            entry = await self.repo.add_workdraft_entry(
+                workdraft_id=current.id,
+                kind="copy",
+                actor_subject=owner,
+                actor_role="author",
+                text=bundle_text(
+                    f"method:{record.method_id}@{record.version}",
+                    selected,
+                    digest=record.digest,
+                ),
+            )
+            sources = {p: value for p, value in current.sources.items() if p in found}
+            sources.update(
+                {
+                    p: {"kind": "user_text", "ref": f"record:{entry.id}"}
+                    for p in selected
+                }
+            )
+            return await self.workdrafts.store(
+                current,
+                candidate,
+                sources,
+                reference_changes=frozenset({command.alias}),
+            )

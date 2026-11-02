@@ -79,6 +79,19 @@ async def test_author_api_csrf_freeze_read_and_preview_without_mutation(
                     result.status_code == 200 and result.json()["preview_only"] is True
                 )
                 assert (await repo.get_workdraft(rid)).revision == 1
+                assert (
+                    await client.post(url + "/bind", json=preview)
+                ).status_code == 403
+                attached = await client.post(url + "/bind", json=preview, headers=WEB)
+                assert attached.status_code == 200, attached.text
+                assert attached.json()["revision"] == 2
+                assert attached.json()["body"]["method_refs"]["report"][
+                    "method_id"
+                ] == str(mid)
+                assert attached.json()["origins"]["method_refs/report"] == "copy"
+                assert (
+                    await client.post(url + "/bind", json=preview, headers=WEB)
+                ).status_code == 409
         finally:
             app.dependency_overrides.pop(knowbot_routes.method_service, None)
 

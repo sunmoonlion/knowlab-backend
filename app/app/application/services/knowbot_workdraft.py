@@ -131,8 +131,27 @@ class KnowbotWorkdraftService:
         return current
 
     async def store(
-        self, current: WorkdraftRecord, body: WorkdraftBody, sources: dict[str, Any]
+        self,
+        current: WorkdraftRecord,
+        body: WorkdraftBody,
+        sources: dict[str, Any],
+        *,
+        reference_changes: frozenset[str] = frozenset(),
     ) -> WorkdraftRecord:
+        before = parse_body(current.body)
+        old_refs, new_refs = before.method_refs or {}, body.method_refs or {}
+        old_steps = {s.id: s for s in before.steps}
+        new_steps = {s.id: s for s in body.steps}
+        for alias in old_refs.keys() | new_refs.keys():
+            if alias not in reference_changes and (
+                old_refs.get(alias) != new_refs.get(alias)
+                or old_steps.get(alias) != new_steps.get(alias)
+            ):
+                raise BadRequestError(
+                    "Change a referenced method through an explicit version binding",
+                    code="method_reference_readonly",
+                )
+        await self.method_sources(current.owner_subject, body)
         doc = body.model_dump(mode="json")
         if size_of(doc) > MAX_BODY_BYTES:
             raise BadRequestError(
@@ -145,6 +164,32 @@ class KnowbotWorkdraftService:
         found = await self.repo.get_workdraft(current.request_id)
         assert found is not None
         return found
+
+    async def method_sources(self, owner: str, body: WorkdraftBody) -> dict[str, Any]:
+        """Resolve exact versions; never consult a mutable latest-version pointer."""
+        from app.domain.knowbots.method_composition import validate_sources
+
+        snapshots: dict[str, Any] = {}
+        for alias, ref in (body.method_refs or {}).items():
+            record = await self.repo.method_version(ref.method_id, ref.version)
+            if record is None or record.owner_subject != owner:
+                raise NotFoundError("No such method version", code="method_not_found")
+            if record.digest != ref.digest:
+                raise ConcurrencyConflictError(
+                    "Method digest differs", code="method_integrity"
+                )
+            snapshots[alias] = {
+                "reference": ref.model_dump(mode="json"),
+                "definition": record.definition,
+            }
+        try:
+            validate_sources(body, snapshots)
+        except (ValueError, StopIteration):
+            raise BadRequestError(
+                "Method projection or input binding differs from its pinned definition",
+                code="method_binding_invalid",
+            ) from None
+        return snapshots
 
     # ---------- 作者直接改 ----------
     async def save(
@@ -224,7 +269,17 @@ class KnowbotWorkdraftService:
                 text=bundle_text(origin, found, **extra),
             )
             ref = {"kind": "user_text", "ref": f"record:{entry.id}"}
-            stored = await self.store(current, body, {path: ref for path in found})
+            # Import/copy may introduce references, but must not erase existing
+            # references by replacing them with ordinary editable cells.
+            introduced = frozenset(body.method_refs or {}) - frozenset(
+                parse_body(current.body).method_refs or {}
+            )
+            stored = await self.store(
+                current,
+                body,
+                {path: ref for path in found},
+                reference_changes=introduced,
+            )
         return stored, notes
 
     async def import_manifest(
@@ -314,6 +369,7 @@ class KnowbotWorkdraftService:
             version=version,
             runtime=request.runtime,
             fallback_name=request.title,
+            method_sources=await self.method_sources(request.owner_subject, body),
         )
         problems += compiled
         problems += [

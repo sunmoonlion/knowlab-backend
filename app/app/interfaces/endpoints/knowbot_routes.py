@@ -1580,3 +1580,17 @@ async def preview_method_binding(
     return _ok(
         await methods.preview_binding(principal.subject, method_id, version, body)
     )
+
+
+@web_router.post("/method-units/{method_id}/versions/{version}/bind")
+async def bind_method_version(
+    principal: User,
+    methods: Methods,
+    method_id: ItemId,
+    version: Annotated[int, Path(ge=1, le=999999)],
+    body: BindMethod,
+) -> JSONResponse:
+    """作者明确选定精确版本；只改自己的工作稿，不发布、不运行。"""
+    found = await methods.bind_version(principal.subject, method_id, version, body)
+    request, _ = await methods.workdrafts.get(principal.subject, str(body.request_id))
+    return _ok(workdraft_view(request, found, await methods.workdrafts.origins(found)))

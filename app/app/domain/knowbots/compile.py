@@ -396,6 +396,7 @@ def compile_manifest(
     version: str,
     runtime: str,
     fallback_name: str,
+    method_sources: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[Problem]]:
     """工作稿 → 清单 v2 与编不出来的地方（按格子路径）。
 
@@ -403,6 +404,15 @@ def compile_manifest(
     汇进 rule_sources。fallback_name：名称一格没写时用申请时起的名字。
     """
     problems: list[Problem] = []
+    if body.method_refs or method_sources:
+        from app.domain.knowbots.method_composition import validate_sources
+
+        try:
+            validate_sources(body, method_sources or {})
+        except (ValueError, StopIteration):
+            problems.append(
+                Problem("method_refs", "method reference or projection is invalid")
+            )
     name = body.name.strip() or fallback_name
     if not body.scope.does.strip():
         problems.append(Problem("scope/does", "say what this expert does"))
@@ -539,6 +549,8 @@ def compile_manifest(
             contract["back_to"] = step.on_fail.back_to
         if advanced.output_file:
             contract["output_file"] = advanced.output_file
+        if body.method_refs and step.id in body.method_refs:
+            contract["step_version"] = str(body.method_refs[step.id].version)
         workflow.append(contract)
         earlier[step.id] = step
     scope = {
@@ -581,10 +593,16 @@ def compile_manifest(
                 ],
             }
         )
+        if body.method_refs:
+            manifest["pack"]["runtime_contract"] = "knowbench/dynamic-methods/v2"
+            manifest["pack"]["method_compiler"] = "knowlab/workdraft-compiler/v1"
+            manifest["pack"]["method_sources"] = method_sources or {}
         # 规划方法、条件、必经检查及权限与作者编辑/接受记录使用同一出处链。
         for path, source in sources.items():
-            if path == "planning" or path.endswith(
-                ("/selection", "/uses", "/advanced", "/on_fail")
+            if (
+                path == "planning"
+                or path.startswith("method_refs/")
+                or path.endswith(("/selection", "/uses", "/advanced", "/on_fail"))
             ):
                 if isinstance(source, dict):
                     rule_sources.append(
@@ -782,6 +800,23 @@ def pack_problems(pack: object) -> list[Problem]:
 
 def _dynamic_pack_problems(pack: dict[str, Any]) -> list[Problem]:
     """作者侧的早期诊断；运行方仍按自己的严格契约再核一遍。"""
+    if pack.get("runtime_contract") == "knowbench/dynamic-methods/v2":
+        from app.domain.knowbots.method_composition import restore
+
+        try:
+            restore(
+                {
+                    "schema": DYNAMIC_MANIFEST_SCHEMA,
+                    "pack": pack,
+                    "name": pack.get("name", pack.get("title", "")),
+                    "tagline": pack.get("tagline", ""),
+                }
+            )
+        except (ValueError, KeyError, TypeError, StopIteration):
+            return [
+                Problem("pack.method_sources", "invalid referenced method compilation")
+            ]
+        return []
     problems: list[Problem] = []
     keys = {
         "runtime_contract",
@@ -1069,6 +1104,17 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         raise ValueError("only a v2 fixed or v3 dynamic manifest is imported")
     dynamic = manifest["schema"] == DYNAMIC_MANIFEST_SCHEMA
     pack = manifest.get("pack")
+    if (
+        dynamic
+        and isinstance(pack, dict)
+        and pack.get("runtime_contract") == "knowbench/dynamic-methods/v2"
+    ):
+        from app.domain.knowbots.method_composition import restore
+
+        try:
+            return restore(manifest), []
+        except (KeyError, TypeError, StopIteration) as exc:
+            raise ValueError("invalid referenced method compilation") from exc
     workflow = pack.get("workflow") if isinstance(pack, dict) else None
     if dynamic:
         issues = pack_problems(pack)
