@@ -5,11 +5,15 @@
 
 from __future__ import annotations
 
+import copy
+import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
 
 from app.application.services.knowbot_service import KnowbotCreationService
+from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.drafts import (
     KnowbotRequestIn,
     amendment_refs,
@@ -22,6 +26,107 @@ from tests.knowbot_fakes import (
     manifest,
     request_body,
 )
+from tests.test_knowbot_workdraft_service import CELLS, STEP
+
+
+@pytest.mark.asyncio
+async def test_exact_amendment_adopted_via_workdraft_needs_a_published_draft():
+    repo = MemoryKnowlab()
+    svc = KnowbotCreationService(repo, FakeRuntime())
+    works = KnowbotWorkdraftService(repo)
+    request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
+    text = "只读管理层讨论；支持须引原文，未提到判不支持。"
+    amendment = await repo.create_amendment(
+        request_id=request.id, owner_subject=OWNER, text=text
+    )
+    await works.save(OWNER, str(request.id), revision=0, edits=CELLS)
+    original = await works.publish(OWNER, str(request.id))
+    assert (await svc.amendments(request.id, [original]))[0][1:] == ("open", None)
+    await works.save(
+        OWNER,
+        str(request.id),
+        revision=1,
+        edits=[("steps/overview/rules/r1", {"id": "r1", "text": text})],
+    )
+    # 自动保存不等于进入了准专家。
+    assert (await svc.amendments(request.id, [original]))[0][1:] == ("open", None)
+    adopted = await works.publish(OWNER, str(request.id))
+    assert (await svc.amendments(request.id, [original, adopted]))[0][1:] == (
+        "used",
+        adopted.revision,
+    )
+    assert all(
+        not s["ref"].startswith("amendment:") for s in adopted.manifest["rule_sources"]
+    )
+    # 后来改工作稿不抹掉历史准专家中的采用；最新采用稿才更新修订号。
+    later = await works.publish(OWNER, str(request.id))
+    assert (await svc.amendments(request.id, [adopted, later]))[0][1:] == (
+        "used",
+        later.revision,
+    )
+    assert original.manifest != adopted.manifest
+    await repo.decline_amendment(
+        amendment.id, reason="作者撤回", by=OWNER, at=datetime.now(UTC)
+    )
+    assert (await svc.amendments(request.id, [later]))[0][1:] == ("declined", None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing_record",
+        "other_workdraft",
+        "other_author",
+        "operator",
+        "wrong_kind",
+        "import",
+        "partial_text",
+        "method_removed",
+        "other_request",
+        "title_only",
+    ],
+)
+async def test_modern_usage_does_not_infer_unproven_adoption(fault):
+    repo = MemoryKnowlab()
+    svc = KnowbotCreationService(repo, FakeRuntime())
+    works = KnowbotWorkdraftService(repo)
+    request = await svc.submit(OWNER, KnowbotRequestIn.model_validate(request_body()))
+    text = "支持须引原文；未提到算不支持。"
+    await repo.create_amendment(request_id=request.id, owner_subject=OWNER, text=text)
+    step = STEP | {"rules": [{"id": "r1", "text": text}]}
+    saved = await works.save(
+        OWNER,
+        str(request.id),
+        revision=0,
+        edits=[CELLS[0], ("steps/overview", step)],
+    )
+    draft = await works.publish(OWNER, str(request.id))
+    eid = uuid.UUID(saved.sources["steps/overview/rules/r1"]["ref"][7:])
+    entry = repo.entries[eid]
+    if fault == "missing_record":
+        del repo.entries[eid]
+    elif fault == "other_workdraft":
+        repo.entries[eid] = replace(entry, workdraft_id=uuid.uuid4())
+    elif fault == "other_author":
+        repo.entries[eid] = replace(entry, actor_subject="someone-else")
+    elif fault == "operator":
+        repo.entries[eid] = replace(entry, actor_role="operator")
+    elif fault == "wrong_kind":
+        repo.entries[eid] = replace(entry, kind="accept")
+    elif fault == "import":
+        repo.entries[eid] = replace(entry, kind="import")
+    elif fault == "partial_text":
+        repo.entries[eid] = replace(entry, text="支持须引原文")
+    elif fault == "method_removed":
+        doc = copy.deepcopy(draft.manifest)
+        doc["pack"]["workflow"][0]["method_text"] = "别的方法"
+        draft = replace(draft, manifest=doc)
+    elif fault == "other_request":
+        draft = replace(draft, request_id=uuid.uuid4())
+    elif fault == "title_only":
+        repo.entries[eid] = replace(entry, path="steps/overview/title")
+    assert (await svc.amendments(request.id, [draft]))[0][1:] == ("open", None)
 
 
 def citing(*amendment_ids: str) -> dict:

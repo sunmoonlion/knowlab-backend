@@ -61,6 +61,7 @@ from app.application.services.knowbot_grants import (
     reviewing,
     self_acceptance,
 )
+from app.domain.knowbots.amendment_usage import incorporated_texts
 from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
@@ -88,6 +89,7 @@ from app.domain.knowbots.test_run import (
     RunResultV1,
     first_route,
 )
+from app.domain.knowbots.workdraft import record_ids
 
 if TYPE_CHECKING:
     from app.application.services.knowbot_test_data import KnowbotTestData
@@ -482,11 +484,48 @@ class KnowbotCreationService:
 
         （补充，open / used / declined，用进的最新一稿的修订号）。
         """
-        pairs = [(d.revision, d.manifest) for d in drafts]
-        return [
-            (a, *amendment_status(str(a.id), a.declined_at is not None, pairs))
-            for a in await self.repo.list_amendments(request_id)
-        ]
+        own_drafts = [d for d in drafts if d.request_id == request_id]
+        pairs = [(d.revision, d.manifest) for d in own_drafts]
+        amendments = await self.repo.list_amendments(request_id)
+        if not amendments:
+            return []
+        workdraft = await self.repo.get_workdraft(request_id)
+        used: dict[str, int] = {}
+        if workdraft is not None:
+            ids = set().union(
+                *(
+                    record_ids(
+                        {
+                            str(i): s
+                            for i, s in enumerate(d.manifest.get("rule_sources", []))
+                        }
+                    )
+                    for d in own_drafts
+                )
+            )
+            entries = {e.id: e for e in await self.repo.list_workdraft_entries(ids)}
+            for draft in own_drafts:
+                for text in incorporated_texts(
+                    draft.manifest,
+                    workdraft_id=workdraft.id,
+                    owner_subject=workdraft.owner_subject,
+                    entries=entries,
+                ):
+                    used[text] = max(used.get(text, 0), draft.revision)
+        result = []
+        for amendment in amendments:
+            status, revision = amendment_status(
+                str(amendment.id), amendment.declined_at is not None, pairs
+            )
+            if (
+                status != "declined"
+                and workdraft is not None
+                and amendment.owner_subject == workdraft.owner_subject
+                and amendment.text in used
+            ):
+                status, revision = "used", max(revision or 0, used[amendment.text])
+            result.append((amendment, status, revision))
+        return result
 
     # ---------- 管理端：受理 ----------
     async def accept(
