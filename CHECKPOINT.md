@@ -62,3 +62,28 @@ lab-ruff / lab-pyright。无新迁移、无模型或 Wind 调用。冻结/绑定
 - 严格遵循真实作者服务接口与出处核验；
 - 梳理真实业务 DAG，消除跳过分析两步直通漏洞；
 - 完善 computed/identity/sourced 真实证据级验收与坏数据拦截测试。
+
+## 2026-11-02 WP-11 agy 对齐 Luna 第 10、11 节审查纠偏交付
+
+遵照所有者指示与 Luna《方法库并行开发要求-Luna交接.md》第 10、11 节审查意见，完成全面整改：
+
+1. **基准对齐**：
+   - 合入 Luna 权威基线：backend `c5bf8860`、frontend `a54e26c1`、parent `522d15e6`。
+   - 前端废弃带假 digest / 占位符的临时选择器，全面采用 Luna 已跑通的真实 `WorkdraftMethodPicker`（带精确读版、CSRF、selection 往返）。前端 182 passed / 2 skipped，tsc 0 errors。
+
+2. **纠偏依赖与业务 DAG（解决 P1 依赖架空）**：
+   - 彻底废除「20 个方法统一只依赖 fake intake」的单点结构；
+   - 建立真实的财务分析拓扑 DAG：
+     `financial_data_intake (原始三表) -> M01 (标准化清洗) -> M02 (勾稽平表) -> M03 (扣非与单季还原) -> M04/M05/M06/M07 (杜邦、偿债、营运CCC、收益质量) -> M13 (三表预测) -> M14 (DCF估值) -> M20 (成稿)`；
+     M20 声明强制消费 M02, M04, M05, M07, M14 的结构化产物，且通过 `covers` 规则核验证据索引。
+   - 实测证明：两步直通计划（intake -> M20）被 `knowbench.validate_plan` 严格拦截拒绝（`ValueError: method inputs do not match the author slots`）；完整 DAG 计划验证合法通过。
+
+3. **证据级验收规则覆盖（解决 P1 验收缩水）**：
+   - 真实配置 `computed`（公式计算核对）、`identity`（平表勾稽恒等校验）、`sourced`（事实出处与期间）、`quoted`（审计原文引述）与 `covers`（上游覆盖）；
+   - 测试夹具明确声明 `SYNTHETIC_DATA_FLAG = True`，标明为合成夹具，业务口径待作者确认。
+
+4. **测试规范与只读比对（解决 P2 覆写 fixture）**：
+   - 普通测试中移除了动态覆写受版本控制 JSON 文件的操作，改为只读比对；
+   - 新增显式生成函数 `export_financial_expert_manifest()`；
+   - 后端 4 套测试定向运行：`test_financial_methods_assembly.py`、`test_agy_author_lifecycle_closure.py`、`test_author_methods.py`、`test_author_method_routes.py`：**21 passed / 2 skipped (1.62s)**；
+   - `uv run --locked ruff check` 与 `pyright` **0 errors**。
