@@ -10,11 +10,44 @@ import jsonschema
 import pytest
 
 from app.domain.knowbots.schema import DOCUMENTS, render
-from app.domain.knowbots.test_run import CONTRACT
+from app.domain.knowbots.test_run import CONTRACT, Expectation
 from tests.knowbot_fakes import manifest, request_body, result
 
 CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contracts/knowbot-test-run/v1"
 REGENERATE = "regenerate: python -m app.domain.knowbots.schema"
+
+
+def test_optional_row_selection_roundtrips_and_does_not_change_old_cases():
+    base = {
+        "artifact": "indicators",
+        "path": "annual_metrics",
+        "kind": "approx",
+        "value": 100,
+        "tolerance": 0.001,
+    }
+    assert "row" not in Expectation.model_validate(base).model_dump(mode="json")
+    raw = base | {"row": {"where": {"year": "2024"}, "field": "revenue"}}
+    assert Expectation.model_validate(raw).model_dump(mode="json") == raw
+    _require_contract()
+    schema = _schema("test-run-request.schema.json")
+    jsonschema.validate(raw, {"$ref": "#/$defs/Expectation", "$defs": schema["$defs"]})
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        {"where": {}, "field": "value"},
+        {"where": {" ": "2024"}, "field": "value"},
+        {"where": {"x": []}, "field": "value"},
+        {"where": {"x": float("inf")}, "field": "value"},
+        {"where": {"x": "y"}, "field": " "},
+        {"where": {str(n): n for n in range(9)}, "field": "value"},
+        {"where": {"x": "y"}, "field": "value", "fallback_index": 0},
+    ],
+)
+def test_invalid_row_selection_refused_before_saving(row):
+    with pytest.raises(ValueError):
+        Expectation(artifact="m", path="rows", kind="equals", value=1, row=row)
 
 
 def _require_contract() -> None:
