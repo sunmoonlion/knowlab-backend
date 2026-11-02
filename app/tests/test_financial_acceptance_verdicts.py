@@ -323,3 +323,251 @@ asyncio.run(main())
     res = _run_knowbench_judge(script)
     assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
     assert "ALL_COVERS_NEGATIVE_CASES_REJECTED" in res.stdout
+
+
+def test_m02_realistic_reconciled_payload_passes() -> None:
+    """M02 positive: reconciled statements with proper compute records pass."""
+    step = "accounting_statement_reconciliation"
+    script = f"""
+import asyncio
+import json
+from pathlib import Path
+from app.application.workbench.acceptance import judge
+from app.application.workbench.acceptance_numbers import judge_numbers
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
+unit = next(u for u in catalog.method_units if u.contract.step_id == "{step}")
+rules = unit.contract.acceptance
+
+class MockRepo:
+    async def list_task_events(self, task_id, **kw):
+        return [
+            {{"cursor": 1, "payload": {{
+                "value": "0",
+                "expression": "abs(total_assets - (total_liabilities + equity))",
+            }}}},
+            {{"cursor": 2, "payload": {{
+                "value": "0.4",
+                "expression": (
+                    "abs(opening_assets - "
+                    "(opening_liabilities + opening_equity))"
+                ),
+            }}}},
+        ]
+    async def list_artifacts_with_content(self, task_id):
+        return []
+
+output = {{
+    "reconciliation_status": "平衡",
+    "balance_sheet_balance_diff": {{
+        "value": 0, "compute_id": "c1", "left_id": "c1", "right_id": "c2",
+    }},
+    "audit_reconciliations": [
+        {{"check_name": "期末资产=负债+权益", "passed": True, "diff": 0}},
+        {{"check_name": "期初资产=负债+权益", "passed": True, "diff": 0.4}},
+        {{"check_name": "净利润与未分配利润勾稽", "passed": True, "diff": 0}},
+        {{"check_name": "现金流量净额勾稽", "passed": True, "diff": 0}},
+        {{"check_name": "期初数与上年期末数一致", "passed": True, "diff": 0}},
+    ],
+}}
+
+async def main():
+    verdict = await judge_numbers(
+        judge(json.dumps(output), rules),
+        rules,
+        repo=MockRepo(),
+        task={{"id": "test-task"}},
+    )
+    assert verdict.ok, f"Expected pass, got: {{verdict.failures}}"
+    print("VERDICT_PASSED_AS_EXPECTED")
+
+asyncio.run(main())
+"""
+    res = _run_knowbench_judge(script)
+    assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
+    assert "VERDICT_PASSED_AS_EXPECTED" in res.stdout
+
+
+def test_m02_wrong_compute_expression_must_fail() -> None:
+    """M02 negative: a compute record with a different expression is rejected."""
+    step = "accounting_statement_reconciliation"
+    script = f"""
+import asyncio
+import json
+from pathlib import Path
+from app.application.workbench.acceptance import judge
+from app.application.workbench.acceptance_numbers import judge_numbers
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
+unit = next(u for u in catalog.method_units if u.contract.step_id == "{step}")
+rules = unit.contract.acceptance
+
+class MockRepo:
+    async def list_task_events(self, task_id, **kw):
+        return [
+            {{"cursor": 1, "payload": {{
+                "value": "0",
+                "expression": "abs(total_assets - total_liabilities)",
+            }}}},
+            {{"cursor": 2, "payload": {{"value": "0", "expression": "abs(a - b)"}}}},
+        ]
+    async def list_artifacts_with_content(self, task_id):
+        return []
+
+output = {{
+    "reconciliation_status": "平衡",
+    "balance_sheet_balance_diff": {{
+        "value": 0, "compute_id": "c1", "left_id": "c1", "right_id": "c2",
+    }},
+    "audit_reconciliations": [
+        {{"check_name": "期末资产=负债+权益", "passed": True, "diff": 0}},
+    ],
+}}
+
+async def main():
+    verdict = await judge_numbers(
+        judge(json.dumps(output), rules),
+        rules,
+        repo=MockRepo(),
+        task={{"id": "test-task"}},
+    )
+    assert not verdict.ok, "Expected failure for mismatched expression"
+    print("VERDICT_REJECTED_AS_EXPECTED")
+
+asyncio.run(main())
+"""
+    res = _run_knowbench_judge(script)
+    assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
+    assert "VERDICT_REJECTED_AS_EXPECTED" in res.stdout
+
+
+def test_m04_consistent_dupont_chain_passes() -> None:
+    """M04 positive: five factors multiply to ROE with proper records passes."""
+    step = "dupont_five_way_decomposition"
+    script = f"""
+import asyncio
+import json
+from pathlib import Path
+from app.application.workbench.acceptance import judge
+from app.application.workbench.acceptance_numbers import judge_numbers
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
+unit = next(u for u in catalog.method_units if u.contract.step_id == "{step}")
+rules = unit.contract.acceptance
+
+class MockRepo:
+    async def list_task_events(self, task_id, **kw):
+        return [
+            {{"cursor": 1, "payload": {{
+                "value": "0.108",
+                "expression": (
+                    "tax_burden * interest_burden * ebit_margin * "
+                    "asset_turnover * equity_multiplier"
+                ),
+            }}}},
+            {{"cursor": 2, "payload": {{
+                "value": "0.1082", "expression": "net_profit / equity",
+            }}}},
+        ]
+    async def list_artifacts_with_content(self, task_id):
+        return []
+
+factors = {{"tax_burden": 0.8, "interest_burden": 0.9, "ebit_margin": 0.2,
+           "asset_turnover": 0.75, "equity_multiplier": 1.0}}
+evidence = [
+    {{"metric": name, "value": value, "compute_id": "c1"}}
+    for name, value in factors.items()
+] + [{{"metric": "roe", "value": 0.108, "compute_id": "c1"}}]
+
+output = {{
+    "roe": {{"value": 0.108, "compute_id": "c1"}},
+    "dupont_chain_product": {{"value": 0.108, "left_id": "c1", "right_id": "c2"}},
+    **factors,
+    "dupont_evidence_items": evidence,
+}}
+
+async def main():
+    verdict = await judge_numbers(
+        judge(json.dumps(output), rules),
+        rules,
+        repo=MockRepo(),
+        task={{"id": "test-task"}},
+    )
+    assert verdict.ok, f"Expected pass, got: {{verdict.failures}}"
+    print("VERDICT_PASSED_AS_EXPECTED")
+
+asyncio.run(main())
+"""
+    res = _run_knowbench_judge(script)
+    assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
+    assert "VERDICT_PASSED_AS_EXPECTED" in res.stdout
+
+
+def test_m04_chain_breaking_product_must_fail() -> None:
+    """M04 negative: claimed ROE not matching the computed chain is rejected."""
+    step = "dupont_five_way_decomposition"
+    script = f"""
+import asyncio
+import json
+from pathlib import Path
+from app.application.workbench.acceptance import judge
+from app.application.workbench.acceptance_numbers import judge_numbers
+from app.domain.workbench.method_catalog import ReferencedMethodCatalog
+
+manifest = json.loads(Path("{GOLDEN_FIXTURE_PATH}").read_text())
+catalog = ReferencedMethodCatalog.model_validate(manifest["pack"])
+unit = next(u for u in catalog.method_units if u.contract.step_id == "{step}")
+rules = unit.contract.acceptance
+
+class MockRepo:
+    async def list_task_events(self, task_id, **kw):
+        return [
+            {{"cursor": 1, "payload": {{
+                "value": "0.108",
+                "expression": (
+                    "tax_burden * interest_burden * ebit_margin * "
+                    "asset_turnover * equity_multiplier"
+                ),
+            }}}},
+            {{"cursor": 2, "payload": {{
+                "value": "0.108", "expression": "net_profit / equity",
+            }}}},
+        ]
+    async def list_artifacts_with_content(self, task_id):
+        return []
+
+evidence = [{{"metric": m, "value": 0.1, "compute_id": "c1"}} for m in (
+    "tax_burden", "interest_burden", "ebit_margin",
+    "asset_turnover", "equity_multiplier", "roe",
+)]
+
+output = {{
+    "roe": {{"value": 0.5, "compute_id": "c1"}},
+    "dupont_chain_product": {{"value": 0.108, "left_id": "c1", "right_id": "c2"}},
+    "tax_burden": 0.8, "interest_burden": 0.9, "ebit_margin": 0.2,
+    "asset_turnover": 0.75, "equity_multiplier": 1.0,
+    "dupont_evidence_items": evidence,
+}}
+
+async def main():
+    verdict = await judge_numbers(
+        judge(json.dumps(output), rules),
+        rules,
+        repo=MockRepo(),
+        task={{"id": "test-task"}},
+    )
+    assert not verdict.ok, "Expected failure for chain-breaking ROE"
+    assert any("roe" in f for f in verdict.failures)
+    print("VERDICT_REJECTED_AS_EXPECTED")
+
+asyncio.run(main())
+"""
+    res = _run_knowbench_judge(script)
+    assert res.returncode == 0, f"Judge failed unexpectedly: {res.stderr}"
+    assert "VERDICT_REJECTED_AS_EXPECTED" in res.stdout
