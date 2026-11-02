@@ -297,3 +297,55 @@ async def test_corrupt_definition_is_not_returned_as_a_valid_version(db, monkeyp
         monkeypatch.setattr(repo, "method_version", corrupted)
         with pytest.raises(ConcurrencyConflictError, match="integrity"):
             await KnowbotMethodService(repo).get(OWNER, str(mid), 1)
+
+
+async def test_extended_checks_survive_storage_reopen_and_binding(db):
+    rid, mid = await source(db), uuid.uuid4()
+    checks = body()["steps"][0]["checks"] + [
+        {
+            "template": "each_has",
+            "params": {
+                "path": "rows",
+                "non_empty_keys": ["id"],
+                "unique_by": ["id"],
+            },
+        },
+        {
+            "template": "computed",
+            "params": {
+                "path": "delta",
+                "expression": "abs(left-right)",
+                "expected_value": 0,
+                "input_keys": ["left", "right"],
+            },
+        },
+    ]
+    async with db() as session:
+        await KnowbotWorkdraftService(SqlKnowlabRepository(session)).save(
+            OWNER,
+            str(rid),
+            revision=1,
+            edits=[
+                ("steps/report/checks", checks),
+                (
+                    "steps/report/outputs",
+                    body()["steps"][0]["outputs"]
+                    + [
+                        {"name": "delta", "type": "number"},
+                    ],
+                ),
+            ],
+        )
+    frozen = await publish(db, mid, rid, revision=2)
+    async with db() as session:
+        service = KnowbotMethodService(SqlKnowlabRepository(session))
+        reopened = await service.get(OWNER, str(mid), 1)
+        assert reopened.digest == frozen.digest
+        rebound = await service.preview_binding(
+            OWNER,
+            str(mid),
+            1,
+            binding(rid, reopened, revision=2),
+        )
+        assert rebound["step"]["checks"][-2:] == checks[-2:]
+        assert reopened.definition["step"]["checks"][-2:] == checks[-2:]

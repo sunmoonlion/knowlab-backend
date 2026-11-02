@@ -12,7 +12,7 @@ SYNTHETIC TEST FIXTURE
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from app.domain.knowbots.compile import compile_manifest
@@ -39,6 +39,94 @@ SYNTHETIC_DATA_FLAG = True
 # ---------------------------------------------------------------------------
 # 20 个专家方法规范（包含真实业务 DAG 依赖与严格证据验收规则）
 # ---------------------------------------------------------------------------
+
+
+def rows(output_name: str, **fields: Literal["text", "number"]) -> OutputCell:
+    return OutputCell(
+        name=output_name,
+        type="table",
+        items=tuple(OutputField(name=key, type=kind) for key, kind in fields.items()),
+    )
+
+
+def check(template: str, path: str, **params: Any) -> CheckCell:
+    return CheckCell.model_validate(
+        {"template": template, "params": {"path": path, **params}}
+    )
+
+
+def required(*names: str) -> CheckCell:
+    return CheckCell(template="required", params={"keys": list(names)})
+
+
+def financial_rows_checks(path: str, minimum: int = 3) -> list[CheckCell]:
+    return [
+        check("list_min", path, min=minimum),
+        check(
+            "each_has",
+            path,
+            keys=["item", "period", "unit", "value", "address"],
+            non_empty_keys=["item", "period", "unit"],
+            unique_by=["period", "item"],
+        ),
+        check("sourced", path, tolerance=0.01),
+    ]
+
+
+def forecast_checks(path: str, metrics: list[str]) -> list[CheckCell]:
+    return [
+        check("list_min", path, min=6 * len(metrics)),
+        check(
+            "each_has",
+            path,
+            keys=["horizon", "period", "scenario", "metric", "value", "compute_id"],
+            non_empty_keys=["period"],
+            unique_by=["horizon", "scenario", "metric"],
+            field="horizon",
+            values=["next_quarter", "following_quarter"],
+        ),
+        check(
+            "each_has",
+            path,
+            field="scenario",
+            values=["pessimistic", "base", "optimistic"],
+        ),
+        check("each_has", path, field="metric", values=metrics),
+        check("computed", path, tolerance=0.01),
+    ]
+
+
+def forecast_balance_checks(
+    path: str, fields: list[str], expression: str
+) -> list[CheckCell]:
+    return [
+        check("list_min", path, min=6),
+        check(
+            "each_has",
+            path,
+            keys=["horizon", "period", "scenario", *fields, "value", "compute_id"],
+            non_empty_keys=["period"],
+            unique_by=["horizon", "scenario"],
+            field="horizon",
+            values=["next_quarter", "following_quarter"],
+        ),
+        check(
+            "each_has",
+            path,
+            field="scenario",
+            values=["pessimistic", "base", "optimistic"],
+        ),
+        check(
+            "computed",
+            path,
+            expression=expression,
+            input_keys=fields,
+            expected_value=0,
+            tolerance=0.01,
+        ),
+    ]
+
+
 ALL_20_SPECS: list[dict[str, Any]] = [
     # M01: 财务三表标准化重构与口径对齐
     {
@@ -74,49 +162,29 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_raw": "raw_data"},
         "expert_inputs": {"raw_data": "financial_data_intake"},
         "outputs": [
-            OutputCell(name="standardized_balance_sheet", type="table"),
-            OutputCell(name="standardized_income_statement", type="table"),
-            OutputCell(name="standardized_cash_flow", type="table"),
-            OutputCell(name="reclassification_audit_trail", type="list"),
+            rows("standardized_balance_sheet", item="text", period="text", unit="text"),
+            rows(
+                "standardized_income_statement", item="text", period="text", unit="text"
+            ),
+            rows("standardized_cash_flow", item="text", period="text", unit="text"),
+            rows("reclassification_audit_trail", item="text", reason="text"),
         ],
         "checks": [
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "standardized_balance_sheet",
-                        "standardized_income_statement",
-                        "standardized_cash_flow",
-                        "reclassification_audit_trail",
-                    ]
-                },
+            required(
+                "standardized_balance_sheet",
+                "standardized_income_statement",
+                "standardized_cash_flow",
+                "reclassification_audit_trail",
             ),
-            CheckCell(
-                template="list_min",
-                params={"path": "standardized_balance_sheet", "min": 3},
-            ),
-            CheckCell(
-                template="list_min",
-                params={"path": "standardized_income_statement", "min": 3},
-            ),
-            CheckCell(
-                template="list_min",
-                params={"path": "standardized_cash_flow", "min": 3},
-            ),
-            CheckCell(
-                template="list_min",
-                params={"path": "reclassification_audit_trail", "min": 1},
-            ),
-            CheckCell(
-                template="each_has",
-                params={
-                    "path": "standardized_balance_sheet",
-                    "keys": ["item", "amount"],
-                },
-            ),
-            CheckCell(
-                template="sourced",
-                params={"path": "standardized_balance_sheet", "tolerance": 0.01},
+            *financial_rows_checks("standardized_balance_sheet"),
+            *financial_rows_checks("standardized_income_statement"),
+            *financial_rows_checks("standardized_cash_flow"),
+            check("list_min", "reclassification_audit_trail", min=1),
+            check(
+                "each_has",
+                "reclassification_audit_trail",
+                keys=["item", "reason"],
+                non_empty_keys=["item", "reason"],
             ),
         ],
     },
@@ -164,53 +232,86 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "outputs": [
             OutputCell(name="reconciliation_status", type="text"),
             OutputCell(name="balance_sheet_balance_diff", type="number"),
-            OutputCell(name="audit_reconciliations", type="table"),
+            OutputCell(name="opening_balance_diff", type="number"),
+            OutputCell(name="retained_earnings_diff", type="number"),
+            OutputCell(name="cash_flow_diff", type="number"),
+            rows("opening_comparisons", item="text", period="text"),
+            rows("audit_reconciliations", check_name="text", evidence="text"),
         ],
         "checks": [
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "reconciliation_status",
-                        "balance_sheet_balance_diff",
-                        "audit_reconciliations",
-                    ]
-                },
+            required(
+                "reconciliation_status",
+                "balance_sheet_balance_diff",
+                "opening_balance_diff",
+                "retained_earnings_diff",
+                "cash_flow_diff",
+                "opening_comparisons",
+                "audit_reconciliations",
             ),
-            CheckCell(
-                template="non_empty",
-                params={"path": "reconciliation_status"},
+            check("non_empty", "reconciliation_status"),
+            check(
+                "computed",
+                "balance_sheet_balance_diff",
+                expression="abs(total_assets - (total_liabilities + equity))",
+                expected_value=0,
+                tolerance=1,
             ),
-            CheckCell(
-                template="list_min",
-                params={"path": "audit_reconciliations", "min": 1},
+            check(
+                "computed",
+                "opening_balance_diff",
+                expression=(
+                    "abs(opening_assets - (opening_liabilities + opening_equity))"
+                ),
+                expected_value=0,
+                tolerance=1,
             ),
-            CheckCell(
-                template="each_has",
-                params={
-                    "path": "audit_reconciliations",
-                    "keys": ["check_name", "passed", "diff"],
-                },
+            check(
+                "computed",
+                "retained_earnings_diff",
+                expression=(
+                    "abs(closing_retained - (opening_retained + parent_profit "
+                    "- reserve_transfer - dividends + restatement_adjustment))"
+                ),
+                expected_value=0,
+                tolerance=1,
             ),
-            CheckCell(
-                template="all_equal",
-                params={
-                    "path": "audit_reconciliations",
-                    "field": "passed",
-                    "equals": True,
-                },
+            check(
+                "computed",
+                "cash_flow_diff",
+                expression="abs(closing_cash - opening_cash - cash_increase)",
+                expected_value=0,
+                tolerance=1,
             ),
-            CheckCell(
-                template="identity",
-                params={"path": "balance_sheet_balance_diff", "tolerance": 1.0},
+            check("list_min", "opening_comparisons", min=1),
+            check(
+                "each_has",
+                "opening_comparisons",
+                keys=["item", "period"],
+                non_empty_keys=["item", "period"],
+                unique_by=["item", "period"],
             ),
-            CheckCell(
-                template="computed",
-                params={
-                    "path": "balance_sheet_balance_diff",
-                    "expression": "abs(total_assets - (total_liabilities + equity))",
-                    "tolerance": 1.0,
-                },
+            check(
+                "computed",
+                "opening_comparisons",
+                expression="abs(opening_value - prior_closing_value)",
+                expected_value=0,
+                tolerance=1,
+            ),
+            check("list_min", "audit_reconciliations", min=5),
+            check(
+                "each_has",
+                "audit_reconciliations",
+                keys=["check_name", "evidence"],
+                non_empty_keys=["evidence"],
+                unique_by=["check_name"],
+                field="check_name",
+                values=[
+                    "closing_balance",
+                    "opening_balance",
+                    "retained_earnings",
+                    "cash_flow",
+                    "opening_comparisons",
+                ],
             ),
         ],
     },
@@ -239,8 +340,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "列入待确认）；不接年化处理与季节性调整。"
         ),
         "elsewhere": (
-            "趋势外推找「复合年均增长率与趋势外推」；"
-            "盈利结构分解找「杜邦五步分解法」。"
+            "趋势外推找「复合年均增长率与趋势外推」；盈利结构分解找「杜邦五步分解法」。"
         ),
         "feeder_outputs": {
             "reconciled": [
@@ -320,8 +420,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "杜邦分解，金融版分解另列候选方法，不在本方法内打补丁。"
         ),
         "elsewhere": (
-            "金融企业盈利结构分析需另行指定方法；"
-            "估值找「企业自由现金流贴现估值 DCF」。"
+            "金融企业盈利结构分析需另行指定方法；估值找「企业自由现金流贴现估值 DCF」。"
         ),
         "feeder_outputs": {
             "purified": [
@@ -340,7 +439,12 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             OutputCell(name="ebit_margin", type="number"),
             OutputCell(name="asset_turnover", type="number"),
             OutputCell(name="equity_multiplier", type="number"),
-            OutputCell(name="dupont_evidence_items", type="list"),
+            rows(
+                "dupont_evidence_items",
+                metric="text",
+                value="number",
+                compute_id="text",
+            ),
         ],
         "checks": [
             CheckCell(
@@ -362,6 +466,22 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 template="list_min",
                 params={"path": "dupont_evidence_items", "min": 6},
             ),
+            check(
+                "each_has",
+                "dupont_evidence_items",
+                keys=["metric", "value", "compute_id"],
+                unique_by=["metric"],
+                field="metric",
+                values=[
+                    "roe",
+                    "tax_burden",
+                    "interest_burden",
+                    "ebit_margin",
+                    "asset_turnover",
+                    "equity_multiplier",
+                ],
+            ),
+            check("computed", "dupont_evidence_items", tolerance=0.0001),
             CheckCell(
                 template="computed",
                 params={
@@ -417,6 +537,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_reconciled": "reconciled"},
         "expert_inputs": {"reconciled": "accounting_statement_reconciliation"},
         "outputs": [
+            rows("evidence_items", metric="text", value="number", compute_id="text"),
             OutputCell(name="current_ratio", type="number"),
             OutputCell(name="quick_ratio", type="number"),
             OutputCell(name="cash_to_current_debt", type="number"),
@@ -424,6 +545,21 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             OutputCell(name="solvency_risk_level", type="text"),
         ],
         "checks": [
+            check("list_min", "evidence_items", min=4),
+            check(
+                "each_has",
+                "evidence_items",
+                keys=["metric", "value", "compute_id"],
+                unique_by=["metric"],
+                field="metric",
+                values=[
+                    "current_ratio",
+                    "quick_ratio",
+                    "cash_to_current_debt",
+                    "altman_z_score",
+                ],
+            ),
+            check("computed", "evidence_items", tolerance=0.0001),
             CheckCell(
                 template="required",
                 params={
@@ -475,8 +611,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "洞察产业链上下游话语权及日常流动性造血循环节奏。"
         ),
         "provenance": (
-            "现金循环周期模型（Richards & Laughlin, 1980）及"
-            "营运资本管理通行教材口径"
+            "现金循环周期模型（Richards & Laughlin, 1980）及营运资本管理通行教材口径"
         ),
         "does_not": (
             "不接收入确认口径争议（以披露口径为准）；不分行业调整周转基准天数。"
@@ -560,12 +695,27 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_purified": "purified"},
         "expert_inputs": {"purified": "non_recurring_items_purification"},
         "outputs": [
+            rows("evidence_items", metric="text", value="number", compute_id="text"),
             OutputCell(name="operating_cf_to_net_income", type="number"),
             OutputCell(name="free_cash_flow_firm", type="number"),
             OutputCell(name="accrual_anomaly_score", type="number"),
             OutputCell(name="earnings_quality_flag", type="text"),
         ],
         "checks": [
+            check("list_min", "evidence_items", min=3),
+            check(
+                "each_has",
+                "evidence_items",
+                keys=["metric", "value", "compute_id"],
+                unique_by=["metric"],
+                field="metric",
+                values=[
+                    "operating_cf_to_net_income",
+                    "free_cash_flow_firm",
+                    "accrual_anomaly_score",
+                ],
+            ),
+            check("computed", "evidence_items", tolerance=0.0001),
             CheckCell(
                 template="required",
                 params={
@@ -859,9 +1009,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "输出「不可计算」并改报绝对变动额，不做符号技巧处理。"
         ),
         "why": "消除单一年份周期波动假象，确立企业中长期历史内生增长基准轨道。",
-        "provenance": (
-            "金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型"
-        ),
+        "provenance": ("金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型"),
         "does_not": (
             "不接未来预测与区间预测（属「三表联动预测模型」）；"
             "趋势外推仅作历史参考线，不写成预期。"
@@ -943,7 +1091,12 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 OutputCell(name="ebit_margin", type="number"),
                 OutputCell(name="asset_turnover", type="number"),
                 OutputCell(name="equity_multiplier", type="number"),
-                OutputCell(name="dupont_evidence_items", type="list"),
+                rows(
+                    "dupont_evidence_items",
+                    metric="text",
+                    value="number",
+                    compute_id="text",
+                ),
             ],
             "working_capital": [
                 OutputCell(name="dio_days", type="number"),
@@ -959,26 +1112,93 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "working_capital": "working_capital_cash_cycle_analysis",
         },
         "outputs": [
-            OutputCell(name="forecast_income_statement", type="table"),
-            OutputCell(name="forecast_balance_sheet", type="table"),
-            OutputCell(name="forecast_cashflow_statement", type="table"),
-            OutputCell(name="balance_sheet_plug_zero", type="number"),
+            rows(
+                "forecast_income_statement",
+                horizon="text",
+                period="text",
+                scenario="text",
+                metric="text",
+            ),
+            rows(
+                "forecast_balance_sheet",
+                horizon="text",
+                period="text",
+                scenario="text",
+                assets="number",
+                liabilities="number",
+                equity="number",
+            ),
+            rows(
+                "forecast_cashflow_statement",
+                horizon="text",
+                period="text",
+                scenario="text",
+                opening_cash="number",
+                closing_cash="number",
+                cash_increase="number",
+            ),
+            rows(
+                "forecast_intervals",
+                horizon="text",
+                metric="text",
+                lower="number",
+                base="number",
+                upper="number",
+            ),
+            rows("forecast_assumptions", name="text", reason="text", source="text"),
         ],
         "checks": [
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "forecast_income_statement",
-                        "forecast_balance_sheet",
-                        "forecast_cashflow_statement",
-                        "balance_sheet_plug_zero",
-                    ]
-                },
+            required(
+                "forecast_income_statement",
+                "forecast_balance_sheet",
+                "forecast_cashflow_statement",
+                "forecast_intervals",
+                "forecast_assumptions",
             ),
-            CheckCell(
-                template="identity",
-                params={"path": "balance_sheet_plug_zero", "tolerance": 1.0},
+            *forecast_checks(
+                "forecast_income_statement",
+                ["revenue", "parent_net_profit", "operating_cost"],
+            ),
+            *forecast_balance_checks(
+                "forecast_balance_sheet",
+                ["assets", "liabilities", "equity"],
+                "abs(assets - liabilities - equity)",
+            ),
+            *forecast_balance_checks(
+                "forecast_cashflow_statement",
+                ["opening_cash", "closing_cash", "cash_increase"],
+                "abs(closing_cash - opening_cash - cash_increase)",
+            ),
+            check("list_min", "forecast_intervals", min=6),
+            check(
+                "each_has",
+                "forecast_intervals",
+                keys=["horizon", "metric", "lower", "base", "upper"],
+                unique_by=["horizon", "metric"],
+                field="horizon",
+                values=["next_quarter", "following_quarter"],
+            ),
+            check(
+                "each_has",
+                "forecast_intervals",
+                field="metric",
+                values=["revenue", "parent_net_profit", "gross_margin"],
+            ),
+            check(
+                "computed",
+                "forecast_intervals",
+                expression="max(lower - base, base - upper, 0)",
+                input_keys=["lower", "base", "upper"],
+                expected_value=0,
+                tolerance=0,
+            ),
+            check("list_min", "forecast_assumptions", min=1),
+            check(
+                "each_has",
+                "forecast_assumptions",
+                keys=["name", "reason", "source"],
+                non_empty_keys=["name", "reason", "source"],
+                unique_by=["name"],
             ),
         ],
     },
@@ -995,8 +1215,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "输出WACC×永续增长率双变量敏感性表。"
         ),
         "why": (
-            "脱离短期二级市场噪音，立足企业终身自由现金流创造能力"
-            "核算真实内在底线价值。"
+            "脱离短期二级市场噪音，立足企业终身自由现金流创造能力核算真实内在底线价值。"
         ),
         "provenance": (
             "纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著"
@@ -1020,6 +1239,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_forecast": "forecast"},
         "expert_inputs": {"forecast": "three_statement_linked_forecasting"},
         "outputs": [
+            rows("evidence_items", metric="text", value="number", compute_id="text"),
             OutputCell(name="enterprise_value_dcf", type="number"),
             OutputCell(name="equity_value_dcf", type="number"),
             OutputCell(name="per_share_intrinsic_value", type="number"),
@@ -1027,6 +1247,21 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             OutputCell(name="sensitivity_table", type="table"),
         ],
         "checks": [
+            check("list_min", "evidence_items", min=4),
+            check(
+                "each_has",
+                "evidence_items",
+                keys=["metric", "value", "compute_id"],
+                unique_by=["metric"],
+                field="metric",
+                values=[
+                    "enterprise_value_dcf",
+                    "equity_value_dcf",
+                    "per_share_intrinsic_value",
+                    "wacc_used",
+                ],
+            ),
+            check("computed", "evidence_items", tolerance=0.0001),
             CheckCell(
                 template="required",
                 params={
@@ -1128,8 +1363,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "扫描高管大股东减持计划及重大关联方资金往来。"
         ),
         "why": (
-            "防范大股东质押爆仓导致的控制权变更风险，"
-            "识别掏空上市公司与利益输送隐患。"
+            "防范大股东质押爆仓导致的控制权变更风险，识别掏空上市公司与利益输送隐患。"
         ),
         "provenance": (
             "中国证监会《上市公司股东、董监高减持股份的若干规定》"
@@ -1277,48 +1511,41 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_reconciled": "reconciled"},
         "expert_inputs": {"reconciled": "accounting_statement_reconciliation"},
         "outputs": [
-            OutputCell(name="audit_opinion_type", type="text"),
+            rows("audit_opinion_type", kind="text", text="text"),
             OutputCell(name="kam_topics_count", type="number"),
-            OutputCell(name="kam_matters", type="list"),
+            rows("kam_matters", kind="text", matter="text", audit_response="text"),
             OutputCell(name="external_guarantee_ratio", type="number"),
             OutputCell(name="contingent_liability_risk_verdict", type="text"),
         ],
         "checks": [
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "audit_opinion_type",
-                        "kam_topics_count",
-                        "kam_matters",
-                        "external_guarantee_ratio",
-                        "contingent_liability_risk_verdict",
-                    ]
-                },
+            required(
+                "audit_opinion_type",
+                "kam_topics_count",
+                "kam_matters",
+                "external_guarantee_ratio",
+                "contingent_liability_risk_verdict",
             ),
-            CheckCell(
-                template="non_empty",
-                params={"path": "audit_opinion_type"},
+            check("list_min", "audit_opinion_type", min=1),
+            check(
+                "each_has",
+                "audit_opinion_type",
+                keys=["kind", "text"],
+                non_empty_keys=["text"],
+                field="kind",
+                values=["opinion"],
             ),
-            CheckCell(
-                template="list_min",
-                params={"path": "kam_matters", "min": 1},
+            check("quoted", "audit_opinion_type", field="kind", equals="opinion"),
+            check("list_min", "kam_matters", min=1),
+            check(
+                "each_has",
+                "kam_matters",
+                keys=["kind", "matter", "audit_response"],
+                non_empty_keys=["matter", "audit_response"],
+                unique_by=["matter"],
+                field="kind",
+                values=["kam"],
             ),
-            CheckCell(
-                template="each_has",
-                params={
-                    "path": "kam_matters",
-                    "keys": ["matter", "audit_response", "page"],
-                },
-            ),
-            CheckCell(
-                template="quoted",
-                params={
-                    "path": "kam_matters",
-                    "field": "matter",
-                    "equals": "收入确认与应收账款减值",
-                },
-            ),
+            check("quoted", "kam_matters", field="kind", equals="kam"),
         ],
     },
     # M19: 竞争壁垒与核心投资假说验证
@@ -1340,9 +1567,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "provenance": (
             "晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论"
         ),
-        "does_not": (
-            "不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。"
-        ),
+        "does_not": ("不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。"),
         "elsewhere": (
             "ROIC 与 WACC 的取值口径找「企业自由现金流贴现估值 DCF」；"
             "假说涉及的财务证据回到各上游分析方法。"
@@ -1356,7 +1581,12 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 OutputCell(name="ebit_margin", type="number"),
                 OutputCell(name="asset_turnover", type="number"),
                 OutputCell(name="equity_multiplier", type="number"),
-                OutputCell(name="dupont_evidence_items", type="list"),
+                rows(
+                    "dupont_evidence_items",
+                    metric="text",
+                    value="number",
+                    compute_id="text",
+                ),
             ]
         },
         "inputs": {"feeder_dupont": "dupont"},
@@ -1417,8 +1647,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "底稿不凭空造数；估值区间与关键假设的对外表述待作者确认。"
         ),
         "elsewhere": (
-            "单项指标计算与校验回到各上游方法；"
-            "缺数据的需求提报走 knowfeed 缺口清单。"
+            "单项指标计算与校验回到各上游方法；缺数据的需求提报走 knowfeed 缺口清单。"
         ),
         "feeder_outputs": {
             "reconciliation": [
@@ -1434,7 +1663,12 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 OutputCell(name="ebit_margin", type="number"),
                 OutputCell(name="asset_turnover", type="number"),
                 OutputCell(name="equity_multiplier", type="number"),
-                OutputCell(name="dupont_evidence_items", type="list"),
+                rows(
+                    "dupont_evidence_items",
+                    metric="text",
+                    value="number",
+                    compute_id="text",
+                ),
             ],
             "solvency": [
                 OutputCell(name="current_ratio", type="number"),
@@ -1472,6 +1706,10 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "valuation": "dcf_intrinsic_valuation",
         },
         "outputs": [
+            rows("reconciliation_evidence", metric="text", source="text"),
+            rows("solvency_evidence", metric="text", source="text"),
+            rows("earnings_evidence", metric="text", source="text"),
+            rows("valuation_evidence", metric="text", source="text"),
             OutputCell(name="structured_dossier", type="text"),
             OutputCell(name="executive_summary", type="text"),
             OutputCell(
@@ -1482,9 +1720,91 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                     OutputField(name="source", type="text"),
                 ),
             ),
-            OutputCell(name="evidence_audit_trail", type="list"),
+            rows("evidence_audit_trail", metric="text", source="text"),
         ],
         "checks": [
+            check("list_min", "evidence_audit_trail", min=1),
+            check(
+                "each_has",
+                "evidence_audit_trail",
+                keys=["metric", "source"],
+                non_empty_keys=["metric", "source"],
+                unique_by=["metric"],
+                field="source",
+                values=["dupont_five_way_decomposition"],
+            ),
+            check(
+                "covers",
+                "reconciliation_evidence",
+                field="metric",
+                source_step="feeder_rec",
+                source_path="audit_reconciliations",
+                source_field="check_name",
+            ),
+            check("list_min", "reconciliation_evidence", min=1),
+            check(
+                "each_has",
+                "reconciliation_evidence",
+                keys=["metric", "source"],
+                non_empty_keys=["metric", "source"],
+                unique_by=["metric"],
+                field="source",
+                values=["accounting_statement_reconciliation"],
+            ),
+            check(
+                "covers",
+                "solvency_evidence",
+                field="metric",
+                source_step="feeder_solv",
+                source_path="evidence_items",
+                source_field="metric",
+            ),
+            check("list_min", "solvency_evidence", min=1),
+            check(
+                "each_has",
+                "solvency_evidence",
+                keys=["metric", "source"],
+                non_empty_keys=["metric", "source"],
+                unique_by=["metric"],
+                field="source",
+                values=["solvency_liquidity_stress_check"],
+            ),
+            check(
+                "covers",
+                "earnings_evidence",
+                field="metric",
+                source_step="feeder_eq",
+                source_path="evidence_items",
+                source_field="metric",
+            ),
+            check("list_min", "earnings_evidence", min=1),
+            check(
+                "each_has",
+                "earnings_evidence",
+                keys=["metric", "source"],
+                non_empty_keys=["metric", "source"],
+                unique_by=["metric"],
+                field="source",
+                values=["earnings_quality_accrual_audit"],
+            ),
+            check(
+                "covers",
+                "valuation_evidence",
+                field="metric",
+                source_step="feeder_val",
+                source_path="evidence_items",
+                source_field="metric",
+            ),
+            check("list_min", "valuation_evidence", min=1),
+            check(
+                "each_has",
+                "valuation_evidence",
+                keys=["metric", "source"],
+                non_empty_keys=["metric", "source"],
+                unique_by=["metric"],
+                field="source",
+                values=["dcf_intrinsic_valuation"],
+            ),
             CheckCell(
                 template="required",
                 params={
@@ -1510,7 +1830,20 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             ),
             CheckCell(
                 template="each_has",
-                params={"path": "risk_factors", "keys": ["text", "source"]},
+                params={
+                    "path": "risk_factors",
+                    "keys": ["text", "source"],
+                    "non_empty_keys": ["text", "source"],
+                    "unique_by": ["text"],
+                    "field": "source",
+                    "values": [
+                        "accounting_statement_reconciliation",
+                        "dupont_five_way_decomposition",
+                        "solvency_liquidity_stress_check",
+                        "earnings_quality_accrual_audit",
+                        "dcf_intrinsic_valuation",
+                    ],
+                },
             ),
             CheckCell(
                 template="covers",
@@ -1519,6 +1852,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                     "field": "metric",
                     "source_step": "feeder_dupont",
                     "source_path": "dupont_evidence_items",
+                    "source_field": "metric",
                 },
             ),
         ],
@@ -1540,27 +1874,42 @@ def make_author_method_definition(
     """Creates an author-owned frozen MethodDefinition adhering to genuine DAG."""
     feeder_steps = []
     for feeder_id, slot_name in spec["inputs"].items():
-        slot_outputs = spec["feeder_outputs"][slot_name]
         upstream_id = spec["expert_inputs"][slot_name]
+        upstream_spec = next((s for s in ALL_20_SPECS if s["id"] == upstream_id), None)
+        slot_outputs = (
+            upstream_spec["outputs"]
+            if upstream_spec
+            else spec["feeder_outputs"][slot_name]
+        )
         schema = upstream_schemas.get(upstream_id) if upstream_schemas else None
-        feeder_steps.append({
-            "id": feeder_id,
-            "title": f"前置数据供给({slot_name})",
-            "does": f"供给{slot_name}所需的标准化字段结构。",
-            "selection": {
-                "applies_when": "初始加载",
-                "required": True,
-                "max_calls": 1,
-            },
-            "outputs": [out.model_dump(mode="json") for out in slot_outputs],
-            "checks": [
-                {
-                    "template": "required",
-                    "params": {"keys": [o.name for o in slot_outputs]},
-                }
-            ],
-            "advanced": {"output_schema": schema} if schema is not None else {},
-        })
+        if schema is None and upstream_spec:
+            schema = _input_schema(
+                StepCell(
+                    id=upstream_id,
+                    outputs=tuple(slot_outputs),
+                    checks=tuple(upstream_spec["checks"]),
+                )
+            )
+        feeder_steps.append(
+            {
+                "id": feeder_id,
+                "title": f"前置数据供给({slot_name})",
+                "does": f"供给{slot_name}所需的标准化字段结构。",
+                "selection": {
+                    "applies_when": "初始加载",
+                    "required": True,
+                    "max_calls": 1,
+                },
+                "outputs": [out.model_dump(mode="json") for out in slot_outputs],
+                "checks": [
+                    {
+                        "template": "required",
+                        "params": {"keys": [o.name for o in slot_outputs]},
+                    }
+                ],
+                "advanced": {"output_schema": schema} if schema is not None else {},
+            }
+        )
 
     target_step = {
         "id": spec["id"],
@@ -1571,11 +1920,15 @@ def make_author_method_definition(
         "rules": [
             {"id": "r1", "text": f"依据：{spec['provenance']}"},
             {"id": "r2", "text": "严禁伪造数据，数值与引文必须精准对齐对应输入源。"},
+            {"id": "scope_exclusions", "text": spec.get("does_not", "")},
+            {"id": "scope_routing", "text": spec.get("elsewhere", "")},
         ],
         "outputs": [out.model_dump(mode="json") for out in spec["outputs"]],
         "checks": [check.model_dump(mode="json") for check in spec["checks"]],
         "selection": {
-            "applies_when": "财务分析执行",
+            "applies_when": (
+                f"问题需要{spec['title']}。适用边界：{spec.get('does_not', '')}"
+            ),
             "required": False,
             "max_calls": 1,
         },
@@ -1623,9 +1976,7 @@ def build_financial_expert_manifest(
         id="financial_data_intake",
         title="财务基础数据接入",
         does="读取公司年报与季报原始三表、附注披露及行情数据。",
-        selection=MethodSelection(
-            applies_when="初始接入", required=True, max_calls=1
-        ),
+        selection=MethodSelection(applies_when="初始接入", required=True, max_calls=1),
         outputs=(
             OutputCell(name="raw_balance_sheet", type="table"),
             OutputCell(name="raw_income_statement", type="table"),
@@ -1657,36 +2008,38 @@ def build_financial_expert_manifest(
         definitions[m_id] = defn
         digest = defn.digest()
 
-        current_expert_draft = WorkdraftBody.model_validate({
-            "name": "全面财务与估值分析专家",
-            "tagline": (
-                "基于不可变作者方法库构建的结构化财务三表重构、"
-                "估值推演、公司治理与护城河体检专家"
-            ),
-            "scope": {
-                "does": (
-                    "对标的进行标准化三表重构、勾稽校验、杜邦分解、"
-                    "流动性体检、营运周期、收益质量、DCF估值、相对估值、"
-                    "三表预测、产能追踪、研发评估、商誉减值与治理穿透综合研判"
+        current_expert_draft = WorkdraftBody.model_validate(
+            {
+                "name": "全面财务与估值分析专家",
+                "tagline": (
+                    "基于不可变作者方法库构建的结构化财务三表重构、"
+                    "估值推演、公司治理与护城河体检专家"
                 ),
-                "does_not": "不代客理财，不提供内幕交易信息",
-                "elsewhere": "",
-            },
-            "data_picks": [],
-            "steps": [s.model_dump(mode="json") for s in bound_expert_steps],
-            "planning": {
-                "method_text": (
-                    "接收到公司代码与财报数据时，由数据接入步骤供给数据，"
-                    "依次编排三表重构、勾稽平表、杜邦五步、三表预测、"
-                    "DCF估值及综合底稿成稿。"
-                ),
-                "final_units": ["comprehensive_dossier_formatting"],
-                "max_steps": 25,
-                "max_replans": 2,
-                "reserve": "0.15",
-                "input_max_chars": 64000,
-            },
-        })
+                "scope": {
+                    "does": (
+                        "对标的进行标准化三表重构、勾稽校验、杜邦分解、"
+                        "流动性体检、营运周期、收益质量、DCF估值、相对估值、"
+                        "三表预测、产能追踪、研发评估、商誉减值与治理穿透综合研判"
+                    ),
+                    "does_not": "不代客理财，不提供内幕交易信息",
+                    "elsewhere": "",
+                },
+                "data_picks": [],
+                "steps": [s.model_dump(mode="json") for s in bound_expert_steps],
+                "planning": {
+                    "method_text": (
+                        "接收到公司代码与财报数据时，由数据接入步骤供给数据，"
+                        "依次编排三表重构、勾稽平表、杜邦五步、三表预测、"
+                        "DCF估值及综合底稿成稿。"
+                    ),
+                    "final_units": ["comprehensive_dossier_formatting"],
+                    "max_steps": 25,
+                    "max_replans": 2,
+                    "reserve": "0.15",
+                    "input_max_chars": 64000,
+                },
+            }
+        )
         bind_cmd = BindMethod(
             request_id=UUID(int=5000 + idx),
             revision=1,
@@ -1712,37 +2065,39 @@ def build_financial_expert_manifest(
             "definition": defn.document(),
         }
 
-    final_draft = WorkdraftBody.model_validate({
-        "name": "全面财务与估值分析专家",
-        "tagline": (
-            "基于不可变作者方法库构建的结构化财务三表重构、"
-            "估值推演、公司治理与护城河体检专家"
-        ),
-        "scope": {
-            "does": (
-                "对标的进行标准化三表重构、勾稽校验、杜邦分解、"
-                "流动性体检、营运周期、收益质量、DCF估值、相对估值、"
-                "三表预测、产能追踪、研发评估、商誉减值与治理穿透综合研判"
+    final_draft = WorkdraftBody.model_validate(
+        {
+            "name": "全面财务与估值分析专家",
+            "tagline": (
+                "基于不可变作者方法库构建的结构化财务三表重构、"
+                "估值推演、公司治理与护城河体检专家"
             ),
-            "does_not": "不代客理财，不提供内幕交易信息",
-            "elsewhere": "",
-        },
-        "data_picks": [],
-        "steps": [s.model_dump(mode="json") for s in bound_expert_steps],
-        "method_refs": method_refs,
-        "planning": {
-            "method_text": (
-                "接收到公司代码与财报数据时，由数据接入步骤供给数据，"
-                "依次编排三表重构、勾稽平表、杜邦五步、三表预测、"
-                "DCF估值及综合底稿成稿。"
-            ),
-            "final_units": ["comprehensive_dossier_formatting"],
-            "max_steps": 25,
-            "max_replans": 2,
-            "reserve": "0.15",
-            "input_max_chars": 64000,
-        },
-    })
+            "scope": {
+                "does": (
+                    "对标的进行标准化三表重构、勾稽校验、杜邦分解、"
+                    "流动性体检、营运周期、收益质量、DCF估值、相对估值、"
+                    "三表预测、产能追踪、研发评估、商誉减值与治理穿透综合研判"
+                ),
+                "does_not": "不代客理财，不提供内幕交易信息",
+                "elsewhere": "",
+            },
+            "data_picks": [],
+            "steps": [s.model_dump(mode="json") for s in bound_expert_steps],
+            "method_refs": method_refs,
+            "planning": {
+                "method_text": (
+                    "接收到公司代码与财报数据时，由数据接入步骤供给数据，"
+                    "依次编排三表重构、勾稽平表、杜邦五步、三表预测、"
+                    "DCF估值及综合底稿成稿。"
+                ),
+                "final_units": ["comprehensive_dossier_formatting"],
+                "max_steps": 25,
+                "max_replans": 2,
+                "reserve": "0.15",
+                "input_max_chars": 64000,
+            },
+        }
+    )
     sources = {
         path: {"kind": "user_text", "ref": f"record:{UUID(int=i + 1)}"}
         for i, path in enumerate(cells(final_draft))
@@ -1763,8 +2118,7 @@ def export_financial_expert_manifest(target_path: Path | None = None) -> Path:
     import json
 
     path = (
-        target_path
-        or Path(__file__).parent / "fixtures/financial-expert-manifest.json"
+        target_path or Path(__file__).parent / "fixtures/financial-expert-manifest.json"
     )
     manifest, problems = build_financial_expert_manifest()
     if problems:

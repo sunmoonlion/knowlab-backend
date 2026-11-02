@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from decimal import Decimal
@@ -118,9 +119,15 @@ TEMPLATES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "list_min": (frozenset({"path"}), frozenset({"min"})),
     "list_empty": (frozenset({"path"}), frozenset()),
     "blank": (frozenset({"path"}), frozenset()),
-    "each_has": (frozenset({"path"}), frozenset({"keys", "field", "values"})),
+    "each_has": (
+        frozenset({"path"}),
+        frozenset({"keys", "field", "values", "non_empty_keys", "unique_by"}),
+    ),
     "all_equal": (frozenset({"path", "field", "equals"}), frozenset()),
-    "computed": (frozenset({"path"}), frozenset({"expression", "tolerance"})),
+    "computed": (
+        frozenset({"path"}),
+        frozenset({"expression", "tolerance", "expected_value", "input_keys"}),
+    ),
     "identity": (frozenset({"path"}), frozenset({"tolerance"})),
     "sourced": (frozenset({"path"}), frozenset({"tolerance"})),
     "quoted": (frozenset({"path"}), frozenset({"field", "equals"})),
@@ -240,7 +247,22 @@ def check_rule(
             return None, "values need the field they limit"
         if field is not None and (not isinstance(field, str) or not field):
             return None, "field must be a name"
-        if not keys and not values:
+        for extension in ("non_empty_keys", "unique_by"):
+            names = params.get(extension, [])
+            if (
+                not isinstance(names, list)
+                or any(not isinstance(k, str) or not k.strip() for k in names)
+                or len(names) != len(set(names))
+            ):
+                return None, f"{extension} must be unique nonblank names"
+            if names:
+                rule[extension] = names
+        if (
+            not keys
+            and not values
+            and not rule.get("non_empty_keys")
+            and not rule.get("unique_by")
+        ):
             return None, "each_has needs keys or values"
         rule |= {"keys": list(keys)}
         if field and values:
@@ -248,6 +270,10 @@ def check_rule(
         label = f"「{path}」每项都有{_words(keys)}" if keys else f"「{path}」每项"
         if field and values:
             label += f"，「{field}」只能是{_words([str(v) for v in values])}"
+        if rule.get("non_empty_keys"):
+            label += f"；{_words(rule['non_empty_keys'])}不能为空"
+        if rule.get("unique_by"):
+            label += f"；{_words(rule['unique_by'])}的组合不重复"
     elif t == "all_equal":
         field, equals = params["field"], params["equals"]
         if not isinstance(field, str) or not field:
@@ -257,6 +283,24 @@ def check_rule(
         rule |= {"field": field, "equals": equals}
         label = f"「{path}」每项的「{field}」都是 {equals}"
     elif t == "computed":
+        names = params.get("input_keys", [])
+        if (
+            not isinstance(names, list)
+            or any(not isinstance(k, str) or not k.strip() for k in names)
+            or len(names) != len(set(names))
+        ):
+            return None, "input_keys must be unique nonblank names"
+        if names:
+            rule["input_keys"] = names
+        if "expected_value" in params:
+            expected = params["expected_value"]
+            if (
+                isinstance(expected, bool)
+                or not isinstance(expected, int | float)
+                or not math.isfinite(expected)
+            ):
+                return None, "expected_value must be a finite number"
+            rule["expected_value"] = expected
         expression = params.get("expression")
         if expression is not None:
             if not isinstance(expression, str) or not expression.strip():
@@ -265,6 +309,8 @@ def check_rule(
         label = f"「{path}」的数都是用计算工具算的" + (
             f"（算式 {expression}）" if expression else ""
         )
+        if "expected_value" in rule:
+            label += f"，结果应为 {rule['expected_value']}（容差 {tolerance}）"
     elif t == "identity":
         label = f"「{path}」两边相等" + (f"（容差 {tolerance}）" if tolerance else "")
     elif t == "sourced":
@@ -751,6 +797,10 @@ RULE_KEYS = frozenset(
         "also",
         "tolerance",
         "expression",
+        "expected_value",
+        "input_keys",
+        "non_empty_keys",
+        "unique_by",
         "message",
         "label",
     }
@@ -767,6 +817,26 @@ def _rule_problems(rule: Any) -> list[str]:
     problems = [f"unknown field {k}" for k in sorted(set(rule) - RULE_KEYS)]
     if kind in NUMERIC_RULES and not rule.get("path"):
         problems.append(f"{kind} needs a path")
+    if rule.get("expected_value") is not None:
+        expected = rule["expected_value"]
+        if (
+            kind != "computed"
+            or isinstance(expected, bool)
+            or not isinstance(expected, int | float)
+            or not math.isfinite(expected)
+        ):
+            problems.append("expected_value requires computed and a finite number")
+    for extension in ("non_empty_keys", "unique_by", "input_keys"):
+        names = rule.get(extension, [])
+        if names and (
+            kind != ("computed" if extension == "input_keys" else "each_has")
+            or not isinstance(names, list)
+            or any(not isinstance(k, str) or not k.strip() for k in names)
+            or len(names) != len(set(names))
+        ):
+            problems.append(
+                f"{extension} requires its supported rule kind and unique names"
+            )
     if rule.get("expression") is not None and kind != "computed":
         problems.append("only computed takes an expression")
     if kind == "each_has" and not rule.get("path"):
@@ -1151,13 +1221,21 @@ def _check_of(
     if kind == "list_min" and rule.get("min_items", 1) != 1:
         params["min"] = rule["min_items"]
     elif kind == "each_has":
+        for extension in ("non_empty_keys", "unique_by"):
+            if rule.get(extension):
+                params[extension] = list(rule[extension])
         params["keys"] = list(rule.get("keys", []))
         if rule.get("field") and rule.get("values"):
             params |= {"field": rule["field"], "values": list(rule["values"])}
     elif kind == "all_equal":
         params |= {"field": rule.get("field"), "equals": rule.get("equals")}
-    elif kind == "computed" and rule.get("expression") is not None:
-        params["expression"] = rule["expression"]
+    elif kind == "computed":
+        if rule.get("input_keys"):
+            params["input_keys"] = list(rule["input_keys"])
+        if rule.get("expression") is not None:
+            params["expression"] = rule["expression"]
+        if rule.get("expected_value") is not None:
+            params["expected_value"] = rule["expected_value"]
     elif kind == "quoted" and rule.get("field") is not None:
         params |= {"field": rule["field"], "equals": rule.get("equals")}
     elif kind == "covers":
