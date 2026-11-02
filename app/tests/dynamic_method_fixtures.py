@@ -30,7 +30,9 @@ def body() -> dict:
                     "required": True,
                     "max_calls": 1,
                 },
-                "outputs": [{"name": "rows", "type": "list"}],
+                "outputs": [
+                    {"name": "rows", "type": "list", "items": [{"name": "id"}]}
+                ],
                 "checks": [
                     {
                         "template": "covers",
@@ -55,7 +57,9 @@ def body() -> dict:
                     "required": True,
                     "max_calls": 3,
                 },
-                "outputs": [{"name": "rows", "type": "list"}],
+                "outputs": [
+                    {"name": "rows", "type": "list", "items": [{"name": "id"}]}
+                ],
                 "checks": [{"template": "list_min", "params": {"path": "rows"}}],
                 "advanced": {"tools": ["read_input"]},
             },

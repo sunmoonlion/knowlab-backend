@@ -104,10 +104,15 @@ def test_reference_validation_rejects_wrong_version_slots_or_wider_bounds(change
         bind(value, WorkdraftBody.model_validate(body()), binding(value, **changes))
 
 
-def test_upstream_shape_must_satisfy_frozen_input_contract():
+@pytest.mark.parametrize("variant", ["wrong-type", "missing-item-fields"])
+def test_upstream_shape_must_satisfy_frozen_input_contract(variant):
     value = definition()
     raw = body()
-    raw["steps"][1]["outputs"][0]["type"] = "number"
+    # 列表的条目形状也是输入契约：换标量类型、或列表丢了条目字段，都算不相容
+    if variant == "wrong-type":
+        raw["steps"][1]["outputs"][0] = {"name": "rows", "type": "number"}
+    else:
+        raw["steps"][1]["outputs"][0] = {"name": "rows", "type": "list"}
     with pytest.raises(ValueError, match="incompatible"):
         bind(value, WorkdraftBody.model_validate(raw), binding(value))
 
