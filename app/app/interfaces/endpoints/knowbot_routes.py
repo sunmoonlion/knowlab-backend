@@ -59,6 +59,10 @@ from app.application.services.knowbot_incubation import (
     KnowbotIncubationService,
 )
 from app.application.services.knowbot_library import KnowbotLibraryService
+from app.application.services.knowbot_manual_release import (
+    KnowbotManualReleaseService,
+    release_view,
+)
 from app.application.services.knowbot_methods import (
     KnowbotMethodService,
     method_version_view,
@@ -96,6 +100,7 @@ from app.domain.knowbots.lifecycle import (
     StopIn,
     UserReviewIn,
 )
+from app.domain.knowbots.manual_release import ManualReleaseDecision, ManualReleaseIn
 from app.domain.knowbots.methods import BindMethod, FreezeMethod
 from app.domain.knowbots.platform_grants import (
     LightAcceptanceIn,
@@ -104,6 +109,7 @@ from app.domain.knowbots.platform_grants import (
 )
 from app.domain.knowbots.workdraft import STEP_ID
 from app.domain.security import Principal
+from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.endpoints.knowbot_views import (
     amendment_view,
@@ -140,6 +146,12 @@ def service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotCreationService:
     return knowbot_service(session)
+
+
+def manual_release_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> KnowbotManualReleaseService:
+    return KnowbotManualReleaseService(SqlKnowlabRepository(session))
 
 
 def expert_service(
@@ -202,6 +214,7 @@ def library_service(
     return knowbot_library_service(session)
 
 
+ManualReleases = Annotated[KnowbotManualReleaseService, Depends(manual_release_service)]
 Service = Annotated[KnowbotCreationService, Depends(service)]
 Library = Annotated[KnowbotLibraryService, Depends(library_service)]
 Platform = Annotated[KnowbotPlatformService, Depends(platform_service)]
@@ -1606,3 +1619,63 @@ async def bind_method_version(
     found = await methods.bind_version(principal.subject, method_id, version, body)
     request, _ = await methods.workdrafts.get(principal.subject, str(body.request_id))
     return _ok(workdraft_view(request, found, await methods.workdrafts.origins(found)))
+
+
+@web_router.post("/knowbot-drafts/{draft_id}/manual-release")
+async def request_manual_release(
+    user: User, service: ManualReleases, draft_id: ItemId, body: ManualReleaseIn
+) -> JSONResponse:
+    identifier = str(parse_id(draft_id, "draft"))
+    return _ok(release_view(await service.request(user.subject, identifier, body)), 201)
+
+
+@web_router.get("/knowbot-manual-releases")
+async def my_manual_releases(user: User, service: ManualReleases) -> JSONResponse:
+    return _ok(
+        {
+            "items": [
+                release_view(r)
+                for r in await service.repo.list_manual_releases(
+                    owner_subject=user.subject
+                )
+            ]
+        }
+    )
+
+
+@admin_router.get("/knowbot-manual-releases")
+async def manual_release_queue(_: Releaser, service: ManualReleases) -> JSONResponse:
+    # Only the author-opted-in package is exposed; no other private drafts/data.
+    return _ok(
+        {"items": [release_view(r) for r in await service.repo.list_manual_releases()]}
+    )
+
+
+@admin_router.get("/knowbot-manual-releases/{release_id}")
+async def manual_release_detail(
+    _: Releaser, service: ManualReleases, release_id: ItemId
+) -> JSONResponse:
+    found = await service.repo.get_manual_release(parse_id(release_id))
+    if found is None:
+        raise NotFoundError("No release request", code="manual_release_not_found")
+    draft = await service.repo.get_draft(found.draft_id)
+    return _ok(
+        {
+            "request": release_view(found),
+            "manifest": None if draft is None else draft.manifest,
+        }
+    )
+
+
+@admin_router.post("/knowbot-manual-releases/{release_id}/decision")
+async def decide_manual_release(
+    admin: Releaser,
+    service: ManualReleases,
+    release_id: ItemId,
+    body: ManualReleaseDecision,
+) -> JSONResponse:
+    return _ok(
+        release_view(
+            await service.decide(str(parse_id(release_id)), admin.subject, body)
+        )
+    )

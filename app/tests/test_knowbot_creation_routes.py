@@ -309,7 +309,7 @@ async def test_the_whole_life_through_the_api(wired) -> None:
         }
         assert detail["versions"][0]["acceptance"]["accepted"] is True
         rendered = str(detail)
-        for hidden in ("manifest", "run_id", "owner_subject", "'checks'", "'by'"):
+        for hidden in ("'manifest'", "run_id", "owner_subject", "'checks'", "'by'"):
             assert hidden not in rendered, hidden
         kinds = [e["kind"] for e in detail["timeline"]]
         assert kinds[0] == "version" and kinds[-1] == "listed"

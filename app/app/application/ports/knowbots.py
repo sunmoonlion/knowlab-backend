@@ -293,6 +293,25 @@ class ExpertRecord:
     unlisted_sent_at: datetime | None = None  # 没上架的结局送到 knowmart 的时刻
     # 平台孵化、平台测的才要平台先交回；其余作者「提交交付」即过同意门（0046 第五节）
     needs_return: bool = False
+    manual_release: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class ManualReleaseRecord:
+    id: uuid.UUID
+    request_id: uuid.UUID
+    draft_id: uuid.UUID
+    owner_subject: str
+    manifest_sha256: str
+    baseline_test_id: uuid.UUID
+    reason: str
+    evidence: dict[str, Any]
+    requested_at: datetime
+    status: str = "pending"
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    decision_reason: str | None = None
+    expert_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -565,6 +584,26 @@ class KnowlabRepository(Protocol):
     async def find_test_by_run(self, run_id: str) -> TestRecord | None: ...
 
     # ---------- 专家（SDD 0037） ----------
+    async def create_manual_release(
+        self, record: ManualReleaseRecord
+    ) -> ManualReleaseRecord: ...
+    async def get_manual_release(
+        self, release_id: uuid.UUID, *, for_update: bool = False
+    ) -> ManualReleaseRecord | None: ...
+    async def list_manual_releases(
+        self, *, owner_subject: str | None = None
+    ) -> Sequence[ManualReleaseRecord]: ...
+    async def decide_manual_release(
+        self,
+        release_id: uuid.UUID,
+        *,
+        status: str,
+        actor: str,
+        at: datetime,
+        reason: str,
+        expert_id: uuid.UUID | None,
+    ) -> None: ...
+
     async def create_expert(self, record: ExpertRecord) -> ExpertRecord: ...
 
     async def get_expert(

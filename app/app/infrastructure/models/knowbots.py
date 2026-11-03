@@ -305,6 +305,7 @@ class KnowbotExpert(Base):
     unlisted_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # 平台孵化、平台测的这一版要平台先交回（先用户、后运营）；其余作者「提交交付」即过
     # 同意门（SDD 0046 第五节，迁移 20261030_0023）
+    manual_release: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     needs_return: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
@@ -402,7 +403,8 @@ class KnowbotDelivery(Base):
             "listing IN ('self', 'public')", name="ck_knowbot_delivery_listing"
         ),
         CheckConstraint(
-            "test_mode IN ('self', 'platform')", name="ck_knowbot_delivery_test_mode"
+            "test_mode IN ('self', 'platform', 'unrun')",
+            name="ck_knowbot_delivery_test_mode",
         ),
         CheckConstraint(
             "status IN ('reviewing', 'approved', 'rejected', 'withdrawn')",
@@ -914,5 +916,49 @@ class KnowbotMethodVersion(Base):
             "digest ~ '^sha256:[0-9a-f]{64}$' "
             "AND command_digest ~ '^sha256:[0-9a-f]{64}$'",
             name="ck_knowbot_method_version_digests",
+        ),
+    )
+
+
+class KnowbotManualRelease(Base):
+    """Author-requested exception; immutable scope and one terminal decision."""
+
+    __tablename__ = "knowbot_manual_release"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"), nullable=False
+    )
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowbot_draft.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    baseline_test_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowbot_test.id", ondelete="RESTRICT"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(512))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    expert_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("knowbot_expert.id", ondelete="RESTRICT")
+    )
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected')",
+            name="ck_manual_release_status",
+        ),
+        CheckConstraint(
+            "(status = 'pending') = (decided_at IS NULL)",
+            name="ck_manual_release_decision",
+        ),
+        CheckConstraint(
+            "(status = 'approved') = (expert_id IS NOT NULL)",
+            name="ck_manual_release_expert",
         ),
     )

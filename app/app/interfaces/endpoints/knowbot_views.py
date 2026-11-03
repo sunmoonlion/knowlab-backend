@@ -30,6 +30,7 @@ from app.application.services.knowbot_experts import stage_of
 from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import CONSENT_VERSION
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS, draft_label, review_state
+from app.domain.knowbots.manual_release import manifest_digest
 from app.domain.knowbots.platform_grants import basis as grant_basis
 from app.domain.knowbots.platform_grants import state as grant_state
 from app.domain.knowbots.workdraft import empty_body
@@ -123,6 +124,7 @@ def draft_view(draft: DraftRecord, life: Life, *, admin: bool) -> dict[str, Any]
         "label": draft_label(draft.version, draft.revision),
         "version": draft.version,
         "revision": draft.revision,
+        "manifest_sha256": manifest_digest(draft.manifest),
         "request_version": draft.request_version,
         "status": draft.status,
         "mode": draft.mode,
@@ -230,6 +232,7 @@ def expert_view(expert: ExpertRecord, life: Life, *, admin: bool) -> dict[str, A
         # 平台孵化、平台测的要平台先交回；测试通过的那一次是自助还是平台测的
         "needs_return": expert.needs_return,
         "test_mode": None if test is None else test.mode,
+        "manual_release": expert.manual_release,
         # 交付过程（SDD 0046 第五节）：新的在前
         "deliveries": [
             delivery_view(d, life, admin=admin)

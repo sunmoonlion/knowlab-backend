@@ -700,6 +700,14 @@ class KnowbotCreationService:
             draft = await self._locked(found.id)
             if draft.status != "pending_test":
                 raise _conflict("Only a pending draft is tested", "draft_state")
+            if any(
+                e.draft_id == draft.id
+                for e in await self.repo.list_experts([draft.request_id])
+            ):
+                raise _conflict(
+                    "This draft has been released; create a new draft to test",
+                    "draft_state",
+                )
             if not draft.rules_reviewed_by:
                 raise _conflict(
                     "Review every rule source before testing", "rules_not_reviewed"

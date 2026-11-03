@@ -58,6 +58,7 @@ from app.domain.knowbots.delivery import (
     binding_problem,
 )
 from app.domain.knowbots.lifecycle import draft_label
+from app.domain.knowbots.manual_release import manifest_digest
 
 log = logging.getLogger(__name__)
 UserToken = Callable[[], Awaitable[str]]
@@ -172,9 +173,20 @@ class KnowbotDeliveryService:
         test = (
             None if expert.test_id is None else await self.repo.get_test(expert.test_id)
         )
-        if test is None:
+        exception = expert.manual_release
+        if exception is not None:
+            await self._manual_release_valid(expert)
+        elif (
+            test is None or test.status != "passed" or test.draft_id != expert.draft_id
+        ):
             raise _conflict("This expert has no passed test", "expert_state")
-        test_mode = "platform" if test.mode == "platform" else "self"
+        test_mode = (
+            "unrun"
+            if exception is not None
+            else (
+                "platform" if test is not None and test.mode == "platform" else "self"
+            )
+        )
         needs_rerun = body.listing == "public" and test_mode == "self"
         if needs_rerun and body.budget_limit is None:
             raise BadRequestError(
@@ -208,7 +220,11 @@ class KnowbotDeliveryService:
             raise _conflict(
                 "The bound data cannot go with this listing", str(check["problem"])
             )
-        rerun_items = await self._rerun_inputs(request, test) if needs_rerun else []
+        rerun_items = (
+            await self._rerun_inputs(request, test)
+            if needs_rerun and test is not None
+            else []
+        )
         record = DeliveryRecord(
             id=uuid.uuid4(),
             expert_id=expert.id,
@@ -696,9 +712,44 @@ class KnowbotDeliveryService:
             "checked_at": checked_at,
         }
 
+    async def _manual_release_valid(self, expert: ExpertRecord) -> None:
+        info = expert.manual_release or {}
+        try:
+            identifier = uuid.UUID(str(info.get("release_id")))
+        except ValueError:
+            raise _conflict(
+                "Invalid manual release", "manual_release_invalid"
+            ) from None
+        record = await self.repo.get_manual_release(identifier)
+        draft = await self.repo.get_draft(expert.draft_id)
+        if (
+            record is None
+            or record.status != "approved"
+            or record.expert_id != expert.id
+            or record.draft_id != expert.draft_id
+            or record.request_id != expert.request_id
+            or info.get("retested") is not False
+            or draft is None
+            or record.manifest_sha256 != manifest_digest(draft.manifest)
+            or info.get("manifest_sha256") != record.manifest_sha256
+            or expert.test_id is not None
+        ):
+            raise _conflict(
+                "Manual release does not authorize this content",
+                "manual_release_invalid",
+            )
+
     async def _auto_check(
-        self, expert: ExpertRecord, test: TestRecord
+        self, expert: ExpertRecord, test: TestRecord | None
     ) -> dict[str, Any]:
+        if expert.manual_release is not None:
+            return {
+                "passed": False,
+                "findings": [{"kind": "manual_unretested"}],
+                "manual_release": expert.manual_release,
+                "checked_at": self.now().isoformat(),
+            }
+        assert test is not None
         draft = await self.repo.get_draft(expert.draft_id)
         assert draft is not None
         version = await self.repo.get_version(draft.request_id, draft.request_version)
@@ -801,6 +852,8 @@ class KnowbotDeliveryService:
         assert expert is not None and request is not None
         draft = await self.repo.get_draft(expert.draft_id)
         assert draft is not None
+        if expert.manual_release is not None:
+            await self._manual_release_valid(expert)
         try:
             receipt = await self.knowmart.deliver(
                 # 单号就是这次交付：撤回后再交是新的一次，knowmart 不会把旧的当重放

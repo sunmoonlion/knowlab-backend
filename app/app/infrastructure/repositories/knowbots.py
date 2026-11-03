@@ -25,6 +25,7 @@ from app.application.ports.knowbots import (
     ExpertRecord,
     GrantRecord,
     IncubationRecord,
+    ManualReleaseRecord,
     MethodVersionRecord,
     ProposalRecord,
     QuestionRecord,
@@ -44,6 +45,7 @@ from app.infrastructure.models.knowbots import (
     KnowbotDraft,
     KnowbotExpert,
     KnowbotIncubation,
+    KnowbotManualRelease,
     KnowbotMethod,
     KnowbotMethodVersion,
     KnowbotPlatformGrant,
@@ -305,6 +307,15 @@ def _test(row: KnowbotTest) -> TestRecord:
     )
 
 
+def _manual_release(row: KnowbotManualRelease) -> ManualReleaseRecord:
+    return ManualReleaseRecord(
+        **{
+            name: getattr(row, name)
+            for name in ManualReleaseRecord.__dataclass_fields__
+        }
+    )
+
+
 def _expert(row: KnowbotExpert) -> ExpertRecord:
     return ExpertRecord(
         id=row.id,
@@ -316,6 +327,7 @@ def _expert(row: KnowbotExpert) -> ExpertRecord:
         **{name: getattr(row, name) for name in EXPERT_FIELDS},
         trial=row.trial,
         needs_return=row.needs_return,
+        manual_release=row.manual_release,
     )
 
 
@@ -903,6 +915,69 @@ class SqlKnowlabRepository:
         return None if row is None else _test(row)
 
     # ---------- 专家 ----------
+    async def create_manual_release(
+        self, record: ManualReleaseRecord
+    ) -> ManualReleaseRecord:
+        from dataclasses import asdict
+
+        row = KnowbotManualRelease(**asdict(record))
+        self.session.add(row)
+        await self.session.flush()
+        return record
+
+    async def get_manual_release(
+        self, release_id: uuid.UUID, *, for_update: bool = False
+    ) -> ManualReleaseRecord | None:
+        query = select(KnowbotManualRelease).where(
+            KnowbotManualRelease.id == release_id
+        )
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        row = (await self.session.execute(query)).scalar_one_or_none()
+        return None if row is None else _manual_release(row)
+
+    async def list_manual_releases(
+        self, *, owner_subject: str | None = None
+    ) -> Sequence[ManualReleaseRecord]:
+        query = select(KnowbotManualRelease).order_by(
+            KnowbotManualRelease.requested_at.desc()
+        )
+        if owner_subject is not None:
+            query = query.where(KnowbotManualRelease.owner_subject == owner_subject)
+        return [
+            _manual_release(row)
+            for row in (await self.session.execute(query)).scalars()
+        ]
+
+    async def decide_manual_release(
+        self,
+        release_id: uuid.UUID,
+        *,
+        status: str,
+        actor: str,
+        at: datetime,
+        reason: str,
+        expert_id: uuid.UUID | None,
+    ) -> None:
+        result = await self.session.execute(
+            update(KnowbotManualRelease)
+            .where(
+                KnowbotManualRelease.id == release_id,
+                KnowbotManualRelease.status == "pending",
+            )
+            .values(
+                status=status,
+                decided_by=actor,
+                decided_at=at,
+                decision_reason=reason,
+                expert_id=expert_id,
+            )
+        )
+        if cast(CursorResult, result).rowcount != 1:
+            raise ConcurrencyConflictError(
+                "Manual release already decided", code="manual_release_decided"
+            )
+
     async def create_expert(self, record: ExpertRecord) -> ExpertRecord:
         row = KnowbotExpert(
             id=record.id,
@@ -913,6 +988,7 @@ class SqlKnowlabRepository:
             created_at=record.created_at,
             trial=record.trial,
             needs_return=record.needs_return,
+            manual_release=record.manual_release,
         )
         self.session.add(row)
         try:

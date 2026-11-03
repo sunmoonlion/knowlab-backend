@@ -103,6 +103,8 @@ class Life:
 
     def draft_alive(self, draft: DraftRecord) -> bool:
         """还能往下走的准专家：待测（用户没说不行、版本号没被占）、测试中、通过。"""
+        if any(e.draft_id == draft.id for e in self.experts):
+            return True
         if draft.status == "passed" or draft.status == "testing":
             return True
         return (
@@ -140,11 +142,7 @@ def operator_view(life: Life, now: datetime) -> Life | None:
         and (g.expires_at is None or g.expires_at > now)
         and g.draft_id is not None
     }
-    actually_tested = {
-        t.draft_id
-        for t in life.tests
-        if t.mode == "platform"
-    }
+    actually_tested = {t.draft_id for t in life.tests if t.mode == "platform"}
     # 作者交审了、还在审、给审核员的授权还在的那几版：这一版的准专家（审核员要看
     # 清单）与测试、重跑（SDD 0046 第五节）。审完（过、不过、撤回）授权撤了，运营只留
     # 上架与停用要的那一行摘要，不再给清单与测试
@@ -422,9 +420,11 @@ def lab_test_items(
     out: list[tuple[str, Life, DraftRecord | TestRecord]] = []
     for life in lives:
         for draft in reversed(life.drafts):
-            if draft.status == "pending_test" and review_state(
-                draft.user_review
-            ) not in ("pending", "not_ok"):
+            if (
+                draft.status == "pending_test"
+                and draft.version not in life.expert_versions()
+                and review_state(draft.user_review) not in ("pending", "not_ok")
+            ):
                 out.append(("to_start", life, draft))
         for test in reversed(life.tests):
             category = test.status if test.status in ACTIVE_TESTS else "finished"
@@ -644,7 +644,7 @@ def timeline(life: Life, *, for_user: bool) -> list[dict[str, Any]]:
         refs = {"expert_id": str(e.id), "version": e.version}
         add(
             e.created_at,
-            "expert",
+            "expert_manual_release" if e.manual_release else "expert",
             None,
             test_number=test.number if test else None,
             label=labels.get(e.draft_id),
