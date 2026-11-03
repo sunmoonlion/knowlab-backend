@@ -27,11 +27,12 @@ from app.application.services.knowbot_workdraft import (
     parse_body,
 )
 from app.domain.knowbots.methods import (
+    AnyMethodDefinition,
     BindMethod,
     FreezeMethod,
-    MethodDefinition,
     bind,
     freeze,
+    parse_definition,
 )
 from app.domain.knowbots.workdraft import WorkdraftBody, bundle_text, cells
 
@@ -47,9 +48,9 @@ def method_version_view(record: MethodVersionRecord) -> dict[str, Any]:
     }
 
 
-def _definition(record: MethodVersionRecord) -> MethodDefinition:
+def _definition(record: MethodVersionRecord) -> AnyMethodDefinition:
     try:
-        value = MethodDefinition.model_validate(record.definition)
+        value = parse_definition(record.definition)
         if value.digest() != record.digest or value.document() != record.definition:
             raise ValueError("method digest mismatch")
         return value

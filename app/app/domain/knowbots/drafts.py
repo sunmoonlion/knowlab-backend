@@ -206,7 +206,11 @@ def draft_manifest_problems(
     elif dynamic:
         if (
             pack.get("runtime_contract")
-            not in ("knowbench/dynamic-methods/v1", "knowbench/dynamic-methods/v2")
+            not in (
+                "knowbench/dynamic-methods/v1",
+                "knowbench/dynamic-methods/v2",
+                "knowbench/dynamic-methods/v3",
+            )
             or "workflow" in pack
         ):
             problems.append("v3 requires a dynamic catalog, without workflow")

@@ -36,8 +36,11 @@ from app.domain.knowbots.workdraft import (
     NAME,
     STEP_ID,
     Advanced,
+    CapabilityPlanningCell,
     CheckCell,
+    ConditionalCheckCell,
     MethodSelection,
+    OptionalStepCell,
     OutputCell,
     PlanningCell,
     Problem,
@@ -494,7 +497,12 @@ def _delivery_problems(body: WorkdraftBody) -> list[Problem]:
         if sid in required or sid not in steps:
             continue  # Missing/cyclic dependencies have their own diagnostics.
         required.add(sid)
-        pending.update(steps[sid].uses)
+        step = steps[sid]
+        pending.update(
+            source
+            for source in step.uses
+            if not isinstance(step, OptionalStepCell) or step.input_required[source]
+        )
 
     problems = []
     destinations: dict[str, StepCell] = {}
@@ -700,6 +708,8 @@ def _compile_manifest(
             if rule is None:
                 problems.append(Problem(path, why or "invalid check"))
                 continue
+            if isinstance(check, ConditionalCheckCell):
+                rule["when_input_present"] = check.when_input_present
             acceptance.append(rule)
             source = sources.get(path)
             if isinstance(source, dict):
@@ -763,6 +773,10 @@ def _compile_manifest(
             contract["output_file"] = advanced.output_file
         if body.method_refs and step.id in body.method_refs:
             contract["step_version"] = str(body.method_refs[step.id].version)
+        if isinstance(body.planning, CapabilityPlanningCell):
+            from app.domain.knowbots.capability_compilation import add_input_slots
+
+            add_input_slots(contract, step, (body.method_refs or {}).get(step.id))
         workflow.append(contract)
         earlier[step.id] = step
     scope = {
@@ -809,12 +823,24 @@ def _compile_manifest(
             manifest["pack"]["runtime_contract"] = "knowbench/dynamic-methods/v2"
             manifest["pack"]["method_compiler"] = "knowlab/workdraft-compiler/v1"
             manifest["pack"]["method_sources"] = method_sources or {}
+        if isinstance(body.planning, CapabilityPlanningCell):
+            manifest["pack"].update(
+                runtime_contract="knowbench/dynamic-methods/v3",
+                method_compiler="knowlab/workdraft-compiler/v2",
+                method_sources=method_sources or {},
+                public_capabilities=[
+                    cap.model_dump(mode="json")
+                    for cap in body.public_capabilities or ()
+                ],
+            )
         # 规划方法、条件、必经检查及权限与作者编辑/接受记录使用同一出处链。
         for path, source in sources.items():
             if (
-                path == "planning"
+                path in {"planning", "public_capabilities"}
                 or path.startswith("method_refs/")
-                or path.endswith(("/selection", "/uses", "/advanced", "/on_fail"))
+                or path.endswith(
+                    ("/selection", "/uses", "/advanced", "/on_fail", "/input_required")
+                )
             ):
                 if isinstance(source, dict):
                     rule_sources.append(
@@ -1036,6 +1062,10 @@ def pack_problems(pack: object) -> list[Problem]:
 
 def _dynamic_pack_problems(pack: dict[str, Any]) -> list[Problem]:
     """作者侧的早期诊断；运行方仍按自己的严格契约再核一遍。"""
+    if pack.get("runtime_contract") == "knowbench/dynamic-methods/v3":
+        from app.domain.knowbots.capability_compilation import catalog_problems
+
+        return catalog_problems(pack)
     if pack.get("runtime_contract") == "knowbench/dynamic-methods/v2":
         from app.domain.knowbots.method_composition import restore
 
@@ -1355,6 +1385,14 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         raise ValueError("only a v2 fixed or v3 dynamic manifest is imported")
     dynamic = manifest["schema"] == DYNAMIC_MANIFEST_SCHEMA
     pack = manifest.get("pack")
+    if (
+        dynamic
+        and isinstance(pack, dict)
+        and pack.get("runtime_contract") == "knowbench/dynamic-methods/v3"
+    ):
+        from app.domain.knowbots.capability_compilation import restore
+
+        return restore(manifest), []
     if (
         dynamic
         and isinstance(pack, dict)

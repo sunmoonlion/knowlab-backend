@@ -37,7 +37,7 @@ import uuid
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -139,6 +139,10 @@ class CheckCell(Strict):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConditionalCheckCell(CheckCell):
+    when_input_present: str = Field(pattern=STEP_ID)
+
+
 class OnFail(Strict):
     """没过怎么办：默认重做一次，再不过停下来问；可以改成退回前面某一步，或直接问。"""
 
@@ -189,6 +193,61 @@ class PlanningCell(Strict):
         return self
 
 
+Identifier = Annotated[str, Field(pattern=STEP_ID)]
+CapabilityText = Annotated[str, Field(min_length=1, max_length=2000)]
+
+
+class PublicCapability(Strict):
+    id: Identifier
+    statement: CapabilityText
+    conditions: tuple[CapabilityText, ...] = Field(max_length=30)
+    exclusions: tuple[CapabilityText, ...] = Field(max_length=30)
+    delivers: tuple[CapabilityText, ...] = Field(min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def _text(self) -> PublicCapability:
+        if any(
+            not value.strip()
+            for value in (
+                self.statement,
+                *self.conditions,
+                *self.exclusions,
+                *self.delivers,
+            )
+        ):
+            raise ValueError("capability text must not be blank")
+        return self
+
+
+class CapabilityOutput(Strict):
+    method: Identifier
+    field: str = Field(min_length=1, max_length=64)
+
+
+class CapabilityBinding(Strict):
+    required_units: tuple[Identifier, ...] = Field(min_length=1, max_length=30)
+    evidence_outputs: tuple[CapabilityOutput, ...] = Field(min_length=1, max_length=30)
+
+    @model_validator(mode="after")
+    def _unique(self) -> CapabilityBinding:
+        if len(set(self.required_units)) != len(self.required_units):
+            raise ValueError("capability methods must be unique")
+        pairs = [(out.method, out.field) for out in self.evidence_outputs]
+        if len(set(pairs)) != len(pairs):
+            raise ValueError("capability outputs must be unique")
+        if not {out.method for out in self.evidence_outputs} <= set(
+            self.required_units
+        ):
+            raise ValueError("capability evidence must come from its required methods")
+        return self
+
+
+class CapabilityPlanningCell(PlanningCell):
+    capability_bindings: dict[Identifier, CapabilityBinding] = Field(
+        min_length=1, max_length=30
+    )
+
+
 class StepCell(Strict):
     id: str = Field(pattern=STEP_ID)
     title: str = Field(default="", max_length=80)
@@ -217,6 +276,45 @@ class StepCell(Strict):
         return self
 
 
+class ConditionalStepCell(StepCell):
+    checks: tuple[CheckCell | ConditionalCheckCell, ...] = Field(
+        default=(), max_length=50
+    )
+
+
+class OptionalStepCell(ConditionalStepCell):
+    input_required: dict[Identifier, Annotated[bool, Field(strict=True)]] = Field(
+        max_length=MAX_STEPS
+    )
+
+    @model_validator(mode="after")
+    def _input_requirements(self) -> OptionalStepCell:
+        if set(self.input_required) != set(self.uses):
+            raise ValueError("declare every input requirement exactly once")
+        optional = {
+            slot for slot, required in self.input_required.items() if not required
+        }
+        if self.on_fail.back_to in optional:
+            raise ValueError("back target must be a required input")
+        for check in self.checks:
+            guard = (
+                check.when_input_present
+                if isinstance(check, ConditionalCheckCell)
+                else None
+            )
+            if guard is not None and check.template == "required":
+                raise ValueError("required output checks cannot be conditional")
+            if guard is not None and guard not in optional:
+                raise ValueError("conditional checks must name an optional input")
+            if check.template == "covers":
+                source = check.params.get("source_step")
+                if source in optional and guard != source:
+                    raise ValueError("optional coverage needs its explicit input guard")
+                if guard is not None and guard != source:
+                    raise ValueError("coverage guard must name its own source")
+        return self
+
+
 class MethodReference(Strict):
     method_id: uuid.UUID
     version: int = Field(ge=1, le=999999, strict=True)
@@ -240,9 +338,17 @@ class WorkdraftBody(Strict):
     scope: ScopeCell = ScopeCell()
     # 从作者自己的 knowbase 挑的资料编号：交付时才冻结成 bindings，草稿里不写
     data_picks: tuple[str, ...] = Field(default=(), max_length=200)
-    steps: tuple[StepCell, ...] = Field(default=(), max_length=MAX_STEPS)
-    planning: PlanningCell | None = Field(
+    steps: tuple[StepCell | OptionalStepCell, ...] = Field(
+        default=(), max_length=MAX_STEPS
+    )
+    planning: PlanningCell | CapabilityPlanningCell | None = Field(
         default=None, exclude_if=lambda value: value is None
+    )
+    public_capabilities: tuple[PublicCapability, ...] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=30,
+        exclude_if=lambda value: value is None,
     )
     method_refs: dict[str, MethodReference] | None = Field(
         default=None,
@@ -262,6 +368,20 @@ class WorkdraftBody(Strict):
             self.planning is None or not self.method_refs.keys() <= set(ids)
         ):
             raise ValueError("method references require declared dynamic aliases")
+        if isinstance(self.planning, CapabilityPlanningCell):
+            capabilities = {cap.id for cap in self.public_capabilities or ()}
+            if not capabilities or len(capabilities) != len(
+                self.public_capabilities or ()
+            ):
+                raise ValueError("capabilities must have unique author ids")
+            if capabilities != self.planning.capability_bindings.keys():
+                raise ValueError("every public capability needs its private binding")
+        elif self.public_capabilities is not None or any(
+            isinstance(step, OptionalStepCell) for step in self.steps
+        ):
+            raise ValueError(
+                "capabilities and optional inputs require capability planning"
+            )
         return self
 
 
@@ -293,6 +413,10 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
     text("scope/elsewhere", body.scope.elsewhere)
     if body.planning is not None:
         found["planning"] = canonical(body.planning.model_dump(mode="json"))
+    if body.public_capabilities is not None:
+        found["public_capabilities"] = canonical(
+            [cap.model_dump(mode="json") for cap in body.public_capabilities]
+        )
     for alias, reference in (body.method_refs or {}).items():
         found[f"method_refs/{alias}"] = canonical(reference.model_dump(mode="json"))
     for step in body.steps:
@@ -304,6 +428,8 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
             found[f"{base}/selection"] = canonical(
                 step.selection.model_dump(mode="json")
             )
+        if isinstance(step, OptionalStepCell):
+            found[f"{base}/input_required"] = canonical(step.input_required)
         if body.planning is not None:
             # 动态单元的依赖、工具和失败边界也是作者冻结的选择范围。
             for field in ("uses", "advanced", "on_fail"):
@@ -339,6 +465,7 @@ STEP_FIELDS = frozenset(
         "on_fail",
         "advanced",
         "selection",
+        "input_required",
     }
 )
 # 一条一条的格子：怎么认出是哪一条
@@ -376,7 +503,16 @@ def apply(body: Mapping[str, Any], path: str, value: Any) -> dict[str, Any]:
         raise ValueError("empty path")
     head = parts[0]
     if (
-        head in ("name", "tagline", "data_picks", "steps", "scope", "planning")
+        head
+        in (
+            "name",
+            "tagline",
+            "data_picks",
+            "steps",
+            "scope",
+            "planning",
+            "public_capabilities",
+        )
         and len(parts) == 1
     ):
         doc[head] = value

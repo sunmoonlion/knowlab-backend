@@ -11,7 +11,7 @@ from copy import deepcopy
 from typing import Any
 from uuid import UUID
 
-from app.domain.knowbots.methods import BindMethod, MethodDefinition, bind
+from app.domain.knowbots.methods import AnyMethodDefinition, BindMethod, bind
 from app.domain.knowbots.workdraft import (
     MethodReference,
     StepCell,
@@ -22,7 +22,7 @@ from app.domain.knowbots.workdraft import (
 
 class MethodSource(Strict):
     reference: MethodReference
-    definition: MethodDefinition
+    definition: AnyMethodDefinition
 
     def document(self) -> dict[str, Any]:
         return self.model_dump(mode="json", by_alias=True)

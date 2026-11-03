@@ -11,7 +11,7 @@ import json
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, TypeAdapter, model_validator
 
 from app.domain.knowbots.compile import (
     DEFAULT_INPUT_MAX_CHARS,
@@ -21,6 +21,9 @@ from app.domain.knowbots.compile import (
 )
 from app.domain.knowbots.workdraft import (
     STEP_ID,
+    CapabilityPlanningCell,
+    ConditionalStepCell,
+    OptionalStepCell,
     StepCell,
     Strict,
     WorkdraftBody,
@@ -78,6 +81,34 @@ class MethodDefinition(Strict):
         return digest(self.document())
 
 
+class MethodDefinitionV2(MethodDefinition):
+    schema_: Literal["knowlab/method-definition/v2"] = Field(alias="schema")
+    step: ConditionalStepCell
+    input_required: dict[Identifier, Annotated[bool, Field(strict=True)]] = Field(
+        max_length=30
+    )
+
+    @model_validator(mode="after")
+    def _optional_slots(self) -> MethodDefinitionV2:
+        # Reuse author-side guard validation without putting expert-local
+        # bindings into the independent frozen definition.
+        OptionalStepCell.model_validate(
+            {
+                **self.step.model_dump(mode="json"),
+                "input_required": self.input_required,
+            }
+        )
+        return self
+
+
+AnyMethodDefinition = MethodDefinition | MethodDefinitionV2
+_definitions = TypeAdapter(AnyMethodDefinition)
+
+
+def parse_definition(document: Any) -> AnyMethodDefinition:
+    return _definitions.validate_python(document)
+
+
 def digest(document: Any) -> str:
     return "sha256:" + hashlib.sha256(canonical(document).encode()).hexdigest()
 
@@ -96,16 +127,22 @@ def _remap(step: StepCell, alias: str, inputs: dict[str, str]) -> dict[str, Any]
     doc = step.model_dump(mode="json")
     doc["id"] = alias
     doc["uses"] = [inputs[name] for name in step.uses]
+    if isinstance(step, OptionalStepCell):
+        doc["input_required"] = {
+            inputs[name]: required for name, required in step.input_required.items()
+        }
     if step.on_fail.kind == "back":
         doc["on_fail"]["back_to"] = inputs[str(step.on_fail.back_to)]
     for check in doc["checks"]:
+        if "when_input_present" in check:
+            check["when_input_present"] = inputs[check["when_input_present"]]
         if check["template"] == "covers":
             name = check["params"]["source_step"]
             check["params"]["source_step"] = inputs[name]
     return doc
 
 
-def freeze(body: WorkdraftBody, command: FreezeMethod) -> MethodDefinition:
+def freeze(body: WorkdraftBody, command: FreezeMethod) -> AnyMethodDefinition:
     """Call only after the workdraft's compilation and author provenance pass."""
     units = {step.id: step for step in body.steps}
     step = units.get(command.step_id)
@@ -128,10 +165,14 @@ def freeze(body: WorkdraftBody, command: FreezeMethod) -> MethodDefinition:
         input_max_chars=step.advanced.input_max_chars or DEFAULT_INPUT_MAX_CHARS,
         output_schema=_input_schema(step),
     )
-    return MethodDefinition.model_validate(
+    requirements = doc.pop("input_required", None)
+    return parse_definition(
         {
-            "schema": "knowlab/method-definition/v1",
+            "schema": "knowlab/method-definition/v2"
+            if requirements is not None
+            else "knowlab/method-definition/v1",
             "step": doc,
+            **({"input_required": requirements} if requirements is not None else {}),
             "input_schemas": {
                 slot: _input_schema(units[source]) for source, slot in slots.items()
             },
@@ -150,11 +191,15 @@ class BindMethod(Strict):
 
 
 def bind(
-    definition: MethodDefinition, body: WorkdraftBody, command: BindMethod
+    definition: AnyMethodDefinition, body: WorkdraftBody, command: BindMethod
 ) -> StepCell:
     """Resolve a pinned version without editing it or widening its boundaries."""
     if body.planning is None:
         raise ValueError("method references require a dynamic expert")
+    if isinstance(definition, MethodDefinitionV2) and not isinstance(
+        body.planning, CapabilityPlanningCell
+    ):
+        raise ValueError("optional method inputs require capability planning")
     if command.digest != definition.digest():
         raise ValueError("method digest does not match its pinned version")
     if set(command.inputs) != set(definition.input_schemas):
@@ -183,17 +228,27 @@ def bind(
         raise ValueError("expert selection exceeds the method call limit")
     doc = _remap(definition.step, command.alias, command.inputs)
     doc["selection"].update(required=command.required, max_calls=command.max_calls)
+    if isinstance(definition, MethodDefinitionV2):
+        doc["input_required"] = {
+            command.inputs[slot]: required
+            for slot, required in definition.input_required.items()
+        }
+        return OptionalStepCell.model_validate(doc)
     return StepCell.model_validate(doc)
 
 
-def render() -> str:
+def render(*, optional: bool = False) -> str:
     """Provider schema for author definitions; not a runtime expert manifest."""
+    version = "v2" if optional else "v1"
     return (
         json.dumps(
             {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "$id": "https://contracts.sunmoonai.com/knowlab/author-method/v1/definition.schema.json",
-                **MethodDefinition.model_json_schema(),
+                "$id": "https://contracts.sunmoonai.com/knowlab/author-method/"
+                f"{version}/definition.schema.json",
+                **(
+                    MethodDefinitionV2 if optional else MethodDefinition
+                ).model_json_schema(),
             },
             ensure_ascii=False,
             indent=2,
