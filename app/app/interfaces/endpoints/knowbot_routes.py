@@ -101,7 +101,7 @@ from app.domain.knowbots.lifecycle import (
     UserReviewIn,
 )
 from app.domain.knowbots.manual_release import ManualReleaseDecision, ManualReleaseIn
-from app.domain.knowbots.methods import BindMethod, FreezeMethod
+from app.domain.knowbots.methods import BindMethod, FreezeAtomicMethod, FreezeMethod
 from app.domain.knowbots.platform_grants import (
     LightAcceptanceIn,
     PlatformIncubationIn,
@@ -1571,7 +1571,7 @@ async def freeze_method_version(
     methods: Methods,
     method_id: ItemId,
     version: Annotated[int, Path(ge=1, le=999999)],
-    body: FreezeMethod,
+    body: FreezeAtomicMethod | FreezeMethod,
 ) -> JSONResponse:
     """作者确认来源版本和命名输入槽；同版本同请求重放，不覆盖旧内容。"""
     return _ok(

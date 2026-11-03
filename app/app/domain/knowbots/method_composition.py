@@ -43,6 +43,7 @@ def projection(body: WorkdraftBody, alias: str, source: MethodSource) -> StepCel
             inputs=source.reference.inputs,
             required=step.selection.required,
             max_calls=step.selection.max_calls,
+            execution=source.reference.execution,
         ),
     )
 

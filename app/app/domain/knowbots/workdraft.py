@@ -315,11 +315,28 @@ class OptionalStepCell(ConditionalStepCell):
         return self
 
 
+class MethodExecution(Strict):
+    """Expert-owned execution policy; not part of an atomic method's meaning."""
+
+    ask_before: tuple[AskBeforeCell, ...] = Field(default=(), max_length=10)
+    on_fail: OnFail = OnFail()
+    advanced: Advanced = Advanced()
+
+    @model_validator(mode="after")
+    def _no_output_override(self) -> MethodExecution:
+        if self.advanced.output_schema is not None:
+            raise ValueError("execution policy cannot replace method output semantics")
+        return self
+
+
 class MethodReference(Strict):
     method_id: uuid.UUID
     version: int = Field(ge=1, le=999999, strict=True)
     digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
     inputs: dict[str, str] = Field(default_factory=dict, max_length=30)
+    execution: MethodExecution | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _names(self) -> MethodReference:

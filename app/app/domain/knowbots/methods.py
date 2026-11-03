@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import Field, TypeAdapter, model_validator
 
+from app.domain.knowbots.atomic_methods import AtomicMethodDefinition
 from app.domain.knowbots.compile import (
     DEFAULT_INPUT_MAX_CHARS,
     DEFAULT_RESERVE,
@@ -23,6 +24,7 @@ from app.domain.knowbots.workdraft import (
     STEP_ID,
     CapabilityPlanningCell,
     ConditionalStepCell,
+    MethodExecution,
     OptionalStepCell,
     StepCell,
     Strict,
@@ -44,6 +46,15 @@ class FreezeMethod(Strict):
 
     def digest(self) -> str:
         return digest(self.model_dump(mode="json"))
+
+
+class FreezeAtomicMethod(FreezeMethod):
+    definition_contract: Literal["knowlab/method-definition/v3"]
+    # The author selects the fields needed by this method, not the complete
+    # output of whichever expert happened to supply an input originally.
+    input_fields: dict[Identifier, tuple[str, ...]] = Field(max_length=30)
+    input_descriptions: dict[Identifier, str] = Field(max_length=30)
+    applies_when: str | None = Field(default=None, min_length=1, max_length=4000)
 
 
 class MethodDefinition(Strict):
@@ -101,7 +112,7 @@ class MethodDefinitionV2(MethodDefinition):
         return self
 
 
-AnyMethodDefinition = MethodDefinition | MethodDefinitionV2
+AnyMethodDefinition = MethodDefinition | MethodDefinitionV2 | AtomicMethodDefinition
 _definitions = TypeAdapter(AnyMethodDefinition)
 
 
@@ -146,7 +157,10 @@ def freeze(body: WorkdraftBody, command: FreezeMethod) -> AnyMethodDefinition:
     """Call only after the workdraft's compilation and author provenance pass."""
     units = {step.id: step for step in body.steps}
     step = units.get(command.step_id)
-    if body.planning is None or step is None or step.selection is None:
+    if step is None:
+        raise ValueError("unknown source method")
+    atomic = isinstance(command, FreezeAtomicMethod)
+    if not atomic and (body.planning is None or step.selection is None):
         raise ValueError("freeze a declared method from a dynamic workdraft")
     slots = command.input_slots
     if set(slots) != set(step.uses) or len(set(slots.values())) != len(slots):
@@ -154,7 +168,8 @@ def freeze(body: WorkdraftBody, command: FreezeMethod) -> AnyMethodDefinition:
     if "method" in slots.values():
         raise ValueError("method is reserved for the neutral method identity")
     doc = _remap(step, "method", slots)
-    doc["selection"]["required"] = False
+    if not atomic:
+        doc["selection"]["required"] = False
     # A reusable method must not inherit future platform defaults when another
     # expert binds the same version. Resolve author engineering defaults once.
     doc["advanced"].update(
@@ -166,6 +181,41 @@ def freeze(body: WorkdraftBody, command: FreezeMethod) -> AnyMethodDefinition:
         output_schema=_input_schema(step),
     )
     requirements = doc.pop("input_required", None)
+    if isinstance(command, FreezeAtomicMethod):
+        if set(command.input_fields) != set(slots.values()) or set(
+            command.input_descriptions
+        ) != set(slots.values()):
+            raise ValueError("declare each independent method input")
+        schemas = {}
+        for source, slot in slots.items():
+            provided = _input_schema(units[source])
+            fields = command.input_fields[slot]
+            if (
+                not fields
+                or len(set(fields)) != len(fields)
+                or not set(fields) <= provided.keys()
+            ):
+                raise ValueError("select existing input fields without duplication")
+            schemas[slot] = {
+                "schema": {name: provided[name] for name in fields},
+                "required": (requirements or {}).get(slot, True),
+                "description": command.input_descriptions[slot],
+            }
+        return AtomicMethodDefinition.model_validate(
+            {
+                "schema": command.definition_contract,
+                "title": doc["title"],
+                "purpose": doc["why"],
+                "procedure": doc["does"],
+                "applies_when": command.applies_when
+                or (step.selection.applies_when if step.selection else ""),
+                "inputs": schemas,
+                "rules": doc["rules"],
+                "outputs": doc["outputs"],
+                "output_schema": _input_schema(step),
+                "checks": doc["checks"],
+            }
+        )
     return parse_definition(
         {
             "schema": "knowlab/method-definition/v2"
@@ -188,6 +238,22 @@ class BindMethod(Strict):
     inputs: dict[Identifier, Identifier] = Field(default_factory=dict, max_length=30)
     required: bool = Field(strict=True)
     max_calls: int = Field(ge=1, le=100, strict=True)
+    execution: MethodExecution | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+def resolve_execution(command: BindMethod) -> BindMethod:
+    if command.execution is None:
+        return command
+    raw = command.model_dump(mode="json")
+    advanced = raw["execution"]["advanced"]
+    advanced["tools"] = (
+        list(DEFAULT_TOOLS) if advanced["tools"] is None else advanced["tools"]
+    )
+    advanced["reserve"] = advanced["reserve"] or DEFAULT_RESERVE
+    advanced["input_max_chars"] = advanced["input_max_chars"] or DEFAULT_INPUT_MAX_CHARS
+    return BindMethod.model_validate(raw)
 
 
 def bind(
@@ -196,6 +262,10 @@ def bind(
     """Resolve a pinned version without editing it or widening its boundaries."""
     if body.planning is None:
         raise ValueError("method references require a dynamic expert")
+    if isinstance(definition, AtomicMethodDefinition):
+        return _bind_atomic(definition, body, command)
+    if command.execution is not None:
+        raise ValueError("legacy method execution is frozen in its original definition")
     if isinstance(definition, MethodDefinitionV2) and not isinstance(
         body.planning, CapabilityPlanningCell
     ):
@@ -235,6 +305,67 @@ def bind(
         }
         return OptionalStepCell.model_validate(doc)
     return StepCell.model_validate(doc)
+
+
+def _bind_atomic(
+    definition: AtomicMethodDefinition, body: WorkdraftBody, command: BindMethod
+) -> StepCell:
+    if not isinstance(body.planning, CapabilityPlanningCell):
+        raise ValueError("atomic methods require capability planning")
+    if command.execution is None or command.digest != definition.digest():
+        raise ValueError("pin the exact method and declare expert execution policy")
+    if set(command.inputs) != set(definition.inputs):
+        raise ValueError("bind each atomic method slot")
+    if command.alias in command.inputs.values() or len(
+        set(command.inputs.values())
+    ) != len(command.inputs):
+        raise ValueError("distinct method slots require distinct upstream aliases")
+    upstream = {step.id: step for step in body.steps}
+    for slot, alias in command.inputs.items():
+        if alias not in upstream:
+            raise ValueError("unknown upstream method")
+        provided = _input_schema(upstream[alias])
+        if any(
+            provided.get(key) != value
+            for key, value in definition.inputs[slot].schema_.items()
+        ):
+            raise ValueError("upstream output is incompatible with the method input")
+    execution = command.execution.model_dump(mode="json")
+    # All execution choices are supplied by the expert; only output semantics
+    # belong to the method. Resolve platform defaults before pinning references.
+    advanced = execution["advanced"]
+    if any(advanced[name] is None for name in ("tools", "reserve", "input_max_chars")):
+        raise ValueError("resolve execution defaults before binding an atomic method")
+    advanced["output_schema"] = definition.output_schema
+    doc = {
+        "id": "method",
+        "title": definition.title,
+        "why": definition.purpose,
+        "does": definition.procedure,
+        "uses": sorted(definition.inputs),
+        "rules": [rule.model_dump(mode="json") for rule in definition.rules],
+        "outputs": [out.model_dump(mode="json") for out in definition.outputs],
+        "checks": [check.model_dump(mode="json") for check in definition.checks],
+        "selection": {
+            "applies_when": definition.applies_when,
+            "required": command.required,
+            "max_calls": command.max_calls,
+        },
+        "input_required": {
+            slot: value.required for slot, value in definition.inputs.items()
+        },
+        **execution,
+    }
+    # Execution back targets are expert aliases; _remap expects neutral slots.
+    if doc["on_fail"]["kind"] == "back":
+        inverse = {alias: slot for slot, alias in command.inputs.items()}
+        target = doc["on_fail"]["back_to"]
+        if target not in inverse:
+            raise ValueError("execution back target must be an upstream input")
+        doc["on_fail"]["back_to"] = inverse[target]
+    return OptionalStepCell.model_validate(
+        _remap(OptionalStepCell.model_validate(doc), command.alias, command.inputs)
+    )
 
 
 def render(*, optional: bool = False) -> str:

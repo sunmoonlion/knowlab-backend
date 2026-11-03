@@ -1788,12 +1788,14 @@ class SqlKnowlabRepository:
                     KnowbotMethod.id,
                     KnowbotMethod.created_at,
                     latest.c.version,
-                    KnowbotMethodVersion.definition["step"]["title"]
-                    .as_string()
-                    .label("title"),
-                    KnowbotMethodVersion.definition["step"]["does"]
-                    .as_string()
-                    .label("summary"),
+                    func.coalesce(
+                        KnowbotMethodVersion.definition["title"].as_string(),
+                        KnowbotMethodVersion.definition["step"]["title"].as_string(),
+                    ).label("title"),
+                    func.coalesce(
+                        KnowbotMethodVersion.definition["procedure"].as_string(),
+                        KnowbotMethodVersion.definition["step"]["does"].as_string(),
+                    ).label("summary"),
                 )
                 .join(latest, latest.c.method_id == KnowbotMethod.id)
                 .join(

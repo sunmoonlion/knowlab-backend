@@ -29,10 +29,12 @@ from app.application.services.knowbot_workdraft import (
 from app.domain.knowbots.methods import (
     AnyMethodDefinition,
     BindMethod,
+    FreezeAtomicMethod,
     FreezeMethod,
     bind,
     freeze,
     parse_definition,
+    resolve_execution,
 )
 from app.domain.knowbots.workdraft import WorkdraftBody, bundle_text, cells
 
@@ -91,7 +93,11 @@ class KnowbotMethodService:
         ]
 
     async def publish(
-        self, owner: str, method_id: str, version: int, command: FreezeMethod
+        self,
+        owner: str,
+        method_id: str,
+        version: int,
+        command: FreezeMethod | FreezeAtomicMethod,
     ) -> MethodVersionRecord:
         if not 1 <= version <= 999999:
             raise BadRequestError("Invalid method version", code="method_version")
@@ -171,6 +177,7 @@ class KnowbotMethodService:
         current = await self.workdrafts.locked(request, command.revision)
         body = parse_body(current.body)
         try:
+            command = resolve_execution(command)
             step = bind(_definition(record), body, command)
             raw = body.model_dump(mode="json")
             raw["steps"] = [
@@ -188,6 +195,11 @@ class KnowbotMethodService:
                     "version": version,
                     "digest": record.digest,
                     "inputs": dict(command.inputs),
+                    **(
+                        {"execution": command.execution.model_dump(mode="json")}
+                        if command.execution is not None
+                        else {}
+                    ),
                 },
             }
             candidate = parse_body(raw)
