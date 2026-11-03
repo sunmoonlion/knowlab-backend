@@ -81,6 +81,7 @@ from app.domain.knowbots.lifecycle import (
     review_state,
     status_from_run,
 )
+from app.domain.knowbots.method_demand import RuntimeIncubationV2
 from app.domain.knowbots.platform_grants import expiry as grant_expiry
 from app.domain.knowbots.test_run import (
     CONTRACT,
@@ -255,7 +256,7 @@ class KnowbotCreationService:
     async def submit_from_runtime(
         self,
         owner_subject: str,
-        body: RuntimeIncubationIn,
+        body: RuntimeIncubationIn | RuntimeIncubationV2,
         *,
         runtime: str,
     ) -> tuple[RequestRecord, bool]:
@@ -269,9 +270,21 @@ class KnowbotCreationService:
         question = (body.question or "").strip()
         if not question:
             raise BadRequestError("The question is empty", code="question_empty")
+
+        def existing(mine: RequestRecord) -> tuple[RequestRecord, bool]:
+            if (
+                isinstance(body, RuntimeIncubationV2)
+                and (mine.origin or {}).get("request_digest") != body.digest()
+            ):
+                raise ConcurrencyConflictError(
+                    "The incubation request changed under the same key",
+                    code="incubation_request_conflict",
+                )
+            return mine, False
+
         for mine in await self.repo.list_requests_for_owner(owner_subject):
             if (mine.origin or {}).get("key") == body.key:
-                return mine, False
+                return existing(mine)
         title = question.splitlines()[0].strip()[:80] or question[:80]
         try:
             async with self.repo.transaction():
@@ -287,8 +300,20 @@ class KnowbotCreationService:
                         "project_id": body.project_id,
                         "task_id": body.task_id,
                         "key": body.key,
+                        **(
+                            {
+                                "method_demand": body.method_demand.model_dump(
+                                    mode="json"
+                                ),
+                                "request_digest": body.digest(),
+                            }
+                            if isinstance(body, RuntimeIncubationV2)
+                            else {}
+                        ),
                     },
-                    reference_answer=(body.reference_answer or "").strip() or None,
+                    reference_answer=body.reference()
+                    if isinstance(body, RuntimeIncubationV2)
+                    else (body.reference_answer or "").strip() or None,
                 )
                 await self.repo.add_acceptance(
                     self_acceptance(created.id, 1, self.now())
@@ -296,7 +321,7 @@ class KnowbotCreationService:
         except Exception:
             for mine in await self.repo.list_requests_for_owner(owner_subject):
                 if (mine.origin or {}).get("key") == body.key:
-                    return mine, False
+                    return existing(mine)
             raise
         found = await self.repo.get_request(created.id)
         assert found is not None
