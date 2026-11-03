@@ -525,7 +525,9 @@ class KnowbotTestData:
         if draft.pins:
             grant_id = await self.knowbase.case_grant(
                 owner=request.owner_subject,
-                ref=f"{_task_ref(test, q)}:{q.question_id}"[:255],
+                # Same scope as with_test_set and the runtime's test_case_ref.
+                # The question id routes the answer, not the data authorization.
+                ref=_task_ref(test, q),
                 items=draft.grant_items,
                 ttl_seconds=grant_ttl(test, self.max_wait_seconds),
             )
