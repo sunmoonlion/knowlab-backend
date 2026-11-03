@@ -1,4 +1,8 @@
-"""Synthetic cross-app proof: real positive outputs are passed unchanged downstream."""
+"""Synthetic acceptance-rule probes; not financial-method or production acceptance.
+
+Expressions come from the frozen contracts. These probes exercise the real judge,
+but do not independently establish that the author's financial formulas are right.
+"""
 
 import asyncio
 import json
@@ -548,9 +552,11 @@ def outputs(e):
 async def main():
     e = Evidence()
     good = outputs(e)
+    assert set(good) == set(units) - {"financial_data_intake"}
     checks = {}
 
     async def expect(name, method, output, accepted, path=None):
+        assert name not in checks, ("duplicate probe marker", name)
         rules = units[method].acceptance
         v = await judge_numbers(
             judge(json.dumps(output, ensure_ascii=False), rules),
