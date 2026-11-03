@@ -245,6 +245,9 @@ async def test_the_author_confirms_what_step_zero_proposed(world) -> None:
     assert [i.material_id for i in answer.data.items] == ["m-2025", "m-2024"]
     [grant] = [c for c in kb.calls if c[0] == "grant"]
     assert grant[1][0] == OWNER
+    # knowbench reads with run_id:case_id, including after a data question.
+    # A question-specific suffix creates a valid but unreachable grant.
+    assert grant[1][1] == f"{test.run_id}:c1"
     assert {i["basis"] for i in grant[1][2]} == {"public"}
     # 测试结束：撤授权，作者确认过的记成测试集第 1 版
     runtime.results[test.run_id] = result(test.run_id, "passed")
@@ -260,6 +263,8 @@ async def test_a_retest_carries_the_test_set_and_skips_step_zero(world) -> None:
     [shown] = await data.pending(OWNER, str(test.id), token)
     kb.fetched = True  # 都有了：当场签、回答
     await data.confirm(OWNER, shown["question_id"], token)
+    [initial_grant] = [c for c in kb.calls if c[0] == "grant"]
+    assert initial_grant[1][1] == f"{test.run_id}:c1"
     runtime.results[test.run_id] = result(test.run_id, "error")
     await svc.refresh(str(test.id))
     assert repo.test_sets[0].version == 1
@@ -270,6 +275,9 @@ async def test_a_retest_carries_the_test_set_and_skips_step_zero(world) -> None:
     assert [i.material_id for i in case.data.items] == ["m-2025", "m-2024"]
     found = repo.tests[again.id]
     assert found.test_set_version == 1 and found.case_grants == [case.data.grant_id]
+    grants = [c for c in kb.calls if c[0] == "grant"]
+    assert grants[-1][1][1] == f"{again.run_id}:c1"
+    assert grants[-1][1][1] != initial_grant[1][1]
 
 
 async def test_the_author_changes_drops_or_declines(world) -> None:
