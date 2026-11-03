@@ -192,12 +192,63 @@ class RunRequestV1(Strict):
                     "dynamic test manifests require declared final methods"
                 )
             if any(
-                e.artifact not in finals for c in self.cases for e in c.expectations
+                e.artifact not in self.expectation_targets(pack, finals)
+                for c in self.cases
+                for e in c.expectations
             ):
                 raise ValueError(
                     "dynamic expectations must name a declared final method"
                 )
         return self
+
+    def expectation_targets(
+        self, pack: Any, finals: list[str] | tuple[str, ...]
+    ) -> set[str]:
+        return set(finals)
+
+
+class RunRequestV2(RunRequestV1):
+    """Explicit opt-in to current, single-instance intermediate method assertions.
+
+    Response, answers and archived outputs keep their existing v1 shapes.
+    No assertion is allowed to force a method into the user task plan.
+    """
+
+    contract: Literal["knowbot-test-run/v2"]
+
+    @model_validator(mode="after")
+    def _capability_catalog(self) -> RunRequestV2:
+        pack = self.manifest.get("pack")
+        if (
+            self.manifest.get("schema") != "knowbot-manifest/v3"
+            or not isinstance(pack, dict)
+            or pack.get("runtime_contract") != "knowbench/dynamic-methods/v3"
+        ):
+            raise ValueError("v2 test requests require a v3 capability catalog")
+        return self
+
+    def expectation_targets(
+        self, pack: Any, finals: list[str] | tuple[str, ...]
+    ) -> set[str]:
+        return method_expectation_targets(pack, finals)
+
+
+def method_expectation_targets(
+    pack: Any, finals: list[str] | tuple[str, ...]
+) -> set[str]:
+    targets = set(finals)
+    for unit in pack.get("method_units", []):
+        if not isinstance(unit, dict):
+            raise ValueError("invalid method unit")
+        contract, selection = unit.get("contract", {}), unit.get("selection", {})
+        if not isinstance(contract, dict) or not isinstance(selection, dict):
+            raise ValueError("invalid method contract or selection")
+        if selection.get("max_calls") == 1 and isinstance(contract.get("step_id"), str):
+            targets.add(contract["step_id"])
+    return targets
+
+
+AnyRunRequest = RunRequestV1 | RunRequestV2
 
 
 class StepResult(Strict):

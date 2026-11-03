@@ -963,6 +963,7 @@ class FakeRuntime:
         self.cancelled: list[str] = []
         self.can_cancel = True
         self.on_start: Any = None
+        self.execution_asked: list[tuple[str, str, str | None]] = []
 
     def registered(self) -> frozenset[str]:
         return self.names
@@ -977,6 +978,17 @@ class FakeRuntime:
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1:
         return self.results.get(run_id, result(run_id, "running"))
+
+    async def execution(
+        self, runtime: str, run_id: str, owner_subject: str, case_id: str | None
+    ) -> dict[str, Any]:
+        self.execution_asked.append((run_id, owner_subject, case_id))
+        return {
+            "contract": "knowbot-test-execution/v1",
+            "run_id": run_id,
+            "status": "running",
+            "cases": [],
+        }
 
     async def cancel(self, runtime: str, run_id: str) -> RunResultV1:
         self.cancelled.append(run_id)

@@ -84,8 +84,10 @@ from app.domain.knowbots.lifecycle import (
 from app.domain.knowbots.platform_grants import expiry as grant_expiry
 from app.domain.knowbots.test_run import (
     CONTRACT,
+    AnyRunRequest,
     RunCase,
     RunRequestV1,
+    RunRequestV2,
     RunResultV1,
     first_route,
 )
@@ -113,9 +115,14 @@ def _conflict(message: str, code: str) -> ConcurrencyConflictError:
     return ConcurrencyConflictError(message, code=code)
 
 
-def _test_request(payload: dict[str, Any]) -> RunRequestV1:
+def _test_request(payload: dict[str, Any]) -> AnyRunRequest:
     """Reject incompatible author expectations before creating/charging a test."""
     try:
+        pack = payload.get("manifest", {}).get("pack", {})
+        if pack.get("runtime_contract") == "knowbench/dynamic-methods/v3":
+            return RunRequestV2.model_validate(
+                {**payload, "contract": "knowbot-test-run/v2"}
+            )
         return RunRequestV1.model_validate(payload)
     except ValidationError:
         raise BadRequestError(
@@ -378,6 +385,18 @@ class KnowbotCreationService:
         if request.consent_version < CONSENT_VERSION:
             return None
         return await self.repo.list_test_outputs(test.draft_id, test.run_id)
+
+    async def my_test_execution(
+        self, owner_subject: str, test_id: str, case_id: str | None
+    ) -> dict[str, Any]:
+        test, request = await self.my_test(owner_subject, test_id)
+        if request.consent_version < CONSENT_VERSION:
+            raise BadRequestError(
+                "Accept the test evidence notice first", code="test_consent_required"
+            )
+        return await self.runtimes.execution(
+            request.runtime, test.run_id, request.owner_subject, case_id
+        )
 
     # ---------- 管理端：查 ----------
     async def request_detail(self, request_id: str) -> RequestRecord:

@@ -480,6 +480,18 @@ async def my_test_outputs(
     return _ok(outputs_view(test, await svc.test_outputs(test, request), admin=False))
 
 
+@web_router.get("/knowbot-tests/{test_id}/execution")
+async def my_test_execution(
+    principal: User,
+    svc: Service,
+    test_id: ItemId,
+    case_id: Annotated[str | None, Query(pattern=r"^[A-Za-z0-9._-]{1,64}$")] = None,
+) -> JSONResponse:
+    return _ok(
+        {"execution": await svc.my_test_execution(principal.subject, test_id, case_id)}
+    )
+
+
 @web_router.post("/knowbot-experts/{expert_id}/deliveries")
 async def submit_delivery(
     principal: User,

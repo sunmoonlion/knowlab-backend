@@ -14,7 +14,7 @@ import os
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from app.application.errors.exceptions import (
     BadGatewayError,
@@ -22,10 +22,11 @@ from app.application.errors.exceptions import (
     ServiceUnavailableError,
 )
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
+from app.domain.knowbots.test_execution import TestExecutionV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
+    AnyRunRequest,
     CaseOutputsV1,
-    RunRequestV1,
     RunResultV1,
 )
 from app.infrastructure.external.service_client import ServiceClient, service_relation
@@ -78,7 +79,7 @@ class RuntimeTestClients:
             self._clients[runtime] = ServiceClient(relation, **self._options)
         return self._clients[runtime]
 
-    async def start(self, runtime: str, request: RunRequestV1) -> RunResultV1:
+    async def start(self, runtime: str, request: AnyRunRequest) -> RunResultV1:
         status, body = await self._client(runtime).request(
             "POST", TEST_RUNS, json=request.model_dump(mode="json")
         )
@@ -88,6 +89,34 @@ class RuntimeTestClients:
                 "The runtime answered another run", code="run_mismatch"
             )
         return result
+
+    async def execution(
+        self, runtime: str, run_id: str, owner_subject: str, case_id: str | None
+    ) -> dict[str, Any]:
+        params = {"owner_subject": owner_subject}
+        if case_id is not None:
+            params["case_id"] = case_id
+        status, body = await self._client(runtime).request(
+            "GET",
+            f"{TEST_RUNS}/{quote(run_id, safe='')}/execution?{urlencode(params)}",
+            accept=(404,),
+        )
+        if status == 404:
+            raise ServiceUnavailableError(
+                "The test process is not available", code="test_execution_unavailable"
+            )
+        try:
+            view = TestExecutionV1.model_validate(body)
+            if view.run_id != run_id or (
+                case_id is not None
+                and any(item.case_id != case_id for item in view.cases)
+            ):
+                raise ValueError("different test run or case")
+            return view.model_dump(mode="json")
+        except ValueError as exc:
+            raise BadGatewayError(
+                "Invalid test execution projection", code="test_execution_invalid"
+            ) from exc
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1:
         _, body = await self._client(runtime).request(

@@ -13,8 +13,8 @@ from typing import Any, Protocol
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
+    AnyRunRequest,
     CaseOutputsV1,
-    RunRequestV1,
     RunResultV1,
 )
 
@@ -823,9 +823,15 @@ class RuntimeTestClient(Protocol):
 
     def registered(self) -> frozenset[str]: ...
 
-    async def start(self, runtime: str, request: RunRequestV1) -> RunResultV1: ...
+    async def start(self, runtime: str, request: AnyRunRequest) -> RunResultV1: ...
 
     async def status(self, runtime: str, run_id: str) -> RunResultV1: ...
+
+    async def execution(
+        self, runtime: str, run_id: str, owner_subject: str, case_id: str | None
+    ) -> dict[str, Any]:
+        """Read-only knowbot-test-execution/v1 projection for an authorized viewer."""
+        ...
 
     async def cancel(self, runtime: str, run_id: str) -> RunResultV1:
         """停下这次测试；运行方没有这个接口时抛 AppException（404）。"""
