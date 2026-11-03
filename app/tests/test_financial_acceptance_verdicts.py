@@ -31,5 +31,5 @@ def test_financial_positive_chain_and_single_fault_regressions():
     )
     assert result.returncode == 0, result.stderr
     checks = json.loads(result.stdout)
-    assert len(checks) == 54
+    assert len(checks) == 99
     assert all(checks.values())
