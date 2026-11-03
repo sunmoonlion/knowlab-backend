@@ -203,7 +203,7 @@ class KnowbotCreationService:
         from app.application.services.knowbot_methods import KnowbotMethodService
 
         methods = KnowbotMethodService(self.repo)
-        for choice in idea.method_choices or ():
+        for choice in (*(idea.method_choices or ()), *(idea.template_sources or ())):
             record = await methods.get(owner, str(choice.method_id), choice.version)
             if record.digest != choice.digest:
                 raise ConcurrencyConflictError(

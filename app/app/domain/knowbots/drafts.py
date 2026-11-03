@@ -98,8 +98,15 @@ class Idea(Strict):
         default=None, max_length=30
     )
 
+    template_sources: tuple[IdeaMethodChoice, ...] | None = Field(
+        default=None, max_length=30
+    )
+
     @model_validator(mode="after")
     def _one_form(self) -> Idea:
+        sources = [(c.method_id, c.version) for c in (self.template_sources or ())]
+        if len(sources) != len(set(sources)):
+            raise ValueError("duplicate template source version")
         ids = [choice.method_id for choice in (self.method_choices or ())]
         if len(ids) != len(set(ids)):
             raise ValueError("choose at most one version of each method")

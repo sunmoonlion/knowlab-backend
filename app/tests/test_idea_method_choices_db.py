@@ -159,3 +159,62 @@ def test_duplicate_choices_are_rejected_and_old_ideas_keep_their_shape():
         "kind": "question",
         "question": "看看",
     }
+
+
+@pytest.mark.asyncio
+async def test_template_text_is_editable_and_source_is_not_an_execution_binding(db):
+    source_id = await source(db)
+    method = await publish(db, uuid.uuid4(), source_id)
+    raw = request_body()
+    raw["idea"] = {
+        "kind": "skill",
+        "skill": "作者改写的组合创意，不是原方法执行清单",
+        "template_sources": [selected(method)],
+    }
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        service = KnowbotCreationService(repo, FakeRuntime())
+        created = await service.submit(OWNER, KnowbotRequestIn.model_validate(raw))
+        assert await repo.get_workdraft(created.id) is None
+        reopened = (await repo.list_versions([created.id]))[0]
+        assert reopened.idea["skill"] == raw["idea"]["skill"]
+        assert reopened.idea["template_sources"] == [selected(method)]
+        assert not reopened.idea.get("method_choices")
+        changed = await service.revise(
+            OWNER,
+            str(created.id),
+            RevisionIn.model_validate(
+                {
+                    "idea": {**raw["idea"], "skill": "再次加工：只保留适用的方法"},
+                    "cases": raw["cases"],
+                    "consent_test_data": True,
+                }
+            ),
+        )
+        assert changed.idea["skill"] != reopened.idea["skill"]
+        assert changed.idea["template_sources"] == reopened.idea["template_sources"]
+        assert (
+            await KnowbotMethodService(repo).get(
+                OWNER, str(method.method_id), method.version
+            )
+        ).digest == method.digest
+        assert await repo.get_workdraft(created.id) is None
+
+
+@pytest.mark.asyncio
+async def test_template_cannot_claim_another_authors_or_forged_source(db):
+    source_id = await source(db)
+    method = await publish(db, uuid.uuid4(), source_id)
+    raw = request_body()
+    raw["idea"] = {
+        "kind": "skill",
+        "skill": "原创文字",
+        "template_sources": [selected(method)],
+    }
+    async with db() as session:
+        service = KnowbotCreationService(SqlKnowlabRepository(session), FakeRuntime())
+        with pytest.raises(NotFoundError):
+            await service.submit("other-author", KnowbotRequestIn.model_validate(raw))
+        raw["idea"]["template_sources"][0]["digest"] = "sha256:" + "0" * 64
+        with pytest.raises(ConcurrencyConflictError):
+            await service.submit(OWNER, KnowbotRequestIn.model_validate(raw))
