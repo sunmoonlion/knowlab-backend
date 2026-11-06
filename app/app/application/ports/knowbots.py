@@ -915,8 +915,11 @@ class KnowbaseLibraryClient(Protocol):
 
     async def read_format(
         self, user_token: str, material_id: str, version_no: int
-    ) -> dict[str, Any]:
-        """某一版的 MaterialFormatRead：版本摘要与表轴，不取内容。"""
+    ) -> dict[str, Any] | None:
+        """某一版的 MaterialFormatRead：版本摘要与表轴，不取内容。
+
+        knowbase 读不出这一版的表轴（`format_unreadable`：编码、坏表）回 None：只是
+        这一份表轴未知，不是资料不在（账 186）。"""
         ...
 
 

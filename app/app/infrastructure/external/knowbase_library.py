@@ -47,11 +47,14 @@ class KnowbaseLibrary(KnowbaseClient):
 
     async def read_format(
         self, user_token: str, material_id: str, version_no: int
-    ) -> dict[str, Any]:
-        body = await self._get(
-            f"/materials/{_segment(material_id)}/versions/{version_no}/format",
-            user_token,
-        )
+    ) -> dict[str, Any] | None:
+        path = f"/materials/{_segment(material_id)}/versions/{version_no}/format"
+        try:
+            _, body, _ = await self._send("GET", path, user_token)
+        except KnowbaseRefused as exc:
+            if exc.status == 422 and exc.code == "format_unreadable":
+                return None  # 这一份表轴读不出：表轴未知，不挡整次挑选（账 186）
+            raise _refused(exc) from None
         try:
             parsed = MaterialFormat.model_validate(body)
         except ValidationError:
@@ -65,13 +68,7 @@ class KnowbaseLibrary(KnowbaseClient):
         try:
             _, body, _ = await self._send("GET", path, user_token)
         except KnowbaseRefused as exc:
-            if exc.status == 404:
-                raise NotFoundError(
-                    "No such material", code="material_not_found"
-                ) from None
-            raise BadGatewayError(
-                f"knowbase refused: {exc.code}"[:200], code="knowbase_refused"
-            ) from None
+            raise _refused(exc) from None
         return body
 
     async def column(self, user_token: str) -> list[dict[str, Any]]:
@@ -96,3 +93,11 @@ class KnowbaseLibrary(KnowbaseClient):
                 code="knowbase_contract_invalid",
             )
         return [r for r in body if isinstance(r, dict)]
+
+
+def _refused(exc: KnowbaseRefused) -> NotFoundError | BadGatewayError:
+    if exc.status == 404:
+        return NotFoundError("No such material", code="material_not_found")
+    return BadGatewayError(
+        f"knowbase refused: {exc.code}"[:200], code="knowbase_refused"
+    )

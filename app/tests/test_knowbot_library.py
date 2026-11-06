@@ -224,3 +224,18 @@ async def test_wrong_format_version_does_not_save_partial_picks(w: Wired):
         )
     stored = await w.repo.get_workdraft(request.id)
     assert stored is None  # 失败发生在写事务前，不留下半份工作稿
+
+
+async def test_unreadable_table_axes_still_save_the_pick(w: Wired):
+    # 账 186：knowbase 读不出表轴（回 None），这一份照「表轴未知」存下，别的照旧
+    request = await w.request()
+
+    async def unreadable(*args):
+        return None
+
+    w.knowbase.read_format = unreadable
+    picked = await w.library.pick(
+        OWNER, str(request.id), revision=0, picks=[MATERIAL], user_token=token
+    )
+    assert picked.data_formats[MATERIAL]["tables"] == []
+    assert picked.data_formats[MATERIAL]["readings"]

@@ -163,6 +163,9 @@ class KnowbotLibraryService:
                         "knowbase omitted the version", code="knowbase_contract_invalid"
                     )
                 shape = await self.knowbase.read_format(token, material_id, version)
+                if shape is None:
+                    # knowbase 读不出这一份的表轴：按「表轴未知」带过去（账 186）
+                    shape = {**item, "tables": []}
                 if any(
                     shape.get(key) != item.get(key)
                     for key in ("material_id", "version_no", "sha256", "media_type")

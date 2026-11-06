@@ -68,3 +68,32 @@ async def test_hidden_or_revoked_material_stays_not_found():
     )
     with pytest.raises(NotFoundError):
         await client.read_format("user-token", "m1", 2)
+
+
+async def test_unreadable_table_axes_are_unknown_not_an_error():
+    # 账 186：一份 CSV 编码不对、坏表，只是这一份的表轴未知，不挡整次挑选
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(
+            422, json={"code": "format_unreadable", "detail": "malformed"}
+        )
+
+    client = KnowbaseLibrary(environ(), transport=httpx.MockTransport(respond))
+    assert await client.read_format("user-token", "m1", 2) is None
+    assert len(calls) == 1
+
+
+async def test_other_refusals_still_fail_with_one_request():
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(409, json={"code": "version_changed"})
+
+    client = KnowbaseLibrary(environ(), transport=httpx.MockTransport(respond))
+    with pytest.raises(BadGatewayError) as exc:
+        await client.read_format("user-token", "m1", 2)
+    assert exc.value.code == "knowbase_refused"
+    assert len(calls) == 1
