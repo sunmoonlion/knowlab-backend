@@ -559,6 +559,23 @@ async def my_questions(principal: User, questions: Questions) -> JSONResponse:
     )
 
 
+@web_router.get("/knowbot-tests/{test_id}/questions")
+async def my_test_questions(
+    principal: User, svc: Service, questions: Questions, test_id: ItemId
+) -> JSONResponse:
+    test, _ = await svc.my_test(principal.subject, test_id)
+    items = await questions.user_queue(principal.subject)
+    return _ok(
+        {
+            "questions": [
+                question_view(q, d, r, admin=False)
+                for q, d, r in items
+                if q.run_id == test.run_id
+            ]
+        }
+    )
+
+
 class AnswerBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: str | None = Field(default=None, pattern=r"^(approve|deny)$")
@@ -612,6 +629,12 @@ async def start_self_test(
         {"test_id": str(test.id), "status": test.status, "mode": test.mode},
         status_code=201,
     )
+
+
+@web_router.post("/knowbot-tests/{test_id}/stop")
+async def stop_my_test(principal: User, svc: Service, test_id: ItemId) -> JSONResponse:
+    test = await svc.stop_mine(principal.subject, test_id)
+    return _ok({"test_id": str(test.id), "status": test.status})
 
 
 @web_router.post("/knowbot-tests/{test_id}/refresh")

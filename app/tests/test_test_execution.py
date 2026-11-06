@@ -68,3 +68,25 @@ async def test_service_client_checks_run_and_forwards_verified_owner(different):
     assert seen[0].url.params["owner_subject"] == OWNER
     assert seen[0].url.params["case_id"] == "c1"
     assert "method_text" not in json.dumps(seen[0].url.params.multi_items())
+
+
+async def test_author_can_stop_only_own_test_and_repeated_stop_is_idempotent(parts):
+    svc, repo, runtime = parts
+    _, _, test = await _testing(svc)
+    with pytest.raises(NotFoundError):
+        await svc.stop_mine("another-user", str(test.id))
+    assert runtime.cancelled == []
+    stopped = await svc.stop_mine(OWNER, str(test.id))
+    assert stopped.report["status"] == "cancelled"
+    assert runtime.cancelled == [test.run_id]
+    assert (await svc.stop_mine(OWNER, str(test.id))).id == test.id
+    assert runtime.cancelled == [test.run_id]
+
+
+async def test_failed_runtime_stop_does_not_pretend_test_stopped(parts):
+    svc, repo, runtime = parts
+    _, _, test = await _testing(svc)
+    runtime.can_cancel = False
+    with pytest.raises(BadGatewayError):
+        await svc.stop_mine(OWNER, str(test.id))
+    assert repo.tests[test.id].status == test.status

@@ -925,6 +925,23 @@ class KnowbotCreationService:
             "model_key": await self.runtimes.model_key(request.runtime, owner_subject),
         }
 
+    async def stop_mine(self, owner_subject: str, test_id: str) -> TestRecord:
+        """Stop via the runtime; do not fabricate a local terminal state."""
+        test, request = await self.my_test(owner_subject, test_id)
+        if test.status not in ACTIVE_TESTS:
+            return test
+        result = await self.runtimes.cancel(request.runtime, test.run_id)
+        if result.run_id != test.run_id or not result.final:
+            raise _conflict(
+                "The runtime has not confirmed stopping this run",
+                "test_stop_unconfirmed",
+            )
+        await self._finish(test.id, result)
+        await self._collect_outputs(test, request, result)
+        found = await self.repo.get_test(test.id)
+        assert found is not None
+        return found
+
     async def refresh_mine(self, owner_subject: str, test_id: str) -> TestRecord:
         """自己的测试刷新一次（自助测试的页面轮询）。"""
         test, request = await self.test_with_request(test_id)
