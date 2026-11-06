@@ -19,8 +19,17 @@ from app.domain.knowbots.methods import (
     parse_definition,
     render,
 )
-from app.domain.knowbots.workdraft import WorkdraftBody, apply, cells
+from app.domain.knowbots.workdraft import (
+    CapabilityBinding,
+    CapabilityOutput,
+    CapabilityPlanningCell,
+    PublicCapability,
+    WorkdraftBody,
+    apply,
+    cells,
+)
 from tests.dynamic_method_fixtures import body
+from tests.schema_parity import model_vs_provider
 
 
 def test_new_schemas_and_consumer_fixture_match_the_compiler():
@@ -216,3 +225,28 @@ def test_new_author_cells_participate_in_provenance_and_edits():
     )
     with pytest.raises(ValueError, match="optional input"):
         WorkdraftBody.model_validate(changed)
+
+
+@pytest.mark.parametrize(
+    "model,name",
+    [
+        (PublicCapability, "PublicCapability"),
+        (CapabilityBinding, "CapabilityBinding"),
+        (CapabilityOutput, "CapabilityOutput"),
+        (CapabilityPlanningCell, "CapabilityPlanning"),
+    ],
+    ids=["PublicCapability", "CapabilityBinding", "CapabilityOutput", "Planning"],
+)
+def test_author_models_match_the_runtime_catalog_field_by_field(model, name):
+    """SDD 0052 第一节：作者侧模型和 knowbench dynamic-methods/v3 逐字段一样，不靠样例。
+
+    `ScopeCell` 不在这里：它是编辑用的格子（「接什么」可空、有字数上限），
+    编译时总把三项都写上，比运行方的 `Scope` 更严，属于有意的差别。
+    """
+    parent = Path(__file__).resolve().parents[3]
+    lock = json.loads(
+        (parent / "contracts/knowbench-dynamic-methods-v3-lock.json").read_text()
+    )
+    schema = parent.parent / lock["provider"] / lock["schema"]
+    assert hashlib.sha256(schema.read_bytes()).hexdigest() == lock["sha256"]
+    assert model_vs_provider(model, json.loads(schema.read_text()), name) == []
