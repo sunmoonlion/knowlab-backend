@@ -10,7 +10,7 @@ from pathlib import Path
 import jsonschema
 import pytest
 
-from app.domain.knowbots.data_request import DataRequest
+from app.domain.knowbots.data_request import DataRequest, FactRequest
 from app.domain.knowbots.delivery import CATEGORY_CODES
 from app.domain.knowbots.drafts import draft_manifest_problems
 from app.domain.knowbots.supply_status import DemandStatusEventV1
@@ -64,10 +64,16 @@ def test_our_data_request_is_the_knowbase_data_request() -> None:
     provider = json.loads(
         _sibling("knowbase-app", _read_lock(LOCK_REQUEST)).read_text(encoding="utf-8")
     )
-    ours = DataRequest.model_json_schema(ref_template="#/$defs/{model}")
-    defs = ours.pop("$defs", {})
-    defs["DataRequest"] = ours
+    defs: dict = {}
+    for model in (DataRequest, FactRequest):  # 要哪份资料 / 要哪些数（SDD 0051）
+        ours = model.model_json_schema(ref_template="#/$defs/{model}")
+        defs.update(ours.pop("$defs", {}))
+        defs[model.__name__] = ours
     assert _structure(defs) == _structure(provider["$defs"])
+    assert provider["oneOf"] == [
+        {"$ref": "#/$defs/DataRequest"},
+        {"$ref": "#/$defs/FactRequest"},
+    ]
 
 
 def test_a_v2_draft_knowlab_accepts_satisfies_the_knowmart_v2_schema() -> None:
