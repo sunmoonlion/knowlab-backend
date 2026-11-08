@@ -12,6 +12,12 @@ from tests.test_knowbot_workdraft_routes import ADMIN_SID, CSRF, WEB, WEB_SID
 from tests.test_manual_release_db import approve, candidate, manual
 
 
+def other_person(found):
+    """同一套权限、换一个账号（放行人不是申请的作者）。"""
+    principal = found.principal.model_copy(update={"subject": "release-person"})
+    return found.model_copy(update={"principal": principal})
+
+
 async def test_manual_release_roles_csrf_owner_and_exact_package(db, monkeypatch):
     _, _, _, draft, payload = await candidate(db)
     monkeypatch.setattr(
@@ -29,8 +35,12 @@ async def test_manual_release_roles_csrf_owner_and_exact_package(db, monkeypatch
         FakeAuthService(
             {
                 "admin": browser_session("admin", "knowlab:admin"),
-                "releaser": browser_session(
+                # 作者本人有放行权限也不许批自己的（所有者 2026-11-08）
+                "author-releaser": browser_session(
                     "admin", "knowlab:admin", "knowlab:release"
+                ),
+                "releaser": other_person(
+                    browser_session("admin", "knowlab:admin", "knowlab:release")
                 ),
             }
         ),
@@ -72,9 +82,14 @@ async def test_manual_release_roles_csrf_owner_and_exact_package(db, monkeypatch
                     "Origin": settings.browser_profile("admin").frontend_origins[0],
                     "X-CSRF-Token": CSRF,
                 }
+                client.cookies.set(ADMIN_SID, "author-releaser")
+                own = await client.post(decision, json=body, headers=headers)
+                assert own.status_code == 403, own.text
+                assert own.json()["code"] == "self_review_forbidden"
+                client.cookies.set(ADMIN_SID, "releaser")
                 result = await client.post(decision, json=body, headers=headers)
                 assert result.status_code == 200, result.text
                 assert result.json()["status"] == "approved"
-                assert result.json()["decided_by"] == "user-123"
+                assert result.json()["decided_by"] == "release-person"
         finally:
             app.dependency_overrides.pop(knowbot_routes.manual_release_service, None)

@@ -22,6 +22,7 @@ from app.application.errors.exceptions import (
     AppException,
     BadRequestError,
     ConcurrencyConflictError,
+    ForbiddenError,
     NotFoundError,
     ServiceUnavailableError,
 )
@@ -1392,3 +1393,29 @@ async def test_sync_market_merges_against_locked_expert_delivery(p):
     updated = await p.repo.get_expert(expert.id)
     assert updated.delivery.get("concurrent_marker") == "kept"
     assert updated.delivery.get("version_status") == "held"
+
+
+@pytest.mark.asyncio
+async def test_the_author_cannot_review_their_own_public_delivery(p):
+    """审的人不能是作者本人（所有者 2026-11-08 定，不留例外）：过、不过都不行；
+    换一位审核人照常往下审。自用版本的自动轻审不受影响。"""
+    _, expert, _ = await p.self_expert()
+    found = await p.deliveries.submit(OWNER, str(expert.id), PUBLIC, user_token)
+    assert found.status == "reviewing"
+    for decision in (
+        DeliveryReviewIn(approved=True, category="tools.lookup"),
+        DeliveryReviewIn(approved=False, reason="自己审自己"),
+    ):
+        with pytest.raises(ForbiddenError) as caught:
+            await p.deliveries.review(str(found.id), decision, OWNER)
+        assert caught.value.code == "self_review_forbidden"
+    assert (await p.deliveries.delivery(str(found.id))).status == "reviewing"
+    with pytest.raises(
+        ConcurrencyConflictError
+    ) as caught:  # 别人审：照常走到重跑那一关
+        await p.deliveries.review(
+            str(found.id),
+            DeliveryReviewIn(approved=True, category="tools.lookup"),
+            "ops-1",
+        )
+    assert caught.value.code == "rerun_not_passed"

@@ -9,7 +9,11 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from app.application.errors.exceptions import ConcurrencyConflictError, NotFoundError
+from app.application.errors.exceptions import (
+    ConcurrencyConflictError,
+    ForbiddenError,
+    NotFoundError,
+)
 from app.application.services.knowbot_manual_release import KnowbotManualReleaseService
 from app.domain.knowbots.delivery import DeliveryReviewIn, DeliverySubmitIn
 from app.domain.knowbots.manual_release import (
@@ -227,3 +231,25 @@ async def test_delivery_rechecks_exact_approved_content(db):
         ]:
             with pytest.raises(ConcurrencyConflictError):
                 await deliveries(session)._manual_release_valid(changed)
+
+
+async def test_the_author_cannot_decide_their_own_release(db):
+    """特批放行的人不能是申请的作者（所有者 2026-11-08 定，不留例外）：批、拒都不行，
+    申请还在待批；换一位放行人照常批。"""
+    request, old, baseline, draft, payload = await candidate(db)
+    requested = await request_exception(db, draft, payload)
+    reject = ManualReleaseDecision(
+        approved=False, reason="自己拒自己", acknowledge_unretested=True
+    )
+    for decision in (approve(), reject):
+        async with db() as session:
+            with pytest.raises(ForbiddenError) as caught:
+                await manual(session).decide(str(requested.id), OWNER, decision)
+            assert caught.value.code == "self_review_forbidden"
+    async with db() as session:
+        still = await SqlKnowlabRepository(session).get_manual_release(requested.id)
+        assert still.status == "pending"
+        approved = await manual(session).decide(
+            str(requested.id), "release-person", approve()
+        )
+        assert approved.status == "approved"

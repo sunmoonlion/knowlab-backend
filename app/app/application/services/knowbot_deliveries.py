@@ -36,6 +36,7 @@ from app.application.errors.exceptions import (
     AppException,
     BadRequestError,
     ConcurrencyConflictError,
+    ForbiddenError,
     NotFoundError,
     ServiceUnavailableError,
 )
@@ -463,6 +464,18 @@ class KnowbotDeliveryService:
         found = await self.delivery(delivery_id)
         if found.status != "reviewing":
             raise _conflict("Already decided", "delivery_decided")
+        request = await self.repo.get_request(found.request_id)
+        assert request is not None
+        if found.listing == "public" and reviewer in (
+            request.owner_subject,
+            found.submitted_by,
+        ):
+            # 公开交付：审的人不能是作者本人（所有者 2026-11-08 定，不留例外）；
+            # 自用的自动轻审走 _decide，不经这里
+            raise ForbiddenError(
+                "The author cannot review their own public delivery",
+                code="self_review_forbidden",
+            )
         if body.approved:
             if found.needs_rerun:
                 rerun = (
@@ -478,8 +491,6 @@ class KnowbotDeliveryService:
                 raise BadRequestError(
                     "Choose a category for a public expert", code="category_required"
                 )
-            request = await self.repo.get_request(found.request_id)
-            assert request is not None
             check = await self._check(
                 request.owner_subject,
                 found.bindings,

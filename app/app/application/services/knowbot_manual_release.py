@@ -4,7 +4,11 @@ import uuid
 from dataclasses import asdict
 from datetime import UTC, datetime
 
-from app.application.errors.exceptions import ConcurrencyConflictError, NotFoundError
+from app.application.errors.exceptions import (
+    ConcurrencyConflictError,
+    ForbiddenError,
+    NotFoundError,
+)
 from app.application.ports.knowbots import (
     ExpertRecord,
     KnowlabRepository,
@@ -106,6 +110,12 @@ class KnowbotManualReleaseService:
         found = await self.repo.get_manual_release(uuid.UUID(release_id))
         if found is None:
             raise NotFoundError("No release request", code="manual_release_not_found")
+        if actor == found.owner_subject:
+            # 放行的人不能是申请的作者（所有者 2026-11-08 定，不留例外）
+            raise ForbiddenError(
+                "The author cannot decide their own release",
+                code="self_review_forbidden",
+            )
         async with self.repo.transaction():
             await self.repo.lock_request(found.request_id)
             found = await self.repo.get_manual_release(found.id, for_update=True)
