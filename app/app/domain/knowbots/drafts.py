@@ -25,6 +25,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowbots.managed_authoring import MESSAGE, pack_paths
 from app.domain.knowbots.test_run import RunCase
 
 DraftStatus = Literal["pending_test", "testing", "passed", "failed"]
@@ -208,6 +209,7 @@ def draft_manifest_problems(
     if not isinstance(name, str) or not name.strip():
         problems.append("name is required")
     pack = doc.get("pack")
+    problems.extend(f"{path}: {MESSAGE}" for path in pack_paths(pack))
     if not isinstance(pack, dict) or not pack.get("pack_id"):
         problems.append("pack.pack_id is required")
     elif dynamic:

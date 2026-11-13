@@ -194,8 +194,10 @@ class KnowbotIncubationService:
         }
 
     async def capabilities(self, owner_subject: str, request_id: str) -> dict[str, Any]:
-        request = await self._request(owner_subject, request_id)
-        return await self.runtimes.capabilities(request.runtime, owner_subject)
+        from app.domain.knowbots.managed_authoring import CODE, MESSAGE
+
+        await self._request(owner_subject, request_id)
+        raise BadRequestError(MESSAGE, code=CODE)
 
     async def _runner(
         self,

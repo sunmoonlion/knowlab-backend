@@ -42,6 +42,7 @@ from app.application.services.knowbot_service import MAX_VERSIONS, parse_id
 from app.domain.knowbots.compile import compile_manifest, decompile, pack_problems
 from app.domain.knowbots.drafts import draft_manifest_problems
 from app.domain.knowbots.incubation_rounds import seed_of
+from app.domain.knowbots.managed_authoring import CODE, MESSAGE, workdraft_paths
 from app.domain.knowbots.workdraft import (
     MAX_BODY_BYTES,
     MAX_EDITS,
@@ -138,6 +139,8 @@ class KnowbotWorkdraftService:
         *,
         reference_changes: frozenset[str] = frozenset(),
     ) -> WorkdraftRecord:
+        if workdraft_paths(body.model_dump(mode="json")):
+            raise BadRequestError(MESSAGE, code=CODE)
         before = parse_body(current.body)
         old_refs, new_refs = before.method_refs or {}, body.method_refs or {}
         old_steps = {s.id: s for s in before.steps}

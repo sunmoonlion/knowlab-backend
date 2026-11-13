@@ -32,6 +32,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.domain.knowbots.drafts import DYNAMIC_MANIFEST_SCHEMA, MANIFEST_SCHEMA
+from app.domain.knowbots.managed_authoring import MESSAGE, pack_paths, workdraft_paths
 from app.domain.knowbots.managed_capabilities_generated import MethodCapabilities
 from app.domain.knowbots.workdraft import (
     NAME,
@@ -476,7 +477,15 @@ def compile_manifest(
         fallback_name=fallback_name,
         method_sources=method_sources,
     )
-    return manifest, [*problems, *_coverage_problems(body), *_delivery_problems(body)]
+    return manifest, [
+        *problems,
+        *(
+            Problem(path, MESSAGE)
+            for path in workdraft_paths(body.model_dump(mode="json"))
+        ),
+        *_coverage_problems(body),
+        *_delivery_problems(body),
+    ]
 
 
 def _delivery_problems(body: WorkdraftBody) -> list[Problem]:
@@ -973,6 +982,9 @@ def pack_problems(pack: object) -> list[Problem]:
     """pack 结构自检（照 knowbench 专家包的形状与约束）：字段齐、类型对、引用对得上。"""
     if not isinstance(pack, dict):
         return [Problem("pack", "pack must be an object")]
+    blocked = [Problem(path, MESSAGE) for path in pack_paths(pack)]
+    if blocked:
+        return blocked
     if "runtime_contract" in pack or "method_units" in pack or "planning" in pack:
         return _dynamic_pack_problems(pack)
     problems: list[Problem] = []
@@ -1405,6 +1417,8 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         raise ValueError("only a v2 fixed or v3 dynamic manifest is imported")
     dynamic = manifest["schema"] == DYNAMIC_MANIFEST_SCHEMA
     pack = manifest.get("pack")
+    if pack_paths(pack):
+        raise ValueError(MESSAGE)
     if (
         dynamic
         and isinstance(pack, dict)

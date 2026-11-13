@@ -1,6 +1,6 @@
 {
   "provider": "knowbench-backend",
   "contract": "method-capabilities-v1",
-  "model_sha256": "873b5e828f239996d551a592f9281472707355836e1814b40eba6eab6d06fe99",
+  "model_sha256": "3b548fe3a01b5e758ebf66c87f4f76108c8f96a6124f3465e66f2de370b71ab0",
   "schema_sha256": "917c5ce993ca91a00b41f4c21e599060679df7415d62283b985fe0e30faef3de"
 }
