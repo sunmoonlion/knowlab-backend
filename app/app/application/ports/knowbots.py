@@ -890,6 +890,8 @@ class RuntimeTestClient(Protocol):
         """用户接入过的电脑（SDD 0046 第三节）：名字、系统、在线与否、白名单根目录。"""
         ...
 
+    async def capabilities(self, runtime: str, subject: str) -> dict[str, Any]: ...
+
     async def model_key(self, runtime: str, subject: str) -> bool | None:
         """用户在运行方填了能用的模型 key 没有（SDD 0046 第三节「没填不能发起」）：
         True / False；运行方还没有这个接口回 None（说不准，不拦，跑起来照旧会停）。"""

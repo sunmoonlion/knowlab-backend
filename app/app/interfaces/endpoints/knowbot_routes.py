@@ -891,6 +891,15 @@ async def incubation_computers(
     return _ok(await incubations.computers(principal.subject, request_id))
 
 
+@web_router.get("/knowbot-requests/{request_id}/workdraft/capabilities")
+async def incubation_capabilities(
+    principal: User,
+    incubations: Incubations,
+    request_id: ItemId,
+) -> JSONResponse:
+    return _ok(await incubations.capabilities(principal.subject, request_id))
+
+
 @web_router.get("/knowbot-requests/{request_id}/workdraft/incubations")
 async def my_incubations(
     principal: User, incubations: Incubations, request_id: ItemId

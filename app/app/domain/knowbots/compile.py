@@ -32,6 +32,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.domain.knowbots.drafts import DYNAMIC_MANIFEST_SCHEMA, MANIFEST_SCHEMA
+from app.domain.knowbots.managed_capabilities_generated import MethodCapabilities
 from app.domain.knowbots.workdraft import (
     NAME,
     STEP_ID,
@@ -771,6 +772,10 @@ def _compile_manifest(
             contract["back_to"] = step.on_fail.back_to
         if advanced.output_file:
             contract["output_file"] = advanced.output_file
+        if advanced.managed_capabilities is not None:
+            contract["managed_capabilities"] = advanced.managed_capabilities.model_dump(
+                mode="json"
+            )
         if body.method_refs and step.id in body.method_refs:
             contract["step_version"] = str(body.method_refs[step.id].version)
         if isinstance(body.planning, CapabilityPlanningCell):
@@ -856,6 +861,7 @@ def _compile_manifest(
 # ---------- 出版本前再核一遍 pack（照运行方的约束） ----------
 STEP_KEYS = frozenset(
     {
+        "managed_capabilities",
         "step_id",
         "step_version",
         "title",
@@ -1002,6 +1008,15 @@ def pack_problems(pack: object) -> list[Problem]:
                 Problem(f"{where}.input_refs", "must name earlier artifacts")
             )
         tools = step.get("tools", [])
+        if step.get("managed_capabilities") is not None:
+            try:
+                MethodCapabilities.model_validate(step["managed_capabilities"])
+            except ValueError:
+                problems.append(
+                    Problem(
+                        f"{where}.managed_capabilities", "invalid managed requirements"
+                    )
+                )
         if not isinstance(tools, list) or not set(tools) <= V2_TOOLS:
             problems.append(Problem(f"{where}.tools", "a knowbot cannot use these"))
         if not isinstance(step.get("output_schema", {}), dict):
@@ -1160,6 +1175,11 @@ def _dynamic_pack_problems(pack: dict[str, Any]) -> list[Problem]:
             if type(value) is not int or not minimum <= value <= maximum:
                 problems.append(Problem(where, f"invalid {key}"))
         tools = contract.get("tools", [])
+        if contract.get("managed_capabilities") is not None:
+            try:
+                MethodCapabilities.model_validate(contract["managed_capabilities"])
+            except ValueError:
+                problems.append(Problem(where, "invalid managed requirements"))
         if not isinstance(tools, list) or any(not isinstance(t, str) for t in tools):
             problems.append(Problem(where, "tools must be names"))
         elif len(tools) != len(set(tools)):
@@ -1530,6 +1550,8 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
                 }
             )
         advanced: dict[str, Any] = {}
+        if raw.get("managed_capabilities") is not None:
+            advanced["managed_capabilities"] = raw["managed_capabilities"]
         tools = raw.get("tools")
         if isinstance(tools, list) and tuple(tools) != DEFAULT_TOOLS:
             advanced["tools"] = tools

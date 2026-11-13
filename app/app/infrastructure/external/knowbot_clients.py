@@ -154,6 +154,21 @@ class RuntimeTestClients:
         found = body.get("computers") if isinstance(body, dict) else None
         return [c for c in found or [] if isinstance(c, dict)]
 
+    async def capabilities(self, runtime: str, subject: str) -> dict[str, Any]:
+        from app.domain.knowbots.managed_capabilities_generated import (
+            AuthorCapabilityCatalog,
+        )
+
+        _, body = await self._client(runtime).request(
+            "GET", f"{USERS}/{quote(subject, safe='')}/capabilities"
+        )
+        try:
+            return AuthorCapabilityCatalog.model_validate(body).model_dump(mode="json")
+        except ValueError as exc:
+            raise BadGatewayError(
+                "Invalid capability catalog", code="runtime_capabilities_invalid"
+            ) from exc
+
     async def model_key(self, runtime: str, subject: str) -> bool | None:
         """用户填了能用的模型 key 没有（SDD 0046 第三节「没填不能发起」）：运行方的
         `GET /users/{subject}/readiness` 回 `{"model_key": true|false}`。运行方还没有
