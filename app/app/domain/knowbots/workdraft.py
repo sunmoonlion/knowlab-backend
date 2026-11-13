@@ -41,6 +41,8 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowbots.managed_capabilities_generated import MethodCapabilities
+
 STEP_ID = r"^[A-Za-z][A-Za-z0-9_-]{0,47}$"
 CELL_ID = r"^[A-Za-z0-9_-]{1,32}$"
 # 交回项与它每项的名字是交回 JSON 的键：不带点（验收按点分路径）、斜杠（格子路径）、
@@ -158,6 +160,9 @@ class Advanced(Strict):
     input_max_chars: int | None = Field(default=None, ge=500, le=200_000)
     output_schema: dict[str, Any] | None = None
     output_file: str | None = Field(default=None, max_length=256)
+    managed_capabilities: MethodCapabilities | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class MethodSelection(Strict):

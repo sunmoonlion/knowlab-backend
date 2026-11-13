@@ -193,6 +193,10 @@ class KnowbotIncubationService:
             "model_key": await self.runtimes.model_key(request.runtime, owner_subject),
         }
 
+    async def capabilities(self, owner_subject: str, request_id: str) -> dict[str, Any]:
+        request = await self._request(owner_subject, request_id)
+        return await self.runtimes.capabilities(request.runtime, owner_subject)
+
     async def _runner(
         self,
         request: RequestRecord,
