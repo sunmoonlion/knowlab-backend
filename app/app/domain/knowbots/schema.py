@@ -19,6 +19,12 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.domain.knowbots.formal_method import FormalMethodDefinition
+from app.domain.knowbots.formal_method_admission import (
+    FormalMethodRegistrationResult,
+    FormalMethodValidationRequest,
+    FormalMethodValidationResult,
+    FrozenFormalMethod,
+)
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
@@ -58,7 +64,23 @@ CONTRACTS: dict[str, tuple[str, dict[str, tuple[type[BaseModel], str]]]] = {
             "definition.schema.json": (
                 FormalMethodDefinition,
                 "formal-method v1 definition",
-            )
+            ),
+            "validation-request.schema.json": (
+                FormalMethodValidationRequest,
+                "formal-method v1 validation request",
+            ),
+            "validation-result.schema.json": (
+                FormalMethodValidationResult,
+                "formal-method v1 validation result",
+            ),
+            "registration-request.schema.json": (
+                FrozenFormalMethod,
+                "formal-method v1 registration request",
+            ),
+            "registration-result.schema.json": (
+                FormalMethodRegistrationResult,
+                "formal-method v1 registration result",
+            ),
         },
     ),
     TEST_RUN: (BASE, DOCUMENTS),

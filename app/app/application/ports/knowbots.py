@@ -738,7 +738,7 @@ class KnowlabRepository(Protocol):
     ) -> None: ...
 
     async def list_methods(
-        self, owner_subject: str, *, limit: int, offset: int
+        self, owner_subject: str, *, limit: int, offset: int, formal_only: bool = False
     ) -> Sequence[dict[str, Any]]: ...
 
     async def get_workdraft(
@@ -891,6 +891,26 @@ class RuntimeTestClient(Protocol):
         ...
 
     async def capabilities(self, runtime: str, subject: str) -> dict[str, Any]: ...
+
+    async def formal_method_sources(
+        self, runtime: str, subject: str
+    ) -> dict[str, Any]: ...
+
+    async def submit_formal_method_validation(
+        self, runtime: str, request: Any
+    ) -> dict[str, Any]: ...
+
+    async def formal_method_validation(
+        self, runtime: str, subject: str, run_id: str
+    ) -> dict[str, Any]: ...
+
+    async def register_formal_method(
+        self, runtime: str, frozen: Any
+    ) -> dict[str, Any]: ...
+
+    async def formal_method_registration(
+        self, runtime: str, subject: str, method_id: str, version: int
+    ) -> dict[str, Any] | None: ...
 
     async def model_key(self, runtime: str, subject: str) -> bool | None:
         """用户在运行方填了能用的模型 key 没有（SDD 0046 第三节「没填不能发起」）：

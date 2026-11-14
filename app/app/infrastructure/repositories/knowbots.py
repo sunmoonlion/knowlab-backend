@@ -1772,7 +1772,7 @@ class SqlKnowlabRepository:
         await self.session.flush()
 
     async def list_methods(
-        self, owner_subject: str, *, limit: int, offset: int
+        self, owner_subject: str, *, limit: int, offset: int, formal_only: bool = False
     ) -> Sequence[dict[str, Any]]:
         latest = (
             select(
@@ -1788,11 +1788,21 @@ class SqlKnowlabRepository:
                     KnowbotMethod.id,
                     KnowbotMethod.created_at,
                     latest.c.version,
+                    KnowbotMethodVersion.digest,
+                    KnowbotMethodVersion.provenance["method_kind"]
+                    .as_string()
+                    .label("method_kind"),
                     func.coalesce(
+                        KnowbotMethodVersion.definition["capability_declaration"][
+                            "title"
+                        ].as_string(),
                         KnowbotMethodVersion.definition["title"].as_string(),
                         KnowbotMethodVersion.definition["step"]["title"].as_string(),
                     ).label("title"),
                     func.coalesce(
+                        KnowbotMethodVersion.definition["capability_declaration"][
+                            "purpose"
+                        ].as_string(),
                         KnowbotMethodVersion.definition["procedure"].as_string(),
                         KnowbotMethodVersion.definition["step"]["does"].as_string(),
                     ).label("summary"),
@@ -1804,6 +1814,21 @@ class SqlKnowlabRepository:
                     & (KnowbotMethodVersion.version == latest.c.version),
                 )
                 .where(KnowbotMethod.owner_subject == owner_subject)
+                .where(
+                    (
+                        func.coalesce(
+                            KnowbotMethodVersion.definition["contract"].as_string(), ""
+                        )
+                        == "knowlab/formal-method/v1"
+                    )
+                    if formal_only
+                    else (
+                        func.coalesce(
+                            KnowbotMethodVersion.definition["contract"].as_string(), ""
+                        )
+                        != "knowlab/formal-method/v1"
+                    )
+                )
                 .order_by(KnowbotMethod.created_at.desc(), KnowbotMethod.id)
                 .limit(limit)
                 .offset(offset)

@@ -169,6 +169,66 @@ class RuntimeTestClients:
                 "Invalid capability catalog", code="runtime_capabilities_invalid"
             ) from exc
 
+    async def formal_method_sources(self, runtime: str, subject: str) -> dict[str, Any]:
+        from app.domain.knowbots.formal_method_admission import FormalMethodSource
+
+        _, body = await self._client(runtime).request(
+            "GET", f"{USERS}/{quote(subject, safe='')}/formal-method-sources"
+        )
+        try:
+            if not isinstance(body, dict) or set(body) != {"items"}:
+                raise ValueError("Invalid source catalog")
+            return {
+                "items": [
+                    FormalMethodSource.model_validate(item).model_dump(mode="json")
+                    for item in body["items"]
+                ]
+            }
+        except (ValueError, TypeError) as exc:
+            raise BadGatewayError(
+                "Invalid formal method source catalog", code="formal_sources_invalid"
+            ) from exc
+
+    async def submit_formal_method_validation(
+        self, runtime: str, request: Any
+    ) -> dict[str, Any]:
+        _, body = await self._client(runtime).request(
+            "POST",
+            "/formal-method-validations",
+            json=request.model_dump(mode="json", by_alias=True),
+        )
+        return body
+
+    async def formal_method_validation(
+        self, runtime: str, subject: str, run_id: str
+    ) -> dict[str, Any]:
+        _, body = await self._client(runtime).request(
+            "GET",
+            f"/formal-method-validations/{quote(run_id, safe='')}?"
+            + urlencode({"owner_subject": subject}),
+        )
+        return body
+
+    async def register_formal_method(self, runtime: str, frozen: Any) -> dict[str, Any]:
+        _, body = await self._client(runtime).request(
+            "POST",
+            "/formal-method-registrations",
+            json=frozen.model_dump(mode="json", by_alias=True),
+        )
+        return body
+
+    async def formal_method_registration(
+        self, runtime: str, subject: str, method_id: str, version: int
+    ) -> dict[str, Any] | None:
+        status, body = await self._client(runtime).request(
+            "GET",
+            f"/formal-method-registrations/{quote(method_id, safe='')}/"
+            f"versions/{version}?"
+            + urlencode({"owner_subject": subject}),
+            accept=(404,),
+        )
+        return None if status == 404 else body
+
     async def model_key(self, runtime: str, subject: str) -> bool | None:
         """用户填了能用的模型 key 没有（SDD 0046 第三节「没填不能发起」）：运行方的
         `GET /users/{subject}/readiness` 回 `{"model_key": true|false}`。运行方还没有

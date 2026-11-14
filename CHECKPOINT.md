@@ -1,3 +1,13 @@
+# 2026-11-15 正式方法工作稿与冻结登记接入（未发布）
+
+本地 luna 与 KnowBench 同批开发。正式方法 definition/source/allowed_callers 进入现有 workdraft，作者确认精确修订，拒绝与旧执行定义混存；新 formal-versions 与旧非正式方法身份隔离，旧方法不能获得 formal 引用资格。完整 JSON 持久化/传输使用 by_alias，避免 schema 被写为 schema_。
+
+运行方验证请求和回执经已有 testrun 服务身份交换，不信任网页传入 passed/evidence_id；冻结核对所有者、修订、定义/来源摘要与全部依赖。先提交本地不可变版本再幂等交给 KnowBench 登记；失败保留版本以便重送，重送始终用冻结原快照。正式目录和依赖须有运行方精确登记回执，未登记本地冻结只供恢复。外部网络请求在数据库事务外。
+
+KnowBench 真实formal执行验证器仍缺失，当前验证保留 pending 和缺项，本仓测试受信模拟回执不代表真实孵化通过。完整图编辑、二次编排及回炉未实施；不开放旧作者能力绑定，不部署。
+
+验证：全量989 passed / 5 skipped / 0 failed（123.21s），2项跨仓向量随后补跑通过，余3项缺独立broker；SQL/HTTP/原方法20项通过；全仓Ruff/Pyright及导出检查通过。日志 /tmp/c2-knowlab-full-final.log、/tmp/c2-knowlab-formal-vectors.log、/tmp/c2-knowlab-formal-storage-recheck.log；最终提交和持久证据见 sunmoonun/CHECKPOINT.md。
+
 # 2026-11-02 Wind 通用查询与年报证据（开发候选，未发布）
 
 基线 `256e726b33cd003c3151d7aefc4c79cccb0765d7`。本轮本人要求第二轨作为主演示、巨潮保底，财务与年报都纳入、不限制为财务专线。

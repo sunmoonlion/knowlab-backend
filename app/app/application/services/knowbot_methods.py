@@ -118,7 +118,12 @@ class KnowbotMethodService:
                     )
                 _definition(existing)
                 return existing
-            if version != 1 + await self.repo.method_head(mid):
+            head = await self.repo.method_head(mid)
+            if head:
+                prior = await self.repo.method_version(mid, head)
+                assert prior is not None
+                _definition(prior)
+            if version != 1 + head:
                 raise ConcurrencyConflictError(
                     "Publish the next method version", code="method_version_conflict"
                 )

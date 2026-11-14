@@ -323,6 +323,11 @@ class KnowbotIncubationService:
                     "incubation_running",
                 )
             body = parse_body(current.body)
+            if body.formal_method is not None:
+                raise BadRequestError(
+                    "Formal definitions use formal method validation",
+                    code="formal_method_requires_validation",
+                )
             if step_id is not None and step_id not in {s.id for s in body.steps}:
                 raise BadRequestError("No such step", code="step_not_found")
             fresh = await self.repo.get_request(request.id)

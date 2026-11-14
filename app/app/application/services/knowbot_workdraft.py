@@ -155,7 +155,7 @@ class KnowbotWorkdraftService:
                     code="method_reference_readonly",
                 )
         await self.method_sources(current.owner_subject, body)
-        doc = body.model_dump(mode="json")
+        doc = body.model_dump(mode="json", by_alias=True)
         if size_of(doc) > MAX_BODY_BYTES:
             raise BadRequestError(
                 f"The workdraft is larger than {MAX_BODY_BYTES} bytes",
@@ -354,6 +354,11 @@ class KnowbotWorkdraftService:
         self, request: RequestRecord, current: WorkdraftRecord | None, version: str
     ) -> tuple[dict[str, Any], list[Problem]]:
         body = parse_body(empty_body() if current is None else current.body)
+        if body.formal_method is not None:
+            raise BadRequestError(
+                "Validate and freeze this definition through formal method incubation",
+                code="formal_method_requires_validation",
+            )
         sources = {} if current is None else current.sources
         entries = await self.repo.list_workdraft_entries(record_ids(sources))
         problems = source_problems(

@@ -41,6 +41,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowbots.formal_method_admission import FormalMethodDraft
 from app.domain.knowbots.managed_capabilities_generated import MethodAccess
 
 STEP_ID = r"^[A-Za-z][A-Za-z0-9_-]{0,47}$"
@@ -352,6 +353,9 @@ class MethodReference(Strict):
 
 
 class WorkdraftBody(Strict):
+    formal_method: FormalMethodDraft | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     name: str = Field(default="", max_length=80)
     tagline: str = Field(default="", max_length=200)
     scope: ScopeCell = ScopeCell()
@@ -378,6 +382,10 @@ class WorkdraftBody(Strict):
 
     @model_validator(mode="after")
     def _consistent(self) -> WorkdraftBody:
+        if self.formal_method is not None and (
+            self.steps or self.planning or self.method_refs or self.public_capabilities
+        ):
+            raise ValueError("A formal method cannot mix two executable definitions")
         ids = [s.id for s in self.steps]
         if len(ids) != len(set(ids)):
             raise ValueError("step ids must be unique")
@@ -430,6 +438,10 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
     text("scope/does", body.scope.does)
     text("scope/does_not", body.scope.does_not)
     text("scope/elsewhere", body.scope.elsewhere)
+    if body.formal_method is not None:
+        found["formal_method"] = canonical(
+            body.formal_method.model_dump(mode="json", by_alias=True)
+        )
     if body.planning is not None:
         found["planning"] = canonical(body.planning.model_dump(mode="json"))
     if body.public_capabilities is not None:
@@ -531,6 +543,7 @@ def apply(body: Mapping[str, Any], path: str, value: Any) -> dict[str, Any]:
             "scope",
             "planning",
             "public_capabilities",
+            "formal_method",
         )
         and len(parts) == 1
     ):

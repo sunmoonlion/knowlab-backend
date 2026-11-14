@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors.exceptions import NotFoundError, ServiceUnavailableError
 from app.application.ports.knowbots import DraftRecord
+from app.application.services.formal_methods import FormalMethodService
 from app.application.services.knowbot_board import (
     KnowbotBoard,
     Life,
@@ -74,6 +75,7 @@ from app.application.services.knowbot_service import KnowbotCreationService, par
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.bootstrap.knowbots import (
+    formal_method_service,
     knowbot_board,
     knowbot_delivery_service,
     knowbot_expert_service,
@@ -94,6 +96,10 @@ from app.domain.knowbots.delivery import (
     DeliverySubmitIn,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
+from app.domain.knowbots.formal_method_admission import (
+    FreezeFormalMethod,
+    ValidateFormalMethod,
+)
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
     RevisionIn,
@@ -190,6 +196,12 @@ def method_service(
     return knowbot_method_service(session)
 
 
+def formal_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> FormalMethodService:
+    return formal_method_service(session)
+
+
 def proposal_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotProposalService:
@@ -222,6 +234,7 @@ Proposals = Annotated[KnowbotProposalService, Depends(proposal_service)]
 Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Methods = Annotated[KnowbotMethodService, Depends(method_service)]
+FormalMethods = Annotated[FormalMethodService, Depends(formal_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
 Deliveries = Annotated[KnowbotDeliveryService, Depends(delivery_service)]
 Board = Annotated[KnowbotBoard, Depends(board_service)]
@@ -1585,13 +1598,80 @@ async def question_to_user(
 
 
 # ---------- web端：作者独立方法版本；没有管理员代确认入口 ----------
+@web_router.get("/knowbot-requests/{request_id}/formal-method-sources")
+async def formal_sources(
+    principal: User, methods: FormalMethods, request_id: ItemId
+) -> JSONResponse:
+    return _ok(await methods.sources(principal.subject, request_id))
+
+
+@web_router.post("/method-units/{method_id}/validations")
+async def validate_formal_method(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    body: ValidateFormalMethod,
+) -> JSONResponse:
+    return _ok(await methods.validate(principal.subject, method_id, body))
+
+
+@web_router.get("/method-units/{method_id}/validations/{run_id}")
+async def formal_validation(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    run_id: ItemId,
+    request_id: str,
+) -> JSONResponse:
+    return _ok(
+        await methods.validation(principal.subject, method_id, request_id, run_id)
+    )
+
+
+@web_router.put("/method-units/{method_id}/formal-versions/{version}")
+async def freeze_formal_version(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    version: Annotated[int, Path(ge=1, le=999999)],
+    body: FreezeFormalMethod,
+) -> JSONResponse:
+    return _ok(
+        method_version_view(
+            await methods.freeze(principal.subject, method_id, version, body)
+        )
+    )
+
+
+@web_router.get("/method-units/{method_id}/formal-versions/{version}")
+async def formal_version(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    version: Annotated[int, Path(ge=1, le=999999)],
+) -> JSONResponse:
+    return _ok(
+        method_version_view(await methods.get(principal.subject, method_id, version))
+    )
+
+
 @web_router.get("/method-units")
 async def my_methods(
     principal: User,
     methods: Methods,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
     offset: Annotated[int, Query(ge=0)] = 0,
+    formal: bool = False,
 ) -> JSONResponse:
+    if formal:
+        formal_methods = FormalMethodService(methods.repo, runtime_clients())
+        return _ok(
+            {
+                "items": await formal_methods.listing(
+                    principal.subject, limit=limit, offset=offset
+                )
+            }
+        )
     return _ok(
         {"items": await methods.listing(principal.subject, limit=limit, offset=offset)}
     )

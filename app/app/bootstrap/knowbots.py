@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.formal_methods import FormalMethodService
 from app.application.services.knowbot_board import KnowbotBoard
 from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import KnowbotExpertService
@@ -158,3 +159,7 @@ def knowbot_proposal_service(session: AsyncSession) -> KnowbotProposalService:
 
 def knowbot_method_service(session: AsyncSession) -> KnowbotMethodService:
     return KnowbotMethodService(SqlKnowlabRepository(session))
+
+
+def formal_method_service(session: AsyncSession) -> FormalMethodService:
+    return FormalMethodService(SqlKnowlabRepository(session), RuntimeTestClients())
