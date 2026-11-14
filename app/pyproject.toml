@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.116.0",
     "httpx>=0.28.0",
     "joserfc>=1.7.3,<2.0.0",
+    "jsonschema==4.26.0",
     "pydantic>=2.11.0",
     "pydantic-settings>=2.10.0",
     "python-multipart>=0.0.20",
@@ -26,7 +27,6 @@ dev = [
     "pyright>=1.1.400",
     "ruff",
     "import-linter>=2.3",
-    "jsonschema==4.26.0",
 ]
 
 [tool.pytest.ini_options]

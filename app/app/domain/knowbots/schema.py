@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.domain.knowbots.formal_method import FormalMethodDefinition
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
@@ -28,6 +29,7 @@ from app.domain.knowbots.test_run import (
 
 TEST_RUN = "knowbot-test-run"
 INCUBATION = "knowbot-incubation"
+FORMAL_METHOD = "formal-method"
 BASE = "https://contracts.sunmoonai.com/knowlab/knowbot-test-run/v1/"
 DOCUMENTS: dict[str, tuple[type[BaseModel], str]] = {
     "test-run-request.schema.json": (RunRequestV1, "knowbot-test-run v1 request"),
@@ -50,6 +52,15 @@ INCUBATION_DOCUMENTS: dict[str, tuple[type[BaseModel], str]] = {
 }
 # 契约名 → （$id 的前缀，几份 schema）
 CONTRACTS: dict[str, tuple[str, dict[str, tuple[type[BaseModel], str]]]] = {
+    FORMAL_METHOD: (
+        "https://contracts.sunmoonai.com/knowlab/formal-method/v1/",
+        {
+            "definition.schema.json": (
+                FormalMethodDefinition,
+                "formal-method v1 definition",
+            )
+        },
+    ),
     TEST_RUN: (BASE, DOCUMENTS),
     INCUBATION: (
         "https://contracts.sunmoonai.com/knowlab/knowbot-incubation/v1/",
