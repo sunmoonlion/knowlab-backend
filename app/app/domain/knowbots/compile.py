@@ -33,7 +33,7 @@ from pydantic import ValidationError
 
 from app.domain.knowbots.drafts import DYNAMIC_MANIFEST_SCHEMA, MANIFEST_SCHEMA
 from app.domain.knowbots.managed_authoring import MESSAGE, pack_paths, workdraft_paths
-from app.domain.knowbots.managed_capabilities_generated import MethodCapabilities
+from app.domain.knowbots.managed_capabilities_generated import MethodAccess
 from app.domain.knowbots.workdraft import (
     NAME,
     STEP_ID,
@@ -785,6 +785,10 @@ def _compile_manifest(
             contract["managed_capabilities"] = advanced.managed_capabilities.model_dump(
                 mode="json"
             )
+        if advanced.access_requirements:
+            contract["access_requirements"] = [
+                r.model_dump(mode="json") for r in advanced.access_requirements
+            ]
         if body.method_refs and step.id in body.method_refs:
             contract["step_version"] = str(body.method_refs[step.id].version)
         if isinstance(body.planning, CapabilityPlanningCell):
@@ -871,6 +875,7 @@ def _compile_manifest(
 STEP_KEYS = frozenset(
     {
         "managed_capabilities",
+        "access_requirements",
         "step_id",
         "step_version",
         "title",
@@ -1020,9 +1025,17 @@ def pack_problems(pack: object) -> list[Problem]:
                 Problem(f"{where}.input_refs", "must name earlier artifacts")
             )
         tools = step.get("tools", [])
-        if step.get("managed_capabilities") is not None:
+        if step.get("managed_capabilities") is not None or step.get(
+            "access_requirements"
+        ):
             try:
-                MethodCapabilities.model_validate(step["managed_capabilities"])
+                MethodAccess.model_validate(
+                    {
+                        key: step[key]
+                        for key in ("managed_capabilities", "access_requirements")
+                        if key in step
+                    }
+                )
             except ValueError:
                 problems.append(
                     Problem(
@@ -1187,9 +1200,17 @@ def _dynamic_pack_problems(pack: dict[str, Any]) -> list[Problem]:
             if type(value) is not int or not minimum <= value <= maximum:
                 problems.append(Problem(where, f"invalid {key}"))
         tools = contract.get("tools", [])
-        if contract.get("managed_capabilities") is not None:
+        if contract.get("managed_capabilities") is not None or contract.get(
+            "access_requirements"
+        ):
             try:
-                MethodCapabilities.model_validate(contract["managed_capabilities"])
+                MethodAccess.model_validate(
+                    {
+                        key: contract[key]
+                        for key in ("managed_capabilities", "access_requirements")
+                        if key in contract
+                    }
+                )
             except ValueError:
                 problems.append(Problem(where, "invalid managed requirements"))
         if not isinstance(tools, list) or any(not isinstance(t, str) for t in tools):
@@ -1566,6 +1587,8 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         advanced: dict[str, Any] = {}
         if raw.get("managed_capabilities") is not None:
             advanced["managed_capabilities"] = raw["managed_capabilities"]
+        if raw.get("access_requirements"):
+            advanced["access_requirements"] = raw["access_requirements"]
         tools = raw.get("tools")
         if isinstance(tools, list) and tuple(tools) != DEFAULT_TOOLS:
             advanced["tools"] = tools

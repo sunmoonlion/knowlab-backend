@@ -15,15 +15,45 @@ from tests.knowbot_fakes import OWNER
 from tests.test_knowbot_incubation_service import Wired
 from tests.test_knowbot_workdraft_compile import body, build
 
+ACCESS = {
+    "requirement_id": "deliver-notice",
+    "capability_ref": "synthetic-mail",
+    "version": "1",
+    "operations": ["send"],
+    "resources": [
+        {
+            "resource_kind": "connector",
+            "resource_role": "recipient",
+            "values": ["test@example.test"],
+        }
+    ],
+    "data_transfer": {
+        "destination": "https://tools.example.test/mcp",
+        "argument_fields": ["to"],
+        "purpose": "Deliver the confirmed notice",
+    },
+    "required_when": "always",
+    "on_unavailable": "pause",
+}
+
 REQ = {
-    "tools": [{"url": "https://tools.example.test/mcp", "name": "send"}],
+    "tools": [
+        {
+            "url": "https://tools.example.test/mcp",
+            "name": "send",
+            "requirement_id": "deliver-notice",
+        }
+    ],
     "skills": [{"name": "notice", "version": "1", "digest": "a" * 64}],
 }
 
 
 def test_authoring_and_import_refuse_technical_only_requirements():
     doc = body()
-    doc["steps"][0]["advanced"] = {"managed_capabilities": REQ}
+    doc["steps"][0]["advanced"] = {
+        "managed_capabilities": REQ,
+        "access_requirements": [ACCESS],
+    }
     manifest, problems = build(doc)
     assert any(p.message == MESSAGE for p in problems)
     assert any(p.message == MESSAGE for p in pack_problems(manifest["pack"]))
@@ -90,7 +120,15 @@ async def test_save_rejects_bindings_and_leaves_existing_draft_unchanged(kind):
             str(request.id),
             revision=saved.revision,
             edits=[
-                ("steps/overview/advanced", {"managed_capabilities": {kind: REQ[kind]}})
+                (
+                    "steps/overview/advanced",
+                    {
+                        "managed_capabilities": {kind: REQ[kind]},
+                        **(
+                            {"access_requirements": [ACCESS]} if kind == "tools" else {}
+                        ),
+                    },
+                )
             ],
         )
     assert error.value.code == CODE
@@ -114,14 +152,19 @@ async def test_import_and_publish_cannot_bypass_the_authoring_gate():
     request = await w.request()
     saved = await w.works.save(OWNER, str(request.id), revision=0, edits=CELLS)
     doc = body()
-    doc["steps"][0]["advanced"] = {"managed_capabilities": REQ}
+    doc["steps"][0]["advanced"] = {
+        "managed_capabilities": REQ,
+        "access_requirements": [ACCESS],
+    }
     manifest, _ = build(doc)
     with pytest.raises(BadRequestError, match="MCP / Skill"):
         await w.works.import_manifest(
             OWNER, str(request.id), revision=saved.revision, manifest=manifest
         )
     contaminated = deepcopy(saved.body)
-    contaminated["steps"][0]["advanced"]["managed_capabilities"] = REQ
+    contaminated["steps"][0]["advanced"].update(
+        {"managed_capabilities": REQ, "access_requirements": [ACCESS]}
+    )
     await w.repo.update_workdraft(
         saved.id, body=contaminated, sources=saved.sources, revision=saved.revision
     )
@@ -135,14 +178,32 @@ def test_pack_gate_checks_direct_and_referenced_implementations(location):
     from app.domain.knowbots.managed_authoring import pack_paths
 
     if location == "fixed":
-        pack = {"workflow": [{"managed_capabilities": REQ}]}
+        pack = {
+            "workflow": [{"managed_capabilities": REQ, "access_requirements": [ACCESS]}]
+        }
     elif location == "dynamic":
-        pack = {"method_units": [{"contract": {"managed_capabilities": REQ}}]}
+        pack = {
+            "method_units": [
+                {
+                    "contract": {
+                        "managed_capabilities": REQ,
+                        "access_requirements": [ACCESS],
+                    }
+                }
+            ]
+        }
     else:
         pack = {
             "method_sources": {
                 "unit": {
-                    "definition": {"step": {"advanced": {"managed_capabilities": REQ}}}
+                    "definition": {
+                        "step": {
+                            "advanced": {
+                                "managed_capabilities": REQ,
+                                "access_requirements": [ACCESS],
+                            }
+                        }
+                    }
                 }
             }
         }

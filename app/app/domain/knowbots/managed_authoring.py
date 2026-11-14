@@ -16,6 +16,8 @@ CODE = "method_access_not_ready"
 def _binding_paths(container: Any, path: str) -> list[str]:
     if not isinstance(container, dict):
         return []
+    if container.get("access_requirements"):
+        return [f"{path}.access_requirements"]
     requirements = container.get("managed_capabilities")
     if isinstance(requirements, dict) and (
         requirements.get("tools") or requirements.get("skills")
