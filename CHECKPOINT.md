@@ -1,3 +1,15 @@
+# 2026-11-15 私有 host-only 确定性专家实测契约（未发布）
+
+正式执行请求允许受限的单层专家 DAG：每步必做且只有一个精确方法引用，所有依赖快照须完整匹配；稳定拓扑顺序、max_replans=0，深度/步骤/展开次数按声明约束，on_failure 只接受 fail。Caller/Literal/Step 输入连接必须闭合，不自动绑定 ResourceValue；叶子真实登记、直接 MCP/host 资格和当前来源、执行许可及操作策略由 KnowBench 执行侧再次核验。
+
+复用既有 execution 请求、冻结测试题、运行身份与动作决策，不增加步骤历史契约；case.call_id 是当前/最后调用，动作只代表当前未结清审批。服务端明确拒绝编排的 public 冻结，即使业务检查全部通过且未覆盖列表为空。`tests/test_formal_expert_visibility.py` 使用内存仓库和明确标注的合成回执，验证拒绝公开时不持久版本/不登记，同一回执仍可私有冻结；这是权限边界回归，不是实际执行证据。
+
+已核实本轮 backend 全量 **1062 passed / 3 skipped / 5 warnings，110.40s**，日志 `/tmp/c2-formal-plan-kl-backend-full.log`。3 项跳过为缺独立 `CELERY_PROBE_TEST_BROKER_URL` 的 broker 测试；5 项 warning 为既有 pytest 类收集提示。独立 private/public 服务边界测试 **1 passed**，日志 `/tmp/kl-expert-visibility-service.log`。平台根维护统一证据 `sunmoonun/scripts/results/c2-formal-plan-20261115.json`，本仓不填写尚未完成的 KnowBench 全量结果。
+
+本轮是本地工程候选，未部署，未调用真实供应商或付费模型；合成运行/回执测试不代表真实作者的业务质量验收。普通会话专家调用入口、嵌套专家、专家团队、模型步骤、条件分支、重规划和 ResourceValue 自动绑定均未开放。正式 C2 仍未整体完成。以下旧检查点按时间保留，其中的阶段状态不覆盖本段。
+
+本地约 94 GiB 内存环境可并发独立任务；回到此前约 3.7 GiB 的远程，必须重新核实主机与可用内存，重型测试、类型检查和构建不得并发。Git 操作始终串行。
+
 # 2026-11-15 模型调用正式方法的测试资格（本地候选，未发布）
 
 继续接通直接 MCP 方法的模型调用测试：作者明确声明 host/model 并为各来源提供独立用例，模型提示与预期断言分离。通过既有 Task/Attempt、Runner 和共同 MCP 调用链，最多一个真实模型 turn、一次候选调用，逐次本人批准；独立核对历史调用事件、输入输出、隔离范围、授权和真实用量/预算账，再形成限定调用来源的回执。旧 host 回执不自动获得 model 资格。

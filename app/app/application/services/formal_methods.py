@@ -615,6 +615,14 @@ class FormalMethodService:
                 ),
             )
             receipt = self._receipt(payload, result)
+            if (
+                isinstance(payload.draft.definition.procedure, Orchestration)
+                and command.visibility != "private"
+            ):
+                raise BadRequestError(
+                    "Formal expert execution currently qualifies private use only",
+                    code="formal_validation_private_only",
+                )
             if command.visibility == "public" and (
                 receipt.uncovered or "business" not in receipt.checks
             ):
