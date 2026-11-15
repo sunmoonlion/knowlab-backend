@@ -124,6 +124,26 @@ class FormalMethodService:
                 "Invalid formal execution response", code="formal_execution_invalid"
             ) from exc
 
+    @staticmethod
+    def _execution_cases(result: FormalMethodExecutionResult, suite: FormalTestSuite):
+        expected = {
+            (case.case_id, repetition): case.caller
+            for case in suite.cases
+            for repetition in range(1, case.repetitions + 1)
+        }
+        observed = {
+            (case.case_id, case.repetition): case.caller for case in result.cases
+        }
+        if (
+            any(expected.get(key) != caller for key, caller in observed.items())
+            or result.status == "passed"
+            and observed != expected
+        ):
+            raise BadGatewayError(
+                "Execution cases differ from the frozen test suite",
+                code="formal_execution_invalid",
+            )
+
     async def execute(self, owner: str, method_id: str, command: ExecuteFormalMethod):
         mid = parse_id(method_id, "method")
         async with self.repo.transaction():
@@ -167,6 +187,7 @@ class FormalMethodService:
             )
         if result.admission.receipt:
             self._receipt(admission, result.admission)
+        self._execution_cases(result, payload.execution.suite)
         return result.model_dump(mode="json")
 
     async def execution(self, owner: str, method_id: str, request_id: str, run_id: str):
@@ -190,6 +211,7 @@ class FormalMethodService:
                 "Execution test suite is not frozen by this author",
                 code="formal_execution_invalid",
             )
+        self._execution_cases(result, FormalTestSuite.model_validate(suite))
         return result.model_dump(mode="json")
 
     async def cancel_execution(
@@ -434,6 +456,10 @@ class FormalMethodService:
             or receipt.definition_digest != payload.draft.definition.digest()
             or receipt.source_digest != source_digest
             or set(receipt.dependencies) != set(payload.dependencies)
+            or "model" in payload.draft.allowed_callers
+            and receipt.execution is None
+            or receipt.execution is not None
+            and not receipt.execution.covers_callers(payload.draft.allowed_callers)
         ):
             raise ConcurrencyConflictError(
                 "Validation refers to another definition or source revision",

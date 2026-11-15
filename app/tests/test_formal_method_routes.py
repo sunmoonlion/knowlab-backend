@@ -14,10 +14,12 @@ from tests.test_knowbot_workdraft_routes import ADMIN_SID, WEB, WEB_SID
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("caller", ["host", "model"])
 async def test_formal_execution_http_keeps_grading_private_and_actions_scoped(
     monkeypatch,
+    caller,
 ):
-    _, runtime, service, mid, command = await prepared()
+    _, runtime, service, mid, command = await prepared(caller=caller)
     monkeypatch.setattr(
         auth_middleware,
         "web_auth_service",

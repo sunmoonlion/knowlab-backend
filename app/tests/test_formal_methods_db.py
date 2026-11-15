@@ -70,7 +70,7 @@ async def test_changed_workdraft_cannot_freeze_using_earlier_runtime_receipt(db)
     async with db() as session:
         service = KnowbotWorkdraftService(SqlKnowlabRepository(session))
         changed = draft().model_dump(mode="json", by_alias=True)
-        changed["allowed_callers"] = ["host"]
+        changed["allowed_callers"] = ["host", "model"]
         await service.save(
             OWNER,
             str(command.request_id),
@@ -124,7 +124,7 @@ async def test_registration_failure_retries_committed_version_without_transactio
             await service.freeze(OWNER, str(mid), 1, freeze_command(command))
     async with db() as session:
         changed = draft().model_dump(mode="json", by_alias=True)
-        changed["allowed_callers"] = ["host"]
+        changed["allowed_callers"] = ["host", "model"]
         await KnowbotWorkdraftService(SqlKnowlabRepository(session)).save(
             OWNER,
             str(command.request_id),
@@ -135,4 +135,4 @@ async def test_registration_failure_retries_committed_version_without_transactio
     await freeze(db, runtime, mid, command)
     assert len(runtime.registrations) == 1
     assert runtime.registration_calls[0] == runtime.registration_calls[1]
-    assert runtime.registration_calls[1].draft.allowed_callers == ("host", "model")
+    assert runtime.registration_calls[1].draft.allowed_callers == ("host",)

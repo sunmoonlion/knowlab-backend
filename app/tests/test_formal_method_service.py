@@ -194,7 +194,7 @@ def draft():
                 "asset_revision": None,
                 "license_basis": "Platform test implementation",
             },
-            "allowed_callers": ["host", "model"],
+            "allowed_callers": ["host"],
         }
     )
 
@@ -248,14 +248,14 @@ async def test_registration_reply_loss_replays_the_frozen_snapshot_after_draft_e
     record = await service.get(OWNER, str(mid), 1)
     assert len(repo.method_versions) == len(runtime.registrations) == 1
     changed = draft().model_dump(mode="json", by_alias=True)
-    changed["allowed_callers"] = ["host"]
+    changed["allowed_callers"] = ["host", "model"]
     await service.workdrafts.save(
         OWNER, str(command.request_id), revision=1, edits=[("formal_method", changed)]
     )
     runtime.fail_register = False
     assert await service.freeze(OWNER, str(mid), 1, freeze_command(command)) == record
     assert runtime.registration_calls[0] == runtime.registration_calls[1]
-    assert runtime.registration_calls[1].draft.allowed_callers == ("host", "model")
+    assert runtime.registration_calls[1].draft.allowed_callers == ("host",)
 
 
 @pytest.mark.asyncio

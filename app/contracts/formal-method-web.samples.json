@@ -1,0 +1,2420 @@
+{
+  "purpose": "Contract fixtures only, never real admission or source rights evidence",
+  "samples": [
+    {
+      "name": "host-command",
+      "schema": "execution-command",
+      "valid": true,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "host",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60
+        }
+      }
+    },
+    {
+      "name": "host-request",
+      "schema": "execution-request",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "owner_subject": "test-author",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "workdraft_id": "00000000-0000-4000-8000-000000000003",
+        "revision": 1,
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "host"
+          ]
+        },
+        "dependencies": [],
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "host",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ],
+            "digest": "sha256:762bfb3a1e304b716109bb48cab94e19e9cb64761a1c5d418edbe5fdd1fe7b19"
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60
+        }
+      }
+    },
+    {
+      "name": "host-suite",
+      "schema": "suite",
+      "valid": true,
+      "value": {
+        "suite_id": "00000000-0000-4000-8000-000000000014",
+        "version": 1,
+        "cases": [
+          {
+            "case_id": "host",
+            "input": {
+              "values": {
+                "value": 3
+              }
+            },
+            "repetitions": 1,
+            "minimum_passes": 1,
+            "expected": {
+              "outcome": "succeeded",
+              "rejection_code": null,
+              "assertions": [
+                {
+                  "kind": "equals",
+                  "pointer": "/result",
+                  "value": 3
+                }
+              ]
+            }
+          }
+        ],
+        "digest": "sha256:762bfb3a1e304b716109bb48cab94e19e9cb64761a1c5d418edbe5fdd1fe7b19"
+      }
+    },
+    {
+      "name": "host-passed-result",
+      "schema": "execution-result",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:27f58ea1fc485dff9baa606a2cffa6f6c568d4e45a7fb2682bbddbb3a81ed692",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:762bfb3a1e304b716109bb48cab94e19e9cb64761a1c5d418edbe5fdd1fe7b19"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:27f58ea1fc485dff9baa606a2cffa6f6c568d4e45a7fb2682bbddbb3a81ed692",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:762bfb3a1e304b716109bb48cab94e19e9cb64761a1c5d418edbe5fdd1fe7b19",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "host",
+            "repetition": 1,
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "host-frozen",
+      "schema": "registration-request",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/frozen-formal-method/v1",
+        "owner_subject": "test-author",
+        "reference": {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "version": 1,
+          "digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d"
+        },
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "host"
+          ]
+        },
+        "validation": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "owner_subject": "test-author",
+          "request_id": "00000000-0000-4000-8000-000000000002",
+          "workdraft_id": "00000000-0000-4000-8000-000000000003",
+          "revision": 1,
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "dependencies": [],
+          "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+          "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+          "checks": [
+            "approval",
+            "authorization",
+            "definition",
+            "dependencies",
+            "isolation",
+            "outcome",
+            "source"
+          ],
+          "uncovered": [
+            {
+              "scenario": "Real service",
+              "reason": "Contract fixture only",
+              "scope": "Not executable evidence"
+            }
+          ],
+          "completed_at": "2026-11-15T00:00:00Z",
+          "execution": {
+            "contract": "knowlab/formal-method-execution/v1",
+            "request_digest": "sha256:27f58ea1fc485dff9baa606a2cffa6f6c568d4e45a7fb2682bbddbb3a81ed692",
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "suite_version": 1,
+            "suite_digest": "sha256:762bfb3a1e304b716109bb48cab94e19e9cb64761a1c5d418edbe5fdd1fe7b19",
+            "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        },
+        "visibility": "private"
+      }
+    },
+    {
+      "name": "model-command",
+      "schema": "execution-command",
+      "valid": true,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  },
+                  "model_prompt": "Call the candidate with the supplied values."
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60,
+          "model_probe": {
+            "max_turns": 1,
+            "max_method_calls": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "model-request",
+      "schema": "execution-request",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "owner_subject": "test-author",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "workdraft_id": "00000000-0000-4000-8000-000000000003",
+        "revision": 1,
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "model"
+          ]
+        },
+        "dependencies": [],
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  },
+                  "model_prompt": "Call the candidate with the supplied values."
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ],
+            "digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146"
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60,
+          "model_probe": {
+            "max_turns": 1,
+            "max_method_calls": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "model-suite",
+      "schema": "suite",
+      "valid": true,
+      "value": {
+        "suite_id": "00000000-0000-4000-8000-000000000014",
+        "version": 1,
+        "cases": [
+          {
+            "case_id": "model",
+            "caller": "model",
+            "input": {
+              "values": {
+                "value": 3
+              },
+              "model_prompt": "Call the candidate with the supplied values."
+            },
+            "repetitions": 1,
+            "minimum_passes": 1,
+            "expected": {
+              "outcome": "succeeded",
+              "rejection_code": null,
+              "assertions": [
+                {
+                  "kind": "equals",
+                  "pointer": "/result",
+                  "value": 3
+                }
+              ]
+            }
+          }
+        ],
+        "digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146"
+      }
+    },
+    {
+      "name": "model-passed-result",
+      "schema": "execution-result",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "validated_callers": [
+                "model"
+              ]
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "model",
+            "repetition": 1,
+            "caller": "model",
+            "model_trace": {
+              "thread_id": "thread",
+              "turn_id": "turn",
+              "tool_call_id": "tool",
+              "method_call_id": "00000000-0000-4000-8000-000000000064"
+            },
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "model-frozen",
+      "schema": "registration-request",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/frozen-formal-method/v1",
+        "owner_subject": "test-author",
+        "reference": {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "version": 1,
+          "digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d"
+        },
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "model"
+          ]
+        },
+        "validation": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "owner_subject": "test-author",
+          "request_id": "00000000-0000-4000-8000-000000000002",
+          "workdraft_id": "00000000-0000-4000-8000-000000000003",
+          "revision": 1,
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "dependencies": [],
+          "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+          "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+          "checks": [
+            "approval",
+            "authorization",
+            "definition",
+            "dependencies",
+            "isolation",
+            "outcome",
+            "source"
+          ],
+          "uncovered": [
+            {
+              "scenario": "Real service",
+              "reason": "Contract fixture only",
+              "scope": "Not executable evidence"
+            }
+          ],
+          "completed_at": "2026-11-15T00:00:00Z",
+          "execution": {
+            "contract": "knowlab/formal-method-execution/v1",
+            "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "suite_version": 1,
+            "suite_digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146",
+            "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "validated_callers": [
+              "model"
+            ]
+          }
+        },
+        "visibility": "private"
+      }
+    },
+    {
+      "name": "model-legacy-host-proof",
+      "schema": "execution-result",
+      "valid": false,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "model",
+            "repetition": 1,
+            "caller": "model",
+            "model_trace": {
+              "thread_id": "thread",
+              "turn_id": "turn",
+              "tool_call_id": "tool",
+              "method_call_id": "00000000-0000-4000-8000-000000000064"
+            },
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "model-legacy-host-freeze",
+      "schema": "registration-request",
+      "valid": false,
+      "value": {
+        "contract": "knowlab/frozen-formal-method/v1",
+        "owner_subject": "test-author",
+        "reference": {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "version": 1,
+          "digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d"
+        },
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "model"
+          ]
+        },
+        "validation": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "owner_subject": "test-author",
+          "request_id": "00000000-0000-4000-8000-000000000002",
+          "workdraft_id": "00000000-0000-4000-8000-000000000003",
+          "revision": 1,
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "dependencies": [],
+          "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+          "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+          "checks": [
+            "approval",
+            "authorization",
+            "definition",
+            "dependencies",
+            "isolation",
+            "outcome",
+            "source"
+          ],
+          "uncovered": [
+            {
+              "scenario": "Real service",
+              "reason": "Contract fixture only",
+              "scope": "Not executable evidence"
+            }
+          ],
+          "completed_at": "2026-11-15T00:00:00Z",
+          "execution": {
+            "contract": "knowlab/formal-method-execution/v1",
+            "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "suite_version": 1,
+            "suite_digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146",
+            "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        },
+        "visibility": "private"
+      }
+    },
+    {
+      "name": "model-missing-model-trace",
+      "schema": "execution-result",
+      "valid": false,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:92b2c44e51f78343079176210231221bd8a4cb4441b9f5dcb7e0497dadb6c955",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:5f4a358f32e6565af07598587192a29212fc10634eeae3df649422c878949146",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "validated_callers": [
+                "model"
+              ]
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "model",
+            "repetition": 1,
+            "caller": "model",
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "model-missing-model-limits",
+      "schema": "execution-command",
+      "valid": false,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  },
+                  "model_prompt": "Call the candidate with the supplied values."
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60
+        }
+      }
+    },
+    {
+      "name": "model-missing-model-prompt",
+      "schema": "execution-command",
+      "valid": false,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60,
+          "model_probe": {
+            "max_turns": 1,
+            "max_method_calls": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "host-model-command",
+      "schema": "execution-command",
+      "valid": true,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "host",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  },
+                  "model_prompt": "Call the candidate with the supplied values."
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60,
+          "model_probe": {
+            "max_turns": 1,
+            "max_method_calls": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "host-model-request",
+      "schema": "execution-request",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "owner_subject": "test-author",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "workdraft_id": "00000000-0000-4000-8000-000000000003",
+        "revision": 1,
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "host",
+            "model"
+          ]
+        },
+        "dependencies": [],
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "host",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  },
+                  "model_prompt": "Call the candidate with the supplied values."
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ],
+            "digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813"
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60,
+          "model_probe": {
+            "max_turns": 1,
+            "max_method_calls": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "host-model-suite",
+      "schema": "suite",
+      "valid": true,
+      "value": {
+        "suite_id": "00000000-0000-4000-8000-000000000014",
+        "version": 1,
+        "cases": [
+          {
+            "case_id": "host",
+            "input": {
+              "values": {
+                "value": 3
+              }
+            },
+            "repetitions": 1,
+            "minimum_passes": 1,
+            "expected": {
+              "outcome": "succeeded",
+              "rejection_code": null,
+              "assertions": [
+                {
+                  "kind": "equals",
+                  "pointer": "/result",
+                  "value": 3
+                }
+              ]
+            }
+          },
+          {
+            "case_id": "model",
+            "caller": "model",
+            "input": {
+              "values": {
+                "value": 3
+              },
+              "model_prompt": "Call the candidate with the supplied values."
+            },
+            "repetitions": 1,
+            "minimum_passes": 1,
+            "expected": {
+              "outcome": "succeeded",
+              "rejection_code": null,
+              "assertions": [
+                {
+                  "kind": "equals",
+                  "pointer": "/result",
+                  "value": 3
+                }
+              ]
+            }
+          }
+        ],
+        "digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813"
+      }
+    },
+    {
+      "name": "host-model-passed-result",
+      "schema": "execution-result",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "validated_callers": [
+                "host",
+                "model"
+              ]
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "host",
+            "repetition": 1,
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          },
+          {
+            "case_id": "model",
+            "repetition": 1,
+            "caller": "model",
+            "model_trace": {
+              "thread_id": "thread",
+              "turn_id": "turn",
+              "tool_call_id": "tool",
+              "method_call_id": "00000000-0000-4000-8000-000000000064"
+            },
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c9",
+            "attempt_id": "00000000-0000-4000-8000-00000000012d",
+            "call_id": "00000000-0000-4000-8000-000000000191",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "host-model-frozen",
+      "schema": "registration-request",
+      "valid": true,
+      "value": {
+        "contract": "knowlab/frozen-formal-method/v1",
+        "owner_subject": "test-author",
+        "reference": {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "version": 1,
+          "digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d"
+        },
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "host",
+            "model"
+          ]
+        },
+        "validation": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "owner_subject": "test-author",
+          "request_id": "00000000-0000-4000-8000-000000000002",
+          "workdraft_id": "00000000-0000-4000-8000-000000000003",
+          "revision": 1,
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "dependencies": [],
+          "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+          "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+          "checks": [
+            "approval",
+            "authorization",
+            "definition",
+            "dependencies",
+            "isolation",
+            "outcome",
+            "source"
+          ],
+          "uncovered": [
+            {
+              "scenario": "Real service",
+              "reason": "Contract fixture only",
+              "scope": "Not executable evidence"
+            }
+          ],
+          "completed_at": "2026-11-15T00:00:00Z",
+          "execution": {
+            "contract": "knowlab/formal-method-execution/v1",
+            "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "suite_version": 1,
+            "suite_digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813",
+            "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "validated_callers": [
+              "host",
+              "model"
+            ]
+          }
+        },
+        "visibility": "private"
+      }
+    },
+    {
+      "name": "host-model-legacy-host-proof",
+      "schema": "execution-result",
+      "valid": false,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "host",
+            "repetition": 1,
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          },
+          {
+            "case_id": "model",
+            "repetition": 1,
+            "caller": "model",
+            "model_trace": {
+              "thread_id": "thread",
+              "turn_id": "turn",
+              "tool_call_id": "tool",
+              "method_call_id": "00000000-0000-4000-8000-000000000064"
+            },
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c9",
+            "attempt_id": "00000000-0000-4000-8000-00000000012d",
+            "call_id": "00000000-0000-4000-8000-000000000191",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "host-model-legacy-host-freeze",
+      "schema": "registration-request",
+      "valid": false,
+      "value": {
+        "contract": "knowlab/frozen-formal-method/v1",
+        "owner_subject": "test-author",
+        "reference": {
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "version": 1,
+          "digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d"
+        },
+        "draft": {
+          "definition": {
+            "contract": "knowlab/formal-method/v1",
+            "capability_declaration": {
+              "title": "Echo",
+              "purpose": "Return the supplied value",
+              "applies_when": [
+                "A finite number is supplied"
+              ],
+              "excludes": [
+                "Inferring missing values"
+              ],
+              "promises": {
+                "value": "Return the unchanged number"
+              }
+            },
+            "access_requirements": [],
+            "procedure": {
+              "kind": "direct",
+              "implementation": {
+                "kind": "mcp",
+                "source": "generic-test-echo",
+                "version": "1",
+                "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "entry": "echo",
+                "requirement_ids": []
+              },
+              "inputs": {
+                "value": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "outputs": {
+                "result": {
+                  "description": "A dimensionless value",
+                  "schema": {
+                    "type": "number"
+                  },
+                  "required": true,
+                  "meaning": {
+                    "unit": "dimensionless"
+                  },
+                  "on_missing": "pause"
+                }
+              },
+              "instructions": "Return the supplied value unchanged",
+              "stop_conditions": [
+                "One result returned or invalid input rejected"
+              ],
+              "max_model_turns": 0
+            },
+            "how_to_validate": [
+              {
+                "promise_id": "value",
+                "outputs": [
+                  "result"
+                ],
+                "check": "Compare exact values",
+                "evidence": "Input and result",
+                "on_failure": "fail"
+              }
+            ],
+            "what_requires_approval": []
+          },
+          "source": {
+            "asset_id": "00000000-0000-4000-8000-00000000000a",
+            "asset_revision": 1,
+            "kind": "mcp",
+            "source": "generic-test-echo",
+            "version": "1",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "entry": "echo",
+            "license_basis": "Platform test implementation"
+          },
+          "allowed_callers": [
+            "host",
+            "model"
+          ]
+        },
+        "validation": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "owner_subject": "test-author",
+          "request_id": "00000000-0000-4000-8000-000000000002",
+          "workdraft_id": "00000000-0000-4000-8000-000000000003",
+          "revision": 1,
+          "method_id": "00000000-0000-4000-8000-000000000004",
+          "dependencies": [],
+          "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+          "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+          "checks": [
+            "approval",
+            "authorization",
+            "definition",
+            "dependencies",
+            "isolation",
+            "outcome",
+            "source"
+          ],
+          "uncovered": [
+            {
+              "scenario": "Real service",
+              "reason": "Contract fixture only",
+              "scope": "Not executable evidence"
+            }
+          ],
+          "completed_at": "2026-11-15T00:00:00Z",
+          "execution": {
+            "contract": "knowlab/formal-method-execution/v1",
+            "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "suite_version": 1,
+            "suite_digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813",
+            "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          }
+        },
+        "visibility": "private"
+      }
+    },
+    {
+      "name": "host-model-missing-model-trace",
+      "schema": "execution-result",
+      "valid": false,
+      "value": {
+        "contract": "knowlab/formal-method-execution/v1",
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "method_id": "00000000-0000-4000-8000-000000000004",
+        "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+        "suite": {
+          "suite_id": "00000000-0000-4000-8000-000000000014",
+          "version": 1,
+          "digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813"
+        },
+        "status": "passed",
+        "admission": {
+          "contract": "knowlab/formal-method-validation/v1",
+          "run_id": "00000000-0000-4000-8000-000000000001",
+          "status": "passed",
+          "receipt": {
+            "contract": "knowlab/formal-method-validation/v1",
+            "run_id": "00000000-0000-4000-8000-000000000001",
+            "owner_subject": "test-author",
+            "request_id": "00000000-0000-4000-8000-000000000002",
+            "workdraft_id": "00000000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "method_id": "00000000-0000-4000-8000-000000000004",
+            "dependencies": [],
+            "definition_digest": "sha256:a7028e4372ab314bea62fc816d65a1f838a57cdd5b522c24d2b86dc37553484d",
+            "source_digest": "sha256:09f3860377f758a2e948e176724f271deea111265fcbbc501f8e82232856544d",
+            "checks": [
+              "approval",
+              "authorization",
+              "definition",
+              "dependencies",
+              "isolation",
+              "outcome",
+              "source"
+            ],
+            "uncovered": [
+              {
+                "scenario": "Real service",
+                "reason": "Contract fixture only",
+                "scope": "Not executable evidence"
+              }
+            ],
+            "completed_at": "2026-11-15T00:00:00Z",
+            "execution": {
+              "contract": "knowlab/formal-method-execution/v1",
+              "request_digest": "sha256:f99f850e75d5ec5334279875f64140cb622d18709138b2f416f7648463baaa70",
+              "suite_id": "00000000-0000-4000-8000-000000000014",
+              "suite_version": 1,
+              "suite_digest": "sha256:a810dc85f6d59446bc1d65fcd23471272dac9bb4fe0daadd6e56aa813846b813",
+              "evidence_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "validated_callers": [
+                "host",
+                "model"
+              ]
+            }
+          },
+          "missing_checks": [],
+          "details": []
+        },
+        "cases": [
+          {
+            "case_id": "host",
+            "repetition": 1,
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c8",
+            "attempt_id": "00000000-0000-4000-8000-00000000012c",
+            "call_id": "00000000-0000-4000-8000-000000000190",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          },
+          {
+            "case_id": "model",
+            "repetition": 1,
+            "caller": "model",
+            "status": "passed",
+            "outcome": "succeeded",
+            "rejection_code": null,
+            "task_id": "00000000-0000-4000-8000-0000000000c9",
+            "attempt_id": "00000000-0000-4000-8000-00000000012d",
+            "call_id": "00000000-0000-4000-8000-000000000191",
+            "assertions": [
+              {
+                "index": 0,
+                "passed": true,
+                "detail": "matched"
+              }
+            ],
+            "detail": ""
+          }
+        ],
+        "spent": "0",
+        "currency": "CNY",
+        "actions": []
+      }
+    },
+    {
+      "name": "host-model-missing-model-limits",
+      "schema": "execution-command",
+      "valid": false,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "host",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  },
+                  "model_prompt": "Call the candidate with the supplied values."
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60
+        }
+      }
+    },
+    {
+      "name": "host-model-missing-model-prompt",
+      "schema": "execution-command",
+      "valid": false,
+      "value": {
+        "request_id": "00000000-0000-4000-8000-000000000002",
+        "revision": 1,
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "execution": {
+          "suite": {
+            "suite_id": "00000000-0000-4000-8000-000000000014",
+            "version": 1,
+            "cases": [
+              {
+                "case_id": "host",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              },
+              {
+                "case_id": "model",
+                "caller": "model",
+                "input": {
+                  "values": {
+                    "value": 3
+                  }
+                },
+                "repetitions": 1,
+                "minimum_passes": 1,
+                "expected": {
+                  "outcome": "succeeded",
+                  "rejection_code": null,
+                  "assertions": [
+                    {
+                      "kind": "equals",
+                      "pointer": "/result",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "runner": {
+            "kind": "user",
+            "environment_id": "00000000-0000-4000-8000-00000000001e",
+            "workspace_root": "/workspace"
+          },
+          "budget": {
+            "limit": "1",
+            "currency": "CNY"
+          },
+          "timeout_seconds": 60,
+          "max_wait_seconds": 60,
+          "model_probe": {
+            "max_turns": 1,
+            "max_method_calls": 1
+          }
+        }
+      }
+    }
+  ]
+}

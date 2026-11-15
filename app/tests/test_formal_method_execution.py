@@ -129,23 +129,30 @@ class ExecutionRuntime(Runtime):
         return result
 
 
-async def prepared(repo=None, runtime=None):
+async def prepared(repo=None, runtime=None, *, caller="host"):
     repo, runtime, service, mid, intake = await setup(
         repo or ExecutionRepository(), runtime or ExecutionRuntime()
     )
     body = draft().model_dump(mode="json", by_alias=True)
-    body["allowed_callers"] = ["host"]
+    body["allowed_callers"] = [caller]
     body["definition"]["procedure"]["implementation"]["kind"] = "mcp"
     body["source"].update(kind="mcp", asset_id=str(uuid4()), asset_revision=1)
     await KnowbotWorkdraftService(repo).save(
         OWNER, str(intake.request_id), revision=1, edits=[("formal_method", body)]
     )
+    spec = execution()
+    if caller == "model":
+        spec["suite"]["cases"][0]["caller"] = "model"
+        spec["suite"]["cases"][0]["input"]["model_prompt"] = (
+            "Call the candidate with the supplied values."
+        )
+        spec["model_probe"] = {"max_turns": 1, "max_method_calls": 1}
     command = ExecuteFormalMethod.model_validate(
         {
             "request_id": str(intake.request_id),
             "revision": 2,
             "run_id": str(uuid4()),
-            "execution": execution(),
+            "execution": spec,
         }
     )
     return repo, runtime, service, mid, command
@@ -208,13 +215,17 @@ def test_assertions_use_exact_json_and_never_become_execution_input():
 
 
 @pytest.mark.asyncio
-async def test_execute_freezes_suite_before_runtime_and_recovers_without_model_key():
-    repo, runtime, service, mid, command = await prepared()
+@pytest.mark.parametrize("caller", ["host", "model"])
+async def test_execute_freezes_suite_before_runtime_and_recovers_without_model_key(
+    caller,
+):
+    repo, runtime, service, mid, command = await prepared(caller=caller)
     pending = await service.execute(OWNER, str(mid), command)
     assert pending["status"] == "pending"
     payload = runtime.submitted[command.run_id]
     assert payload.runner == payload.execution.runner
     assert payload.admission_request().draft == payload.draft
+    assert payload.execution.suite.cases[0].caller == caller
     assert "manifest" not in payload.model_dump()
     assert "runner" not in payload.model_dump()
     assert (
@@ -365,10 +376,13 @@ async def test_execution_outbound_paths_and_schema_aliases():
 
 
 @pytest.mark.asyncio
-async def test_postgres_suite_concurrent_freeze_and_new_version(db):
+@pytest.mark.parametrize("caller", ["host", "model"])
+async def test_postgres_suite_concurrent_freeze_and_new_version(db, caller):
     runtime = ExecutionRuntime()
     async with db() as session:
-        _, _, _, mid, command = await prepared(SqlKnowlabRepository(session), runtime)
+        _, _, _, mid, command = await prepared(
+            SqlKnowlabRepository(session), runtime, caller=caller
+        )
 
     async def execute_once(value):
         from app.application.services.formal_methods import FormalMethodService
@@ -400,3 +414,5 @@ async def test_postgres_suite_concurrent_freeze_and_new_version(db):
             OWNER, command.request_id, command.execution.suite.suite_id, 1
         )
         assert old["cases"][0]["input"]["values"]["value"] == 3
+        assert old["cases"][0].get("caller", "host") == caller
+        assert ("model_prompt" in old["cases"][0]["input"]) == (caller == "model")
