@@ -100,6 +100,11 @@ from app.domain.knowbots.formal_method_admission import (
     FreezeFormalMethod,
     ValidateFormalMethod,
 )
+from app.domain.knowbots.formal_method_execution import (
+    CancelFormalExecution,
+    DecideFormalExecution,
+    ExecuteFormalMethod,
+)
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
     RevisionIn,
@@ -1598,6 +1603,75 @@ async def question_to_user(
 
 
 # ---------- web端：作者独立方法版本；没有管理员代确认入口 ----------
+@web_router.get(
+    "/knowbot-requests/{request_id}/formal-test-suites/{suite_id}/versions/{version}"
+)
+async def formal_test_suite(
+    principal: User,
+    methods: FormalMethods,
+    request_id: ItemId,
+    suite_id: ItemId,
+    version: Annotated[int, Path(ge=1)],
+) -> JSONResponse:
+    return _ok(
+        await methods.test_suite(principal.subject, request_id, suite_id, version)
+    )
+
+
+@web_router.post("/method-units/{method_id}/executions")
+async def execute_formal_method(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    body: ExecuteFormalMethod,
+) -> JSONResponse:
+    return _ok(await methods.execute(principal.subject, method_id, body))
+
+
+@web_router.get("/method-units/{method_id}/executions/{run_id}")
+async def formal_execution(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    run_id: ItemId,
+    request_id: str,
+) -> JSONResponse:
+    return _ok(
+        await methods.execution(principal.subject, method_id, request_id, run_id)
+    )
+
+
+@web_router.post("/method-units/{method_id}/executions/{run_id}/cancel")
+async def cancel_formal_execution(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    run_id: ItemId,
+    body: CancelFormalExecution,
+) -> JSONResponse:
+    return _ok(
+        await methods.cancel_execution(
+            principal.subject, method_id, str(body.request_id), run_id
+        )
+    )
+
+
+@web_router.post("/method-units/{method_id}/executions/{run_id}/actions/{call_id}")
+async def decide_formal_execution(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    run_id: ItemId,
+    call_id: ItemId,
+    body: DecideFormalExecution,
+) -> JSONResponse:
+    return _ok(
+        await methods.decide_execution(
+            principal.subject, method_id, run_id, call_id, body
+        )
+    )
+
+
 @web_router.get("/knowbot-requests/{request_id}/formal-method-sources")
 async def formal_sources(
     principal: User, methods: FormalMethods, request_id: ItemId

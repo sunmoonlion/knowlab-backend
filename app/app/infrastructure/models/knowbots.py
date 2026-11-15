@@ -874,6 +874,29 @@ class KnowbotWorkdraftProposal(Base):
     )
 
 
+class FormalTestSuite(Base):
+    """Immutable author-confirmed tests, independent of method revisions."""
+
+    __tablename__ = "formal_test_suites"
+    suite_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("knowbot_request.id", ondelete="RESTRICT"), nullable=False
+    )
+    digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    __table_args__ = (
+        CheckConstraint("version > 0", name="ck_formal_suite_version"),
+        CheckConstraint(
+            "digest ~ '^sha256:[0-9a-f]{64}$'", name="ck_formal_suite_digest"
+        ),
+    )
+
+
 class KnowbotMethod(Base):
     """An author's stable method identity, not an expert-local step alias."""
 

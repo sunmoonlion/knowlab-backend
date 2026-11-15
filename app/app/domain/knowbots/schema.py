@@ -25,6 +25,11 @@ from app.domain.knowbots.formal_method_admission import (
     FormalMethodValidationResult,
     FrozenFormalMethod,
 )
+from app.domain.knowbots.formal_method_execution import (
+    FormalExecutionDecision,
+    FormalMethodExecutionRequest,
+    FormalMethodExecutionResult,
+)
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
@@ -61,6 +66,18 @@ CONTRACTS: dict[str, tuple[str, dict[str, tuple[type[BaseModel], str]]]] = {
     FORMAL_METHOD: (
         "https://contracts.sunmoonai.com/knowlab/formal-method/v1/",
         {
+            "execution-request.schema.json": (
+                FormalMethodExecutionRequest,
+                "formal-method execution v1 request",
+            ),
+            "execution-result.schema.json": (
+                FormalMethodExecutionResult,
+                "formal-method execution v1 result",
+            ),
+            "execution-decision.schema.json": (
+                FormalExecutionDecision,
+                "formal-method execution v1 decision",
+            ),
             "definition.schema.json": (
                 FormalMethodDefinition,
                 "formal-method v1 definition",

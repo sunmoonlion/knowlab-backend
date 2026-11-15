@@ -39,6 +39,7 @@ from app.application.ports.knowbots import (
 )
 from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
+    FormalTestSuite,
     KnowbotAcceptance,
     KnowbotAmendment,
     KnowbotDelivery,
@@ -1689,6 +1690,54 @@ class SqlKnowlabRepository:
         )
 
     # ---------- 独立作者方法：版本只插，不覆盖 ----------
+    async def formal_test_suite(self, owner, request_id, suite_id, version):
+        row = await self.session.get(FormalTestSuite, (suite_id, version))
+        if row is None or row.owner_subject != owner or row.request_id != request_id:
+            return None
+        return row.document
+
+    async def freeze_formal_test_suite(self, owner, request_id, document):
+        suite_id = uuid.UUID(document["suite_id"])
+        version = document["version"]
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"knowlab-formal-suite:{suite_id}"},
+        )
+        rows = (
+            await self.session.scalars(
+                select(FormalTestSuite)
+                .where(FormalTestSuite.suite_id == suite_id)
+                .order_by(FormalTestSuite.version)
+            )
+        ).all()
+        if any(r.owner_subject != owner or r.request_id != request_id for r in rows):
+            raise ConcurrencyConflictError(
+                "Test suite belongs to another author request",
+                code="formal_suite_conflict",
+            )
+        prior = next((r for r in rows if r.version == version), None)
+        if prior is not None:
+            if prior.document != document or prior.digest != document["digest"]:
+                raise ConcurrencyConflictError(
+                    "A frozen test suite cannot change", code="formal_suite_conflict"
+                )
+            return
+        if version != (rows[-1].version + 1 if rows else 1):
+            raise ConcurrencyConflictError(
+                "Freeze the next test suite version", code="formal_suite_conflict"
+            )
+        self.session.add(
+            FormalTestSuite(
+                suite_id=suite_id,
+                version=version,
+                owner_subject=owner,
+                request_id=request_id,
+                digest=document["digest"],
+                document=document,
+            )
+        )
+        await self.session.flush()
+
     async def lock_method(self, method_id: uuid.UUID) -> None:
         # Also serializes first creation, when no row exists yet.
         await self.session.execute(

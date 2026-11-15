@@ -715,6 +715,14 @@ class KnowlabRepository(Protocol):
     # ---------- 工作稿（专家孵化方案） ----------
     async def lock_method(self, method_id: uuid.UUID) -> None: ...
 
+    async def formal_test_suite(
+        self, owner: str, request_id: uuid.UUID, suite_id: uuid.UUID, version: int
+    ) -> dict[str, Any] | None: ...
+
+    async def freeze_formal_test_suite(
+        self, owner: str, request_id: uuid.UUID, document: dict[str, Any]
+    ) -> None: ...
+
     async def method_owner(self, method_id: uuid.UUID) -> str | None: ...
 
     async def create_method(self, method_id: uuid.UUID, owner_subject: str) -> None: ...
@@ -898,6 +906,22 @@ class RuntimeTestClient(Protocol):
 
     async def submit_formal_method_validation(
         self, runtime: str, request: Any
+    ) -> dict[str, Any]: ...
+
+    async def submit_formal_method_execution(
+        self, runtime: str, request: Any
+    ) -> dict[str, Any]: ...
+
+    async def formal_method_execution(
+        self, runtime: str, subject: str, run_id: str
+    ) -> dict[str, Any]: ...
+
+    async def cancel_formal_method_execution(
+        self, runtime: str, subject: str, run_id: str
+    ) -> dict[str, Any]: ...
+
+    async def decide_formal_method_execution(
+        self, runtime: str, run_id: str, call_id: str, decision: Any
     ) -> dict[str, Any]: ...
 
     async def formal_method_validation(

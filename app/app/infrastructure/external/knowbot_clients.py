@@ -209,6 +209,39 @@ class RuntimeTestClients:
         )
         return body
 
+    async def submit_formal_method_execution(self, runtime, request):
+        _, body = await self._client(runtime).request(
+            "POST",
+            "/formal-method-executions",
+            json=request.model_dump(mode="json", by_alias=True),
+        )
+        return body
+
+    async def formal_method_execution(self, runtime, subject, run_id):
+        _, body = await self._client(runtime).request(
+            "GET",
+            f"/formal-method-executions/{quote(run_id, safe='')}?"
+            + urlencode({"owner_subject": subject}),
+        )
+        return body
+
+    async def cancel_formal_method_execution(self, runtime, subject, run_id):
+        _, body = await self._client(runtime).request(
+            "POST",
+            f"/formal-method-executions/{quote(run_id, safe='')}/cancel",
+            json={"owner_subject": subject},
+        )
+        return body
+
+    async def decide_formal_method_execution(self, runtime, run_id, call_id, decision):
+        _, body = await self._client(runtime).request(
+            "POST",
+            f"/formal-method-executions/{quote(run_id, safe='')}/actions/"
+            f"{quote(call_id, safe='')}",
+            json=decision.model_dump(mode="json"),
+        )
+        return body
+
     async def register_formal_method(self, runtime: str, frozen: Any) -> dict[str, Any]:
         _, body = await self._client(runtime).request(
             "POST",
@@ -223,8 +256,7 @@ class RuntimeTestClients:
         status, body = await self._client(runtime).request(
             "GET",
             f"/formal-method-registrations/{quote(method_id, safe='')}/"
-            f"versions/{version}?"
-            + urlencode({"owner_subject": subject}),
+            f"versions/{version}?" + urlencode({"owner_subject": subject}),
             accept=(404,),
         )
         return None if status == 404 else body

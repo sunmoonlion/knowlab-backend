@@ -41,6 +41,15 @@ from app.domain.knowbots.formal_method_admission import (
     ValidateFormalMethod,
 )
 from app.domain.knowbots.formal_method_compiler import FrozenMethod, compile_method
+from app.domain.knowbots.formal_method_execution import (
+    EXECUTION_CONTRACT,
+    DecideFormalExecution,
+    ExecuteFormalMethod,
+    FormalExecutionDecision,
+    FormalMethodExecutionRequest,
+    FormalMethodExecutionResult,
+    FormalTestSuite,
+)
 from app.domain.knowbots.workdraft import record_ids, source_problems
 
 
@@ -86,6 +95,165 @@ class FormalMethodService:
         async with self.repo.transaction():
             request = await self.workdrafts._request(owner, request_id)
         return await self.runtimes.formal_method_sources(request.runtime, owner)
+
+    async def test_suite(
+        self, owner: str, request_id: str, suite_id: str, version: int
+    ):
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+            document = await self.repo.formal_test_suite(
+                owner, request.id, parse_id(suite_id, "suite"), version
+            )
+        if document is None:
+            raise NotFoundError("No such test suite", code="formal_suite_not_found")
+        return FormalTestSuite.model_validate(document).model_dump(mode="json")
+
+    @staticmethod
+    def _execution_result(raw, *, run_id, request_id, method_id):
+        try:
+            result = FormalMethodExecutionResult.model_validate(raw)
+            if (
+                result.run_id != run_id
+                or result.request_id != request_id
+                or result.method_id != method_id
+            ):
+                raise ValueError("Execution belongs to another author request")
+            return result
+        except ValueError as exc:
+            raise BadGatewayError(
+                "Invalid formal execution response", code="formal_execution_invalid"
+            ) from exc
+
+    async def execute(self, owner: str, method_id: str, command: ExecuteFormalMethod):
+        mid = parse_id(method_id, "method")
+        async with self.repo.transaction():
+            request, _, admission, _ = await self._prepare(
+                owner,
+                mid,
+                ValidateFormalMethod(
+                    request_id=command.request_id,
+                    revision=command.revision,
+                    run_id=command.run_id,
+                ),
+            )
+            try:
+                payload = FormalMethodExecutionRequest.model_validate(
+                    {
+                        **admission.model_dump(mode="json", by_alias=True),
+                        "contract": EXECUTION_CONTRACT,
+                        "execution": command.execution.freeze().model_dump(mode="json"),
+                    }
+                )
+            except ValueError as exc:
+                raise BadRequestError(
+                    str(exc), code="formal_execution_unsupported"
+                ) from exc
+            await self.repo.freeze_formal_test_suite(
+                owner, request.id, payload.execution.suite.model_dump(mode="json")
+            )
+        raw = await self.runtimes.submit_formal_method_execution(
+            request.runtime, payload
+        )
+        result = self._execution_result(
+            raw, run_id=payload.run_id, request_id=request.id, method_id=mid
+        )
+        if (
+            result.request_digest != payload.fingerprint()
+            or result.suite != payload.execution.suite.reference()
+        ):
+            raise BadGatewayError(
+                "Execution changed the frozen test request",
+                code="formal_execution_invalid",
+            )
+        if result.admission.receipt:
+            self._receipt(admission, result.admission)
+        return result.model_dump(mode="json")
+
+    async def execution(self, owner: str, method_id: str, request_id: str, run_id: str):
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+        rid, mid = parse_id(run_id, "execution"), parse_id(method_id, "method")
+        result = self._execution_result(
+            await self.runtimes.formal_method_execution(
+                request.runtime, owner, str(rid)
+            ),
+            run_id=rid,
+            request_id=request.id,
+            method_id=mid,
+        )
+        async with self.repo.transaction():
+            suite = await self.repo.formal_test_suite(
+                owner, request.id, result.suite.suite_id, result.suite.version
+            )
+        if suite is None or suite["digest"] != result.suite.digest:
+            raise BadGatewayError(
+                "Execution test suite is not frozen by this author",
+                code="formal_execution_invalid",
+            )
+        return result.model_dump(mode="json")
+
+    async def cancel_execution(
+        self, owner: str, method_id: str, request_id: str, run_id: str
+    ):
+        # Resolve the immutable run through this author/name/method before mutation.
+        await self.execution(owner, method_id, request_id, run_id)
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+        raw = await self.runtimes.cancel_formal_method_execution(
+            request.runtime, owner, run_id
+        )
+        return self._execution_result(
+            raw,
+            run_id=parse_id(run_id, "execution"),
+            request_id=request.id,
+            method_id=parse_id(method_id, "method"),
+        ).model_dump(mode="json")
+
+    async def decide_execution(
+        self,
+        owner: str,
+        method_id: str,
+        run_id: str,
+        call_id: str,
+        command: DecideFormalExecution,
+    ):
+        current = FormalMethodExecutionResult.model_validate(
+            await self.execution(owner, method_id, str(command.request_id), run_id)
+        )
+        cid = parse_id(call_id, "call")
+        action = next((a for a in current.actions if a.call_id == cid), None)
+        if action is not None and (
+            action.case_id,
+            action.repetition,
+            action.token,
+            action.subject_digest,
+        ) != (
+            command.case_id,
+            command.repetition,
+            command.token,
+            command.subject_digest,
+        ):
+            raise ConcurrencyConflictError(
+                "Approval no longer matches this execution",
+                code="formal_execution_action_stale",
+            )
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, str(command.request_id))
+        decision = FormalExecutionDecision.model_validate(
+            {
+                **command.model_dump(mode="json", exclude={"request_id"}),
+                "owner_subject": owner,
+            }
+        )
+        raw = await self.runtimes.decide_formal_method_execution(
+            request.runtime, run_id, str(cid), decision
+        )
+        return self._execution_result(
+            raw,
+            run_id=current.run_id,
+            request_id=request.id,
+            method_id=current.method_id,
+        ).model_dump(mode="json")
 
     async def listing(self, owner: str, *, limit: int, offset: int):
         if not 1 <= limit <= 100 or offset < 0:
@@ -380,6 +548,16 @@ class FormalMethodService:
             ),
             command.run_id,
         )
+        if result.receipt is not None and result.receipt.execution is not None:
+            execution = FormalMethodExecutionResult.model_validate(
+                await self.execution(
+                    owner, method_id, str(command.request_id), str(command.run_id)
+                )
+            )
+            if execution.admission.receipt != result.receipt:
+                raise ConcurrencyConflictError(
+                    "Execution receipt changed", code="formal_validation_stale"
+                )
         async with self.repo.transaction():
             await self.repo.lock_method(mid)
             have_owner = await self.repo.method_owner(mid)

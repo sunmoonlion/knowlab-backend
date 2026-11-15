@@ -7,6 +7,8 @@ schema are pinned together so a consumer cannot silently interpret a new shape.
 import argparse
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from app.domain.knowbots.schema import FORMAL_METHOD, render
@@ -16,17 +18,55 @@ FILES = {
     "formal_method.py": "formal_method_generated.py",
     "formal_method_compiler.py": "formal_method_compiler_generated.py",
     "formal_method_admission.py": "formal_method_admission_generated.py",
+    "formal_method_execution.py": "formal_method_execution_generated.py",
 }
 
 
 def exported(source: str) -> str:
-    return HEADER + source.replace(
+    source = source.replace(
+        "app.domain.knowbots.test_run", "app.domain.workbench.test_runs"
+    ).replace(
         "app.domain.knowbots.managed_capabilities_generated",
         "app.domain.workbench.method_capabilities",
-    ).replace(
-        "app.domain.knowbots.formal_method",
-        "app.domain.workbench.formal_method_generated",
     )
+    for name in sorted(FILES, key=len, reverse=True):
+        source = source.replace(
+            "app.domain.knowbots." + Path(name).stem,
+            "app.domain.workbench." + Path(FILES[name]).stem,
+        )
+    # Rewriting module names changes both import ordering and line lengths.
+    # Generate the consumer's formatted source instead of hand-editing it later.
+    config = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    source = HEADER + source
+    for args in (
+        [
+            "check",
+            "--fix",
+            "--select",
+            "I",
+            "--config",
+            "lint.isort.known-first-party = ['app']",
+        ],
+        ["format"],
+    ):
+        source = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                *args,
+                "--config",
+                str(config),
+                "--stdin-filename",
+                "formal_method_generated.py",
+                "-",
+            ],
+            input=source,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout
+    return source
 
 
 def generate(consumer: Path) -> dict[Path, str]:
@@ -45,6 +85,9 @@ def generate(consumer: Path) -> dict[Path, str]:
             "validation-result",
             "registration-request",
             "registration-result",
+            "execution-request",
+            "execution-result",
+            "execution-decision",
         )
     }
     for name, content in validation_schemas.items():

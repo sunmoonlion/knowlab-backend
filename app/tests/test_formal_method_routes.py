@@ -8,8 +8,80 @@ from app.interfaces.endpoints import knowbot_routes
 from app.main import app
 from tests.test_auth_routes_security import FakeAuthService
 from tests.test_auth_routes_security import session as browser_session
+from tests.test_formal_method_execution import prepared
 from tests.test_formal_method_service import OWNER, freeze_command, setup
 from tests.test_knowbot_workdraft_routes import ADMIN_SID, WEB, WEB_SID
+
+
+@pytest.mark.asyncio
+async def test_formal_execution_http_keeps_grading_private_and_actions_scoped(
+    monkeypatch,
+):
+    _, runtime, service, mid, command = await prepared()
+    monkeypatch.setattr(
+        auth_middleware,
+        "web_auth_service",
+        FakeAuthService({"member": browser_session("web", "profile:read")}),
+    )
+    app.dependency_overrides[knowbot_routes.formal_service] = lambda: service
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            base = f"/api/web/v1/method-units/{mid}/executions"
+            payload = command.model_dump(mode="json")
+            assert (
+                await client.post(base, json=payload, headers=WEB)
+            ).status_code == 401
+            client.cookies.set(WEB_SID, "member")
+            assert (await client.post(base, json=payload)).status_code == 403
+            assert (
+                await client.post(
+                    base, json={**payload, "evidence_id": "fake"}, headers=WEB
+                )
+            ).status_code == 422
+            response = await client.post(base, json=payload, headers=WEB)
+            assert response.status_code == 200, response.text
+            assert response.json()["status"] == "pending"
+            assert response.headers["cache-control"] == "no-store"
+            run = base + "/" + str(command.run_id)
+            polled = await client.get(
+                run, params={"request_id": str(command.request_id)}
+            )
+            assert polled.json() == response.json()
+            suite = response.json()["suite"]
+            read = await client.get(
+                f"/api/web/v1/knowbot-requests/{command.request_id}/formal-test-suites/{suite['suite_id']}/versions/1"
+            )
+            assert (
+                read.status_code == 200
+                and read.json()["cases"][0]["expected"]["assertions"]
+            )
+            rejected = await client.post(
+                run + f"/actions/{command.run_id}",
+                headers=WEB,
+                json={
+                    "request_id": str(command.request_id),
+                    "case_id": "echo",
+                    "repetition": 1,
+                    "token": "x",
+                    "subject_digest": "d",
+                    "decision": "accept",
+                    "owner_subject": "other",
+                },
+            )
+            assert rejected.status_code == 422
+            stopped = await client.post(
+                run + "/cancel",
+                headers=WEB,
+                json={"request_id": str(command.request_id)},
+            )
+            assert (
+                stopped.status_code == 200 and stopped.json()["status"] == "cancelled"
+            )
+            assert len(runtime.submitted) == 1
+    finally:
+        app.dependency_overrides.pop(knowbot_routes.formal_service, None)
 
 
 @pytest.mark.asyncio
