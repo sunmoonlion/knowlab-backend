@@ -630,6 +630,22 @@ class FormalMethodService:
                     "Public methods require complete declared coverage",
                     code="formal_validation_uncovered",
                 )
+            source = payload.draft.source
+            if (
+                command.visibility == "public"
+                and source
+                and source.kind in ("skill_instruction", "skill_script")
+                and source.delivery_terms is None
+            ):
+                raise BadRequestError(
+                    "The Skill lacks reviewed delivery terms",
+                    code="formal_delivery_denied",
+                )
+            if command.visibility == "public" and receipt.execution is None:
+                raise BadRequestError(
+                    "Public candidates require runtime execution evidence",
+                    code="formal_execution_required",
+                )
             provenance = {
                 "contract": CONTRACT,
                 "source": payload.draft.source.model_dump(mode="json")

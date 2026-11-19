@@ -417,3 +417,24 @@ async def test_unregistered_freeze_is_not_selectable_or_referenced():
     assert (await service.validate(OWNER, str(parent), parent_command))[
         "status"
     ] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_public_skill_without_redistribution_is_rejected_before_freezing():
+    repo, runtime, svc, mid, command = await setup()
+    changed = draft().model_dump(mode="json", by_alias=True)
+    impl = changed["definition"]["procedure"]["implementation"]
+    impl.update(
+        kind="skill_script", source="skill:test", version="1", entry="script.py"
+    )
+    changed["source"].update({k: v for k, v in impl.items() if k != "requirement_ids"})
+    changed["source"].update(asset_id=str(uuid4()), asset_revision=1)
+    await svc.workdrafts.save(
+        OWNER, str(command.request_id), revision=1, edits=[("formal_method", changed)]
+    )
+    command = command.model_copy(update={"revision": 2})
+    await svc.validate(OWNER, str(mid), command)
+    runtime.complete(command.run_id)
+    with pytest.raises(BadRequestError) as error:
+        await svc.freeze(OWNER, str(mid), 1, freeze_command(command, "public"))
+    assert error.value.code == "formal_delivery_denied" and not repo.method_versions
