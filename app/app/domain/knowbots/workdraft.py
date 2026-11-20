@@ -353,6 +353,12 @@ class MethodReference(Strict):
 
 
 class CollaborationStep(Strict):
+    # Each key is the producer whose accepted output this step reviews.
+    review_requirements: dict[
+        Annotated[str, Field(pattern=STEP_ID)],
+        Literal["isolated_reviewer", "different_model_family"],
+    ] = Field(default_factory=dict, max_length=100, exclude_if=lambda value: not value)
+
     isolation_group: Annotated[str, Field(pattern=STEP_ID)] | None = None
     handoff_from: tuple[Annotated[str, Field(pattern=STEP_ID)], ...] = Field(
         default=(), max_length=100
@@ -360,8 +366,12 @@ class CollaborationStep(Strict):
 
     @model_validator(mode="after")
     def has_requirement(self):
-        if self.isolation_group is None and not self.handoff_from:
-            raise ValueError("An isolation or handoff requirement is required")
+        if (
+            self.isolation_group is None
+            and not self.handoff_from
+            and not self.review_requirements
+        ):
+            raise ValueError("A collaboration step must declare a requirement")
         return self
 
 
@@ -415,6 +425,30 @@ class WorkdraftBody(Strict):
                     steps[name].depends_on
                 ):
                     raise ValueError("Handoffs must reference an explicit predecessor")
+                for producer in role.review_requirements:
+                    if (
+                        producer == name
+                        or producer not in steps
+                        or producer not in steps[name].depends_on
+                        or not any(
+                            entry.binding.source == "step"
+                            and entry.binding.step == producer
+                            and entry.binding.output in steps[producer].outputs
+                            for entry in steps[name].inputs.values()
+                        )
+                    ):
+                        raise ValueError(
+                            "Review requires an input bound to a producer output"
+                        )
+                    producer_role = self.collaboration.get(producer)
+                    if (
+                        role.isolation_group
+                        and producer_role
+                        and (role.isolation_group == producer_role.isolation_group)
+                    ):
+                        raise ValueError(
+                            "Reviewer and producer cannot share an isolation group"
+                        )
         if self.formal_method is not None and (
             self.steps or self.planning or self.method_refs or self.public_capabilities
         ):
@@ -453,6 +487,11 @@ def collaboration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
             gaps.append({"step": name, "primitive": "isolation_group"})
         if role.get("handoff_from"):
             gaps.append({"step": name, "primitive": "staged_handoff"})
+        reviews = role.get("review_requirements", {})
+        if reviews:
+            gaps.append({"step": name, "primitive": "isolated_reviewer"})
+            if "different_model_family" in reviews.values():
+                gaps.append({"step": name, "primitive": "different_model_family"})
     return gaps
 
 

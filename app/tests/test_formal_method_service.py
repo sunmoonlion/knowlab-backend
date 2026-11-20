@@ -479,3 +479,38 @@ async def test_listing_registration_checks_are_bounded_and_keep_page_order(monke
     page = await service.listing(OWNER, limit=4, offset=1)
     assert [item["method_id"] for item in page] == [str(item) for item in ids[2:6]]
     assert 1 < peak <= 8 and checked == ids[:8]
+
+
+def test_review_policy_requires_an_independent_consumer_of_the_producer_output():
+    from app.domain.knowbots.workdraft import WorkdraftBody, collaboration_gaps
+
+    definition = composite(frozen(), frozen())
+    steps = definition["procedure"]["steps"]
+    steps[1]["depends_on"] = ["s0"]
+    role = {
+        "isolation_group": "review",
+        "review_requirements": {"s0": "different_model_family"},
+    }
+    body = {
+        "formal_method": {
+            "definition": definition,
+            "source": None,
+            "allowed_callers": ["host"],
+        },
+        "collaboration": {"s0": {"isolation_group": "primary"}, "s1": role},
+    }
+    with pytest.raises(ValueError, match="producer output"):
+        WorkdraftBody.model_validate(body)
+    steps[1]["inputs"]["value"]["binding"] = {
+        "source": "step",
+        "step": "s0",
+        "output": "result",
+    }
+    saved = WorkdraftBody.model_validate(body).model_dump(mode="json", by_alias=True)
+    assert "review_requirements" not in saved["collaboration"]["s0"]
+    assert {"step": "s1", "primitive": "different_model_family"} in collaboration_gaps(
+        saved
+    )
+    role["isolation_group"] = "primary"
+    with pytest.raises(ValueError, match="isolation group"):
+        WorkdraftBody.model_validate(body)
