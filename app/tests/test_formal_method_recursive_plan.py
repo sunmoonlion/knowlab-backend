@@ -82,7 +82,7 @@ def test_100_leaf_ceiling_counts_repeated_refs_across_branches():
     base = leaf()
     child = expert(*([base] * 10))
     assert len(expanded(expert(*([child] * 10)), base, child).leaf_nodes) == 100
-    with pytest.raises(ValueError, match="100 actual MCP"):
+    with pytest.raises(ValueError, match="100 actual tool"):
         expanded(expert(*([child] * 11)), base, child)
 
 
@@ -136,3 +136,17 @@ def test_platform_and_internal_model_leaf_are_not_supported():
     platform = frozen()
     with pytest.raises(ValueError, match="direct MCP"):
         expanded(expert(platform), platform)
+
+
+def test_mixed_plan_retains_each_frozen_connector_and_script_invocation():
+    connector = leaf()
+    raw = tool()
+    raw["procedure"]["implementation"].update(kind="skill_script", entry="calculate.py")
+    script = frozen(raw)
+    plan = expanded(expert(connector, script, connector), connector, script)
+    assert [node.reference for node in plan.leaf_nodes] == [
+        connector.reference,
+        script.reference,
+        connector.reference,
+    ]
+    assert len(plan.dependencies) == 2

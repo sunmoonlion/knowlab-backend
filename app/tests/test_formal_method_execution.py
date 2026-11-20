@@ -129,14 +129,14 @@ class ExecutionRuntime(Runtime):
         return result
 
 
-async def prepared(repo=None, runtime=None, *, caller="host"):
+async def prepared(repo=None, runtime=None, *, caller="host", carrier="mcp"):
     repo, runtime, service, mid, intake = await setup(
         repo or ExecutionRepository(), runtime or ExecutionRuntime()
     )
     body = draft().model_dump(mode="json", by_alias=True)
     body["allowed_callers"] = [caller]
-    body["definition"]["procedure"]["implementation"]["kind"] = "mcp"
-    body["source"].update(kind="mcp", asset_id=str(uuid4()), asset_revision=1)
+    body["definition"]["procedure"]["implementation"]["kind"] = carrier
+    body["source"].update(kind=carrier, asset_id=str(uuid4()), asset_revision=1)
     await KnowbotWorkdraftService(repo).save(
         OWNER, str(intake.request_id), revision=1, edits=[("formal_method", body)]
     )
@@ -156,6 +156,23 @@ async def prepared(repo=None, runtime=None, *, caller="host"):
         }
     )
     return repo, runtime, service, mid, command
+
+
+@pytest.mark.asyncio
+async def test_script_execution_request_is_host_only():
+    _, runtime, service, mid, command = await prepared(carrier="skill_script")
+    await service.execute(OWNER, str(mid), command)
+    payload = runtime.submitted[command.run_id].model_dump(mode="json", by_alias=True)
+    assert payload["draft"]["source"]["kind"] == "skill_script"
+    _, runtime, service, mid, command = await prepared(caller="model")
+    await service.execute(OWNER, str(mid), command)
+    payload = runtime.submitted[command.run_id].model_dump(mode="json", by_alias=True)
+    payload["draft"]["source"]["kind"] = "skill_script"
+    payload["draft"]["definition"]["procedure"]["implementation"]["kind"] = (
+        "skill_script"
+    )
+    with pytest.raises(ValidationError, match="host-only"):
+        FormalMethodExecutionRequest.model_validate(payload)
 
 
 def test_suite_digest_and_case_thresholds_are_independent_of_method():
