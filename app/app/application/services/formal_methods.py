@@ -413,7 +413,61 @@ class FormalMethodService:
             ) from exc
         return True
 
-    async def _dependencies(self, owner: str, definition: FormalMethodDefinition):
+    async def select_incubation_binding(
+        self, owner, request_id, reference, asset_id, revision
+    ):
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+        expected = {
+            "reference": reference.model_dump(mode="json"),
+            "asset_id": str(asset_id),
+            "revision": revision,
+        }
+        receipt = await self.runtimes.select_incubation_binding(
+            request.runtime, {"subject": owner, **expected}
+        )
+        if receipt != expected:
+            raise BadGatewayError("Different incubation binding receipt")
+        return expected
+
+    async def shared_tools(self, owner, request_id, *, reference=None, after=None):
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+        page = await self._shared_tools(
+            request.runtime, owner, reference=reference, after=after
+        )
+        for item in page["items"]:
+            definition = item.pop("definition")
+            if definition:
+                procedure = definition.pop("procedure")
+                item["interface"] = {
+                    **definition,
+                    "inputs": procedure["inputs"],
+                    "outputs": procedure["outputs"],
+                }
+        return page
+
+    async def _shared_tools(self, runtime, owner, *, reference=None, after=None):
+        from app.domain.knowbots.incubation_tools import SharedToolsPage
+
+        raw = await self.runtimes.incubation_tool_versions(
+            runtime, owner, reference=reference, after=after
+        )
+        try:
+            page = SharedToolsPage.model_validate(raw)
+            if any(
+                (reference is None) != (item.definition is None)
+                or (reference and item.reference != reference)
+                for item in page.items
+            ) or (reference and (page.next or len(page.items) > 1)):
+                raise ValueError("Unexpected incubation receipt")
+        except ValueError as exc:
+            raise BadGatewayError("Invalid incubation tool response") from exc
+        return page.model_dump(mode="json", by_alias=True, exclude_none=False)
+
+    async def _dependencies(
+        self, owner: str, definition: FormalMethodDefinition, *, runtime=None
+    ):
         resolved: dict[tuple[UUID, int], FrozenMethod] = {}
 
         async def visit(current: FormalMethodDefinition, depth: int):
@@ -433,12 +487,27 @@ class FormalMethodService:
                                 code="formal_method_invalid",
                             )
                         continue
-                    record = await self.get(owner, str(ref.method_id), ref.version)
-                    if record.digest != ref.digest:
-                        raise ConcurrencyConflictError(
-                            "Method digest changed", code="method_integrity"
+                    record = await self.repo.method_version(ref.method_id, ref.version)
+                    if record is not None and record.owner_subject == owner:
+                        if record.digest != ref.digest:
+                            raise ConcurrencyConflictError(
+                                "Method digest changed", code="method_integrity"
+                            )
+                        child = admitted_definition(record)
+                    else:
+                        if runtime is None:
+                            raise NotFoundError(
+                                "No such dependency", code="method_not_found"
+                            )
+                        page = await self._shared_tools(runtime, owner, reference=ref)
+                        if not page["items"] or not page["items"][0]["selected"]:
+                            raise NotFoundError(
+                                "Incubation tool unavailable",
+                                code="method_not_found",
+                            )
+                        child = FormalMethodDefinition.model_validate(
+                            page["items"][0]["definition"]
                         )
-                    child = admitted_definition(record)
                     resolved[key] = FrozenMethod(ref, child)
                     await visit(child, depth + 1)
 
@@ -474,7 +543,9 @@ class FormalMethodService:
                 "Confirm the author's definition and source first",
                 code="method_source_invalid",
             )
-        resolved = await self._dependencies(owner, draft.definition)
+        resolved = await self._dependencies(
+            owner, draft.definition, runtime=request.runtime
+        )
         try:
             compiled = compile_method(method_id, draft.definition, resolved)
         except ValueError as exc:

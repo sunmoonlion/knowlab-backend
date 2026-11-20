@@ -215,3 +215,34 @@ async def test_formal_author_http_flow_checks_identity_csrf_and_trusted_receipt(
             assert market.formal_self_listing.await_count == 2
     finally:
         app.dependency_overrides.pop(knowbot_routes.formal_service, None)
+
+
+@pytest.mark.asyncio
+async def test_shared_tools_expose_interfaces_and_compile_only_authorized_versions(
+    monkeypatch,
+):
+    from app.application.errors.exceptions import BadGatewayError, NotFoundError
+    from app.domain.knowbots.formal_method import MethodRef
+    from tests.test_formal_method_service import draft
+
+    _, runtime, service, mid, command = await setup()
+    definition = draft().definition
+    ref = MethodRef(method_id=mid, version=1, digest=definition.digest())
+    item = {
+        "reference": ref.model_dump(mode="json"),
+        "scope": "acquired",
+        "title": "Shared",
+        "definition": definition.model_dump(mode="json", by_alias=True),
+    }
+    query = AsyncMock(return_value={"items": [item], "next": None})
+    monkeypatch.setattr(runtime, "incubation_tool_versions", query, raising=False)
+    result = await service.shared_tools(OWNER, str(command.request_id), reference=ref)
+    view = result["items"][0]
+    assert "definition" not in view and "procedure" not in view["interface"]
+    assert view["interface"]["outputs"] == item["definition"]["procedure"]["outputs"]
+    assert query.await_args.args[1] == OWNER
+    with pytest.raises(NotFoundError):
+        await service.shared_tools("other", str(command.request_id), reference=ref)
+    query.return_value["items"][0]["reference"] = {**item["reference"], "version": 2}
+    with pytest.raises(BadGatewayError):
+        await service.shared_tools(OWNER, str(command.request_id), reference=ref)

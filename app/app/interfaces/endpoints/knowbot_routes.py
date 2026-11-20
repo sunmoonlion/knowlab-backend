@@ -1680,6 +1680,73 @@ async def formal_sources(
     return _ok(await methods.sources(principal.subject, request_id))
 
 
+class IncubationAssetSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: UUID
+    revision: int = Field(strict=True, ge=1)
+    digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+
+
+@web_router.put(
+    "/knowbot-requests/{request_id}/incubation-tools/{method_id}/versions/{version}/installation"
+)
+async def select_incubation_binding(
+    principal: User,
+    methods: FormalMethods,
+    request_id: ItemId,
+    method_id: UUID,
+    version: Annotated[int, Path(ge=1)],
+    body: IncubationAssetSelection,
+):
+    from app.domain.knowbots.formal_method import MethodRef
+
+    return _ok(
+        await methods.select_incubation_binding(
+            principal.subject,
+            request_id,
+            MethodRef(method_id=method_id, version=version, digest=body.digest),
+            body.asset_id,
+            body.revision,
+        )
+    )
+
+
+@web_router.get("/knowbot-requests/{request_id}/incubation-tools")
+async def shared_incubation_tools(
+    principal: User,
+    methods: FormalMethods,
+    request_id: ItemId,
+    after: UUID | None = None,
+):
+    return _ok(
+        await methods.shared_tools(
+            principal.subject, request_id, after=str(after) if after else None
+        )
+    )
+
+
+@web_router.get(
+    "/knowbot-requests/{request_id}/incubation-tools/{method_id}/versions/{version}"
+)
+async def shared_incubation_tool(
+    principal: User,
+    methods: FormalMethods,
+    request_id: ItemId,
+    method_id: UUID,
+    version: Annotated[int, Path(ge=1)],
+    digest: Annotated[str, Query(pattern=r"^sha256:[a-f0-9]{64}$")],
+):
+    from app.domain.knowbots.formal_method import MethodRef
+
+    return _ok(
+        await methods.shared_tools(
+            principal.subject,
+            request_id,
+            reference=MethodRef(method_id=method_id, version=version, digest=digest),
+        )
+    )
+
+
 @web_router.post("/method-units/{method_id}/validations")
 async def validate_formal_method(
     principal: User,

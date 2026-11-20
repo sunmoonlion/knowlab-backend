@@ -250,6 +250,26 @@ class RuntimeTestClients:
         )
         return body
 
+    async def select_incubation_binding(self, runtime, document):
+        _, body = await self._client(runtime).request(
+            "PUT", "/incubation-tool-binding", json=document
+        )
+        return body
+
+    async def incubation_tool_versions(
+        self, runtime, subject, *, reference=None, after=None
+    ):
+        _, body = await self._client(runtime).request(
+            "POST",
+            "/incubation-tool-versions",
+            json={
+                "subject": subject,
+                "reference": reference.model_dump(mode="json") if reference else None,
+                "after": after,
+            },
+        )
+        return body
+
     async def formal_self_review(self, runtime, owner, reference):
         _, body = await self._client(runtime).request(
             "POST",
