@@ -75,6 +75,7 @@ from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestion
 from app.application.services.knowbot_service import KnowbotCreationService, parse_id
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
+from app.application.services.method_search import scan_outputs
 from app.bootstrap.knowbots import (
     formal_method_service,
     knowbot_board,
@@ -107,6 +108,7 @@ from app.domain.knowbots.formal_method_execution import (
     DecideFormalExecution,
     ExecuteFormalMethod,
 )
+from app.domain.knowbots.incubation_tools import AutomaticOutputSearch
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
     RevisionIn,
@@ -1716,6 +1718,16 @@ async def matching_outputs(
             else None,
         )
     )
+
+
+@web_router.post("/knowbot-requests/{request_id}/incubation-tools/scan-outputs")
+async def scan_output_page(
+    principal: User,
+    methods: FormalMethods,
+    request_id: ItemId,
+    body: AutomaticOutputSearch,
+):
+    return _ok(await scan_outputs(methods, principal.subject, request_id, body))
 
 
 class IncubationAssetSelection(BaseModel):

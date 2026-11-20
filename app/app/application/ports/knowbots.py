@@ -745,6 +745,32 @@ class KnowlabRepository(Protocol):
         source_workdraft_id: uuid.UUID,
     ) -> None: ...
 
+    async def lock_search_history(
+        self, request_id: uuid.UUID
+    ) -> list[dict[str, Any]]: ...
+
+    async def reserve_search_page(
+        self,
+        request_id: uuid.UUID,
+        ordinal: int,
+        action_id: uuid.UUID,
+        search_key: str,
+        cursor: str,
+    ) -> None: ...
+
+    async def seen_search_outputs(
+        self, request_id: uuid.UUID, search_key: str, fingerprints: list[str]
+    ) -> set[str]: ...
+
+    async def finish_search_page(
+        self,
+        request_id: uuid.UUID,
+        action_id: uuid.UUID,
+        state: str,
+        cursor: str | None = None,
+        candidates: Sequence[str] = (),
+    ) -> bool: ...
+
     async def method_output_slots(
         self, owner, slot, exclude_method_id, offset, limit, *, granted=None
     ) -> list[dict[str, Any]]: ...

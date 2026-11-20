@@ -1821,6 +1821,73 @@ class SqlKnowlabRepository:
         )
         await self.session.flush()
 
+    async def lock_search_history(self, request_id):
+        # Serialize reservations across all gaps and directories of this project.
+        await self.session.execute(
+            select(KnowbotRequest.id)
+            .where(KnowbotRequest.id == request_id)
+            .with_for_update()
+        )
+        rows = await self.session.execute(
+            text("""
+            SELECT action_id, search_key, page_cursor, state, next_cursor,
+                   started_at < now() - interval '2 minutes' AS expired
+            FROM method_search_page WHERE request_id = :id ORDER BY ordinal
+        """),
+            {"id": request_id},
+        )
+        return [dict(row) for row in rows.mappings()]
+
+    async def reserve_search_page(
+        self, request_id, ordinal, action_id, search_key, cursor
+    ):
+        await self.session.execute(
+            text("""
+            INSERT INTO method_search_page
+                (request_id, ordinal, action_id, search_key, page_cursor, state)
+            VALUES (:id, :ordinal, :action, :key, :cursor, 'pending')
+        """),
+            {
+                "id": request_id,
+                "ordinal": ordinal,
+                "action": action_id,
+                "key": search_key,
+                "cursor": cursor,
+            },
+        )
+
+    async def seen_search_outputs(self, request_id, search_key, fingerprints):
+        # Intersect in PostgreSQL, without loading unrelated pages' output lists.
+        rows = await self.session.execute(
+            text("""
+            SELECT DISTINCT candidate FROM method_search_page,
+                 LATERAL jsonb_array_elements_text(candidates) AS entry(candidate)
+            WHERE request_id = :id AND search_key = :key AND state = 'read'
+              AND candidate = ANY(CAST(:wanted AS text[]))
+        """),
+            {"id": request_id, "key": search_key, "wanted": fingerprints},
+        )
+        return set(rows.scalars())
+
+    async def finish_search_page(
+        self, request_id, action_id, state, cursor=None, candidates=()
+    ):
+        result = await self.session.execute(
+            text("""
+            UPDATE method_search_page SET state = :state, next_cursor = :cursor,
+                   candidates = CAST(:candidates AS jsonb)
+            WHERE request_id = :id AND action_id = :action AND state = 'pending'
+        """),
+            {
+                "id": request_id,
+                "action": action_id,
+                "state": state,
+                "cursor": cursor,
+                "candidates": json.dumps(candidates),
+            },
+        )
+        return cast(CursorResult, result).rowcount == 1
+
     async def method_output_slots(
         self, owner, slot, exclude_method_id, offset, limit, *, granted=None
     ):

@@ -10,6 +10,7 @@ from app.domain.knowbots.formal_method import (
     MethodRef,
     Strict,
     ToolProcedure,
+    ValueSlot,
 )
 
 
@@ -45,3 +46,11 @@ class SharedTool(Strict):
 class SharedToolsPage(Strict):
     items: tuple[SharedTool, ...] = Field(max_length=100)
     next: UUID | None
+
+
+class AutomaticOutputSearch(Strict):
+    slot: ValueSlot
+    exclude_method_id: UUID
+    directory: Literal["owned", "shared"]
+    page_limit: int = Field(strict=True, ge=1, le=100)
+    action_id: UUID
