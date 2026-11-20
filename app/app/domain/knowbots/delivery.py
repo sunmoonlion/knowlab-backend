@@ -148,6 +148,23 @@ def _texts(outputs: Mapping[str, Any] | None) -> Iterable[str]:
             yield str(step["artifact"])
 
 
+def output_findings(case_id: str, found: Mapping[str, Any]) -> list[dict[str, Any]]:
+    findings = []
+    joined = "\n".join(_texts(found))
+    for rule, pattern in ADVICE_RULES:
+        hit = pattern.search(joined)
+        if hit is not None:
+            findings.append(
+                {
+                    "kind": "flagged_word",
+                    "case_id": case_id,
+                    "rule": rule,
+                    "word": hit.group(0)[:20],
+                }
+            )
+    return findings
+
+
 def auto_check(
     *,
     report: Mapping[str, Any] | None,
@@ -178,16 +195,5 @@ def auto_check(
         if not found:
             findings.append({"kind": "outputs_missing", "case_id": case_id})
             continue
-        joined = "\n".join(_texts(found))
-        for rule, pattern in ADVICE_RULES:
-            hit = pattern.search(joined)
-            if hit is not None:
-                findings.append(
-                    {
-                        "kind": "flagged_word",
-                        "case_id": case_id,
-                        "rule": rule,
-                        "word": hit.group(0)[:20],
-                    }
-                )
+        findings.extend(output_findings(case_id, found))
     return findings

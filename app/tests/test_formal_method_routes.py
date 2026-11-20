@@ -1,5 +1,8 @@
 """Browser formal incubation cannot submit its own successful validation report."""
 
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
 import httpx
 import pytest
 
@@ -143,5 +146,72 @@ async def test_formal_author_http_flow_checks_identity_csrf_and_trusted_receipt(
             assert saved.json()["provenance"]["validation"]["owner_subject"] == OWNER
             assert (await client.get(freeze_url)).json() == saved.json()
             assert len(repo.method_versions) == 1
+            ref = {
+                "method_id": str(mid),
+                "version": 1,
+                "digest": saved.json()["digest"],
+            }
+            listing_url = freeze_url + "/self-listing"
+            listing_id = str(uuid4())
+            market = AsyncMock()
+            market.formal_self_listing.return_value = {
+                "listing_id": listing_id,
+                "scope": "self",
+                "status": "pending",
+                "reference": ref,
+            }
+            service.market = market
+            review = AsyncMock(
+                return_value={
+                    "reference": ref,
+                    "owner_subject": OWNER,
+                    "run_id": str(command.run_id),
+                    "samples": [],
+                }
+            )
+            monkeypatch.setattr(runtime, "formal_self_review", review, raising=False)
+            assert (
+                await client.put(listing_url, json={"digest": ref["digest"]})
+            ).status_code == 403
+            assert (
+                await client.put(
+                    listing_url,
+                    headers=WEB,
+                    json={"digest": ref["digest"], "review_findings": []},
+                )
+            ).status_code == 422
+            assert (
+                await client.put(
+                    listing_url, headers=WEB, json={"digest": "sha256:" + "b" * 64}
+                )
+            ).status_code == 409
+            review.assert_not_called()
+            result = await client.put(
+                listing_url, headers=WEB, json={"digest": ref["digest"]}
+            )
+            assert (
+                result.status_code == 200 and result.json()["listing_id"] == listing_id
+            )
+            assert market.formal_self_listing.await_args.args[0]["review_findings"] == [
+                "outputs_missing"
+            ]
+            review.return_value["samples"] = [
+                {"steps": [{"artifact": {"text": "保证收益"}}]}
+            ]
+            assert (
+                await client.put(
+                    listing_url, headers=WEB, json={"digest": ref["digest"]}
+                )
+            ).status_code == 200
+            submitted = market.formal_self_listing.await_args.args[0]
+            assert submitted["review_findings"] == ["flagged_word", "outputs_missing"]
+            assert "保证收益" not in str(submitted)
+            review.return_value["owner_subject"] = "other"
+            assert (
+                await client.put(
+                    listing_url, headers=WEB, json={"digest": ref["digest"]}
+                )
+            ).status_code == 502
+            assert market.formal_self_listing.await_count == 2
     finally:
         app.dependency_overrides.pop(knowbot_routes.formal_service, None)

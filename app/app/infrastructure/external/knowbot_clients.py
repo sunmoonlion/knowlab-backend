@@ -250,6 +250,14 @@ class RuntimeTestClients:
         )
         return body
 
+    async def formal_self_review(self, runtime, owner, reference):
+        _, body = await self._client(runtime).request(
+            "POST",
+            "/formal-method-self-review?" + urlencode({"subject": owner}),
+            json=reference,
+        )
+        return body
+
     async def formal_method_registration(
         self, runtime: str, subject: str, method_id: str, version: int
     ) -> dict[str, Any] | None:
@@ -389,6 +397,12 @@ class KnowmartDeliveryClient:
                 )
             self._client = ServiceClient(relation, **self._options)
         return self._client
+
+    async def formal_self_listing(self, document):
+        _, body = await self._service().request(
+            "POST", "/formal-methods/self-listings", json=document
+        )
+        return body
 
     async def deliver(
         self,

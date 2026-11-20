@@ -932,6 +932,10 @@ class RuntimeTestClient(Protocol):
         self, runtime: str, frozen: Any
     ) -> dict[str, Any]: ...
 
+    async def formal_self_review(
+        self, runtime: str, owner: str, reference: dict
+    ) -> dict: ...
+
     async def formal_method_registration(
         self, runtime: str, subject: str, method_id: str, version: int
     ) -> dict[str, Any] | None: ...

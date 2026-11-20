@@ -162,4 +162,6 @@ def knowbot_method_service(session: AsyncSession) -> KnowbotMethodService:
 
 
 def formal_method_service(session: AsyncSession) -> FormalMethodService:
-    return FormalMethodService(SqlKnowlabRepository(session), RuntimeTestClients())
+    return FormalMethodService(
+        SqlKnowlabRepository(session), RuntimeTestClients(), knowmart_client()
+    )

@@ -14,6 +14,7 @@ from app.application.errors.exceptions import (
     BadRequestError,
     ConcurrencyConflictError,
     NotFoundError,
+    ServiceUnavailableError,
 )
 from app.application.ports.knowbots import (
     KnowlabRepository,
@@ -25,6 +26,7 @@ from app.application.services.knowbot_workdraft import (
     KnowbotWorkdraftService,
     parse_body,
 )
+from app.domain.knowbots.delivery import output_findings
 from app.domain.knowbots.formal_method import (
     FormalMethodDefinition,
     MethodRef,
@@ -77,7 +79,10 @@ def admitted_definition(record: MethodVersionRecord) -> FormalMethodDefinition:
 
 
 class FormalMethodService:
-    def __init__(self, repo: KnowlabRepository, runtimes: RuntimeTestClient):
+    def __init__(
+        self, repo: KnowlabRepository, runtimes: RuntimeTestClient, market=None
+    ):
+        self.market = market
         self.repo = repo
         self.runtimes = runtimes
         self.workdrafts = KnowbotWorkdraftService(repo)
@@ -90,6 +95,77 @@ class FormalMethodService:
             raise NotFoundError("No such formal method", code="method_not_found")
         admitted_definition(found)
         return found
+
+    async def list_for_self(self, owner: str, reference: MethodRef):
+        if self.market is None:
+            raise ServiceUnavailableError("KnowMart delivery is unavailable")
+        ref = reference.model_dump(mode="json")
+        async with self.repo.transaction():
+            record = await self.get(owner, str(reference.method_id), reference.version)
+            if reference.digest != record.digest:
+                raise ConcurrencyConflictError(
+                    "Frozen version changed", code="formal_listing_conflict"
+                )
+            receipt = FormalMethodValidationReceipt.model_validate(
+                record.provenance["validation"]
+            )
+            request = await self.workdrafts._request(owner, str(receipt.request_id))
+        review = await self.runtimes.formal_self_review(request.runtime, owner, ref)
+        if (
+            not isinstance(review, dict)
+            or review.get("owner_subject") != owner
+            or review.get("reference") != ref
+            or review.get("run_id") != str(receipt.run_id)
+            or not isinstance(review.get("samples"), list)
+            or not all(
+                isinstance(s, dict)
+                and isinstance(s.get("steps"), list)
+                and s["steps"]
+                and all(
+                    isinstance(step, dict) and isinstance(step.get("artifact"), dict)
+                    for step in s["steps"]
+                )
+                for s in review["samples"]
+            )
+        ):
+            raise BadGatewayError("Invalid formal self-review response")
+        samples = review["samples"]
+        findings = set()
+        if not samples or receipt.execution is None:
+            findings.add("outputs_missing")
+        for index, sample in enumerate(samples):
+            findings.update(
+                item["kind"] for item in output_findings(str(index), sample)
+            )
+        declaration = record.definition["capability_declaration"]
+        result = await self.market.formal_self_listing(
+            {
+                "owner_subject": owner,
+                "reference": ref,
+                "title": declaration["title"],
+                "purpose": declaration["purpose"],
+                "review_findings": sorted(findings),
+            }
+        )
+        if (
+            not isinstance(result, dict)
+            or result.get("reference") != ref
+            or result.get("scope") != "self"
+            or result.get("status")
+            not in ("listed", "pending", "rejected", "withdrawn")
+            or not isinstance(result.get("listing_id"), str)
+        ):
+            raise BadGatewayError("Invalid KnowMart listing receipt")
+        try:
+            listing_id = UUID(result["listing_id"])
+        except ValueError as exc:
+            raise BadGatewayError("Invalid KnowMart listing ID") from exc
+        return {
+            "listing_id": str(listing_id),
+            "scope": "self",
+            "reference": ref,
+            "status": result["status"],
+        }
 
     async def sources(self, owner: str, request_id: str) -> dict[str, Any]:
         async with self.repo.transaction():

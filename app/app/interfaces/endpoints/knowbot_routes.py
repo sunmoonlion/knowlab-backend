@@ -25,6 +25,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query
 from fastapi.responses import JSONResponse, Response
@@ -1713,6 +1714,29 @@ async def freeze_formal_version(
     return _ok(
         method_version_view(
             await methods.freeze(principal.subject, method_id, version, body)
+        )
+    )
+
+
+class FormalListingConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+
+
+@web_router.put("/method-units/{method_id}/formal-versions/{version}/self-listing")
+async def confirm_formal_self_listing(
+    principal: User,
+    methods: FormalMethods,
+    method_id: UUID,
+    version: Annotated[int, Path(ge=1, le=999999)],
+    body: FormalListingConfirmation,
+):
+    from app.domain.knowbots.formal_method import MethodRef
+
+    return _ok(
+        await methods.list_for_self(
+            principal.subject,
+            MethodRef(method_id=method_id, version=version, digest=body.digest),
         )
     )
 
