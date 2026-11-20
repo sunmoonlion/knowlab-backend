@@ -6,6 +6,7 @@ browser evidence IDs nor legacy expert test results confer formal admission.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -379,22 +380,39 @@ class FormalMethodService:
                         owner, str(validation.request_id)
                     )
                     candidates.append((row, request.runtime))
-            for row, runtime in candidates:
-                reference = MethodRef(
-                    method_id=row["id"], version=row["version"], digest=row["digest"]
-                )
-                if await self._registered(runtime, owner, reference):
-                    visible.append(
-                        {
-                            "method_id": str(row["id"]),
-                            "latest_version": row["version"],
-                            "digest": row["digest"],
-                            "method_kind": row["method_kind"],
-                            "title": str(row.get("title") or ""),
-                            "summary": str(row.get("summary") or "")[:500],
-                            "created_at": row["created_at"].isoformat(),
-                        }
+            # Bound simultaneous network requests, keep the repository order,
+            # and stop fetching once this filtered page is complete.
+            for start in range(0, len(candidates), 8):
+                batch = candidates[start : start + 8]
+                registered = await asyncio.gather(
+                    *(
+                        self._registered(
+                            runtime,
+                            owner,
+                            MethodRef(
+                                method_id=row["id"],
+                                version=row["version"],
+                                digest=row["digest"],
+                            ),
+                        )
+                        for row, runtime in batch
                     )
+                )
+                for (row, _), allowed in zip(batch, registered, strict=True):
+                    if allowed:
+                        visible.append(
+                            {
+                                "method_id": str(row["id"]),
+                                "latest_version": row["version"],
+                                "digest": row["digest"],
+                                "method_kind": row["method_kind"],
+                                "title": str(row.get("title") or ""),
+                                "summary": str(row.get("summary") or "")[:500],
+                                "created_at": row["created_at"].isoformat(),
+                            }
+                        )
+                if len(visible) >= offset + limit:
+                    break
             scanned += len(rows)
             if len(rows) < 100:
                 break

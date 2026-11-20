@@ -8,9 +8,6 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
-
 from app.domain.knowbots.formal_method import (
     FormalMethodDefinition,
     LiteralValue,
@@ -123,13 +120,10 @@ def _step_interface(step, interface):
             )
         if name in required and not item.slot.required:
             raise ValueError("Step cannot weaken a required method input")
-        if isinstance(item.binding, LiteralValue):
-            try:
-                Draft202012Validator(target["schema"]).validate(item.binding.value)
-            except ValidationError as exc:
-                raise ValueError(
-                    "Fixed input does not match its method schema"
-                ) from exc
+        if isinstance(item.binding, LiteralValue) and not item.slot.accepts(
+            item.binding.value
+        ):
+            raise ValueError("Fixed input does not match its method schema")
     for name, slot in step.outputs.items():
         provided = outputs.get(name)
         if (

@@ -235,6 +235,19 @@ def test_bindings_validate_values_and_do_not_mutate_sources():
     assert caller == {"value": {"nested": [1]}}
 
 
+def test_unfinished_schema_evaluation_cannot_validate_a_plan_output(monkeypatch):
+    from jsonschema import Draft202012Validator
+
+    step = unique_plan(definition())[0]
+
+    def too_deep(self, value):
+        raise RecursionError
+
+    monkeypatch.setattr(Draft202012Validator, "is_valid", too_deep)
+    with pytest.raises(ValueError, match="Plan value does not match"):
+        validate_step_outputs(step, {"result": 1})
+
+
 def test_json_size_and_depth_are_bounded():
     first = unique_plan(definition())[0]
     for value in ("x" * 64001,):
