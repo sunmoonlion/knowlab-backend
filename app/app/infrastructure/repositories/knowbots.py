@@ -1821,17 +1821,26 @@ class SqlKnowlabRepository:
         )
         await self.session.flush()
 
-    async def method_output_slots(self, owner, slot, exclude_method_id, offset, limit):
+    async def method_output_slots(
+        self, owner, slot, exclude_method_id, offset, limit, *, granted=None
+    ):
         stmt = text("""
             SELECT s.method_id, s.version, v.digest, s.name AS output,
                    v.definition->'capability_declaration'->>'title' AS title
               FROM method_version_slots s
               JOIN knowbot_method_version v USING (method_id,version)
               JOIN knowbot_method m ON m.id = s.method_id
-             WHERE m.owner_subject = :owner AND s.method_id <> :exclude
+             WHERE (m.owner_subject = :owner OR EXISTS (
+                       SELECT 1 FROM jsonb_to_recordset(CAST(:granted AS jsonb))
+                         AS g(method_id uuid, version integer, digest text)
+                        WHERE (g.method_id, g.version, g.digest)
+                            = (v.method_id, v.version, v.digest)
+                   )) AND s.method_id <> :exclude
                AND s.direction = 'outputs' AND v.provenance->>'method_kind' = 'tool'
                AND coalesce(v.provenance->'allowed_callers', '["host"]'::jsonb) ? 'host'
-               AND coalesce(nullif(v.provenance #> '{validation,execution,validated_callers}', 'null'::jsonb),
+               AND coalesce(nullif(v.provenance
+                                   #> '{validation,execution,validated_callers}',
+                                   'null'::jsonb),
                             '["host"]'::jsonb) ? 'host'
                AND s.meaning = CAST(:meaning AS jsonb)
                AND s.value_schema = CAST(:schema AS jsonb)
@@ -1842,7 +1851,8 @@ class SqlKnowlabRepository:
         rows = await self.session.execute(
             stmt,
             {
-                "owner": owner,
+                "owner": owner if granted is None else None,
+                "granted": json.dumps(granted or []),
                 "exclude": exclude_method_id,
                 "required": slot.required,
                 "meaning": json.dumps(slot.meaning),

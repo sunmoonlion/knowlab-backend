@@ -746,7 +746,7 @@ class KnowlabRepository(Protocol):
     ) -> None: ...
 
     async def method_output_slots(
-        self, owner, slot, exclude_method_id, offset, limit
+        self, owner, slot, exclude_method_id, offset, limit, *, granted=None
     ) -> list[dict[str, Any]]: ...
 
     async def list_methods(

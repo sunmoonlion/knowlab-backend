@@ -1688,9 +1688,20 @@ class OutputSlotQuery(BaseModel):
     offset: int = Field(default=0, ge=0)
 
 
+class SharedOutputSlotQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slot: ValueSlot
+    exclude_method_id: UUID
+    directory: Literal["shared"]
+    after: UUID | None = None
+
+
 @web_router.post("/knowbot-requests/{request_id}/incubation-tools/matching-outputs")
 async def matching_outputs(
-    principal: User, methods: FormalMethods, request_id: ItemId, body: OutputSlotQuery
+    principal: User,
+    methods: FormalMethods,
+    request_id: ItemId,
+    body: OutputSlotQuery | SharedOutputSlotQuery,
 ):
     return _ok(
         await methods.matching_outputs(
@@ -1698,7 +1709,11 @@ async def matching_outputs(
             request_id,
             body.slot,
             body.exclude_method_id,
-            body.offset,
+            body.offset if isinstance(body, OutputSlotQuery) else 0,
+            shared=isinstance(body, SharedOutputSlotQuery),
+            after=str(body.after)
+            if isinstance(body, SharedOutputSlotQuery) and body.after
+            else None,
         )
     )
 

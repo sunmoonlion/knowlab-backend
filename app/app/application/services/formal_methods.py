@@ -228,7 +228,7 @@ class FormalMethodService:
     async def execute(self, owner: str, method_id: str, command: ExecuteFormalMethod):
         mid = parse_id(method_id, "method")
         async with self.repo.transaction():
-            request, _, admission, _ = await self._prepare(
+            request, _, admission, _, _ = await self._prepare(
                 owner,
                 mid,
                 ValidateFormalMethod(
@@ -453,26 +453,53 @@ class FormalMethodService:
         return expected
 
     async def matching_outputs(
-        self, owner, request_id, slot, exclude_method_id, offset
+        self,
+        owner,
+        request_id,
+        slot,
+        exclude_method_id,
+        offset,
+        *,
+        shared=False,
+        after=None,
     ):
         limit = 20
         async with self.repo.transaction():
             request = await self.workdrafts._request(owner, request_id)
+        # A shared page is bounded by the market cursor. Match only the exact
+        # versions authorized on this page, including their immutable digests.
+        next_page = None
+        granted = None
+        if shared:
+            page = await self._shared_tools(request.runtime, owner, after=after)
+            granted = [item["reference"] for item in page["items"]]
+            next_page = page["next"]
+            if not granted:
+                return {"items": [], "next": next_page}
+        async with self.repo.transaction():
             rows = await self.repo.method_output_slots(
-                owner, slot, exclude_method_id, offset, limit + 1
+                owner,
+                slot,
+                exclude_method_id,
+                offset,
+                None if shared else limit + 1,
+                granted=granted,
             )
         items = []
         registered = {}
-        for row in rows[:limit]:
+        if not shared:
+            next_page = offset + limit if len(rows) > limit else None
+            rows = rows[:limit]
+        for row in rows:
             reference = MethodRef(
                 method_id=row["method_id"], version=row["version"], digest=row["digest"]
             )
             key = (reference.method_id, reference.version)
-            if key not in registered:
+            if not shared and key not in registered:
                 registered[key] = await self._registered(
                     request.runtime, owner, reference
                 )
-            if registered[key]:
+            if shared or registered[key]:
                 items.append(
                     {
                         "reference": reference.model_dump(mode="json"),
@@ -480,7 +507,7 @@ class FormalMethodService:
                         "title": row["title"],
                     }
                 )
-        return {"items": items, "next": offset + limit if len(rows) > limit else None}
+        return {"items": items, "next": next_page}
 
     async def shared_tools(self, owner, request_id, *, reference=None, after=None):
         async with self.repo.transaction():
@@ -507,6 +534,8 @@ class FormalMethodService:
         )
         try:
             page = SharedToolsPage.model_validate(raw)
+            if after and page.next and page.next <= UUID(str(after)):
+                raise ValueError("Incubation directory cursor did not advance")
             if any(
                 (reference is None) != (item.definition is None)
                 or (reference and item.reference != reference)
@@ -521,6 +550,7 @@ class FormalMethodService:
         self, owner: str, definition: FormalMethodDefinition, *, runtime=None
     ):
         resolved: dict[tuple[UUID, int], FrozenMethod] = {}
+        owned: list[MethodRef] = []
 
         async def visit(current: FormalMethodDefinition, depth: int):
             if depth > 16 or len(resolved) > 1000:
@@ -546,6 +576,7 @@ class FormalMethodService:
                                 "Method digest changed", code="method_integrity"
                             )
                         child = admitted_definition(record)
+                        owned.append(ref)
                     else:
                         if runtime is None:
                             raise NotFoundError(
@@ -564,7 +595,7 @@ class FormalMethodService:
                     await visit(child, depth + 1)
 
         await visit(definition, 0)
-        return resolved
+        return resolved, owned
 
     async def _prepare(
         self, owner: str, method_id: UUID, command: ValidateFormalMethod
@@ -600,7 +631,7 @@ class FormalMethodService:
                 "Confirm the author's definition and source first",
                 code="method_source_invalid",
             )
-        resolved = await self._dependencies(
+        resolved, owned = await self._dependencies(
             owner, draft.definition, runtime=request.runtime
         )
         try:
@@ -618,7 +649,7 @@ class FormalMethodService:
             draft=draft,
             dependencies=compiled.dependencies,
         )
-        return request, current, payload, compiled
+        return request, current, payload, compiled, owned
 
     @staticmethod
     def _result(raw: Any, run_id: UUID) -> FormalMethodValidationResult:
@@ -673,11 +704,12 @@ class FormalMethodService:
 
     async def validate(self, owner: str, method_id: str, command: ValidateFormalMethod):
         async with self.repo.transaction():
-            request, _, payload, _ = await self._prepare(
+            request, _, payload, _, owned = await self._prepare(
                 owner, parse_id(method_id, "method"), command
             )
-        # No database transaction is held while the runtime validates/executes.
-        for reference in payload.dependencies:
+        # _dependencies already resolved shared versions under live grants.
+        # Registration by subject covers only the dependencies this author owns.
+        for reference in owned:
             if not await self._registered(request.runtime, owner, reference):
                 raise ConcurrencyConflictError(
                     "A dependency is frozen locally but not registered for execution",
@@ -809,7 +841,7 @@ class FormalMethodService:
                 )
             if head:
                 await self.get(owner, method_id, head)
-            request, current, payload, compiled = await self._prepare(
+            request, current, payload, compiled, _ = await self._prepare(
                 owner,
                 mid,
                 ValidateFormalMethod(

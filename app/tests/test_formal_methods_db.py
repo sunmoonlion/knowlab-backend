@@ -136,3 +136,107 @@ async def test_registration_failure_retries_committed_version_without_transactio
     assert len(runtime.registrations) == 1
     assert runtime.registration_calls[0] == runtime.registration_calls[1]
     assert runtime.registration_calls[1].draft.allowed_callers == ("host",)
+
+
+@pytest.mark.parametrize("scope", ["platform", "acquired"])
+async def test_author_matches_and_validates_only_granted_shared_outputs(
+    db, monkeypatch, scope
+):
+    from app.application.errors.exceptions import BadGatewayError
+    from app.application.services.knowbot_service import KnowbotCreationService
+    from app.domain.knowbots.drafts import KnowbotRequestIn
+    from app.domain.knowbots.formal_method_admission import ValidateFormalMethod
+    from tests.knowbot_fakes import request_body
+    from tests.test_formal_method import composite, frozen
+
+    runtime, mid, command = await prepared(db)
+    record = await freeze(db, runtime, mid, command)
+    child = frozen(record.definition, mid=mid)
+    ref = child.reference.model_dump(mode="json")
+    consumer = "consumer"
+    asset, cursor, parent = uuid4(), str(uuid4()), uuid4()
+    grant = {"reference": ref, "scope": scope, "title": "Echo"}
+    available = True
+
+    async def grants(runtime_name, subject, *, reference=None, after=None):
+        assert subject == consumer
+        if not available:
+            return {"items": [], "next": None}
+        if reference:
+            assert reference == child.reference
+            return {
+                "items": [
+                    {
+                        **grant,
+                        "definition": record.definition,
+                        "installations": [
+                            {
+                                "asset_id": str(asset),
+                                "revision": 1,
+                                "name": "test",
+                                "account": None,
+                            }
+                        ],
+                        "selected": str(asset),
+                    }
+                ],
+                "next": None,
+            }
+        if after == cursor:
+            return {"items": [grant], "next": None}
+        # Same ID/version, different digest: must yield an empty, non-final page.
+        return {
+            "items": [{**grant, "reference": {**ref, "digest": "sha256:" + "0" * 64}}],
+            "next": cursor,
+        }
+
+    monkeypatch.setattr(runtime, "incubation_tool_versions", grants, raising=False)
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        service = FormalMethodService(repo, runtime)
+        request = await KnowbotCreationService(repo, runtime).submit(
+            consumer, KnowbotRequestIn.model_validate(request_body())
+        )
+        rid = str(request.id)
+        slot = draft().definition.procedure.inputs["value"]
+
+        async def match(*, shared=True, after=None, exclude=parent, wanted=slot):
+            return await service.matching_outputs(
+                consumer, rid, wanted, exclude, 0, shared=shared, after=after
+            )
+
+        assert await match(shared=False) == {"items": [], "next": None}
+        assert await match() == {"items": [], "next": cursor}
+        assert await match(after=cursor) == {
+            "items": [{"reference": ref, "output": "result", "title": "Echo"}],
+            "next": None,
+        }
+        assert not (await match(after=cursor, exclude=mid))["items"]
+        assert not (
+            await match(
+                after=cursor,
+                wanted=slot.model_copy(update={"meaning": {"unit": "other"}}),
+            )
+        )["items"]
+        with pytest.raises(BadGatewayError):
+            await match(after="ffffffff-ffff-ffff-ffff-ffffffffffff")
+        proposal = {
+            "definition": composite(child),
+            "source": None,
+            "allowed_callers": ["host"],
+        }
+        await service.workdrafts.save(
+            consumer, rid, revision=0, edits=[("formal_method", proposal)]
+        )
+        validate = ValidateFormalMethod(
+            request_id=request.id, revision=1, run_id=uuid4()
+        )
+        assert (await service.validate(consumer, str(parent), validate))[
+            "status"
+        ] == "pending"
+        available = False
+        assert await match(after=cursor) == {"items": [], "next": None}
+        retry = validate.model_copy(update={"run_id": uuid4()})
+        with pytest.raises(NotFoundError):
+            await service.validate(consumer, str(parent), retry)
+        assert retry.run_id not in runtime.validation_requests
