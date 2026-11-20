@@ -606,11 +606,6 @@ class FormalMethodService:
         request = await self.workdrafts._request(owner, str(command.request_id))
         current = await self.workdrafts.locked(request, command.revision)
         body = parse_body(current.body)
-        if collaboration_gaps(current.body):
-            raise ConcurrencyConflictError(
-                "The runner cannot execute this draft's collaboration requirements",
-                code="runtime_capability_gap",
-            )
         draft = body.formal_method
         if draft is None:
             raise BadRequestError(
@@ -631,6 +626,12 @@ class FormalMethodService:
                 "Confirm the author's definition and source first",
                 code="method_source_invalid",
             )
+        if body.collaboration and isinstance(draft.definition.procedure, Orchestration):
+            graph = draft.definition.procedure.model_copy(
+                update={"collaboration": body.collaboration}
+            )
+            definition = draft.definition.model_copy(update={"procedure": graph})
+            draft = draft.model_copy(update={"definition": definition})
         resolved, owned = await self._dependencies(
             owner, draft.definition, runtime=request.runtime
         )
@@ -850,6 +851,11 @@ class FormalMethodService:
                     run_id=command.run_id,
                 ),
             )
+            if collaboration_gaps(current.body):
+                raise ConcurrencyConflictError(
+                    "The runner cannot execute this draft's collaboration requirements",
+                    code="runtime_capability_gap",
+                )
             receipt = self._receipt(payload, result)
             if (
                 isinstance(payload.draft.definition.procedure, Orchestration)

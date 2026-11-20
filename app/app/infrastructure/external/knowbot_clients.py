@@ -19,6 +19,7 @@ from urllib.parse import quote, urlencode
 from app.application.errors.exceptions import (
     BadGatewayError,
     BadRequestError,
+    ConcurrencyConflictError,
     ServiceUnavailableError,
 )
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
@@ -192,11 +193,20 @@ class RuntimeTestClients:
     async def submit_formal_method_validation(
         self, runtime: str, request: Any
     ) -> dict[str, Any]:
-        _, body = await self._client(runtime).request(
-            "POST",
-            "/formal-method-validations",
-            json=request.model_dump(mode="json", by_alias=True),
-        )
+        return await self._submit_formal(runtime, "/formal-method-validations", request)
+
+    async def _submit_formal(self, runtime, path, request):
+        try:
+            _, body = await self._client(runtime).request(
+                "POST", path, json=request.model_dump(mode="json", by_alias=True)
+            )
+        except BadGatewayError as exc:
+            if exc.code == "runtime_capability_gap":
+                raise ConcurrencyConflictError(
+                    "The runner cannot execute the requested collaboration",
+                    code=exc.code,
+                ) from exc
+            raise
         return body
 
     async def formal_method_validation(
@@ -210,12 +220,7 @@ class RuntimeTestClients:
         return body
 
     async def submit_formal_method_execution(self, runtime, request):
-        _, body = await self._client(runtime).request(
-            "POST",
-            "/formal-method-executions",
-            json=request.model_dump(mode="json", by_alias=True),
-        )
-        return body
+        return await self._submit_formal(runtime, "/formal-method-executions", request)
 
     async def formal_method_execution(self, runtime, subject, run_id):
         _, body = await self._client(runtime).request(

@@ -22,6 +22,8 @@ from app.domain.knowbots.formal_method_admission import (
     CONTRACT,
     GOVERNANCE_CHECKS,
     FormalMethodDraft,
+    FormalMethodValidationRequest,
+    FormalMethodValidationResult,
     FreezeFormalMethod,
     ValidateFormalMethod,
 )
@@ -511,6 +513,61 @@ def test_review_policy_requires_an_independent_consumer_of_the_producer_output()
     assert {"step": "s1", "primitive": "different_model_family"} in collaboration_gaps(
         saved
     )
+    from app.domain.knowbots.formal_method import FormalMethodDefinition
+
+    graph = definition["procedure"]
+    graph["collaboration"] = saved["collaboration"]
+    strict = FormalMethodDefinition.model_validate(definition)
+    assert (
+        strict.model_dump(mode="json", by_alias=True)["procedure"]["collaboration"]
+        == saved["collaboration"]
+    )
+    graph["collaboration"]["s1"]["review_requirements"]["s0"] = "isolated_reviewer"
+    assert FormalMethodDefinition.model_validate(definition).digest() != strict.digest()
+    del graph["collaboration"]
+    legacy = composite(frozen(mid=UUID(int=1)), frozen(mid=UUID(int=2)))
+    assert FormalMethodDefinition.model_validate(legacy).digest() == (
+        "sha256:fc041d5b4590352bbb535a2cd2915097c30724a0d2ac91f70ad271b410504bef"
+    )
     role["isolation_group"] = "primary"
     with pytest.raises(ValueError, match="isolation group"):
         WorkdraftBody.model_validate(body)
+
+
+def test_prior_receipt_cannot_admit_a_graph_with_changed_review_requirement():
+    first, second = frozen(), frozen()
+    graph = composite(first, second)
+    review = graph["procedure"]["steps"][1]
+    review["depends_on"] = ["s0"]
+    review["inputs"]["value"]["binding"] = {
+        "source": "step",
+        "step": "s0",
+        "output": "result",
+    }
+    policy = {"s0": "different_model_family"}
+    graph["procedure"]["collaboration"] = {"s1": {"review_requirements": policy}}
+    document = dict(
+        contract=CONTRACT,
+        run_id=uuid4(),
+        owner_subject=OWNER,
+        method_id=uuid4(),
+        request_id=uuid4(),
+        workdraft_id=uuid4(),
+        revision=1,
+        draft={"definition": graph, "source": None, "allowed_callers": ["host"]},
+        dependencies=[first.reference, second.reference],
+    )
+    strict = FormalMethodValidationRequest.model_validate(document)
+    runtime = Runtime()
+    runtime.validation_requests[strict.run_id] = strict
+    runtime.complete(strict.run_id)
+    result = FormalMethodValidationResult.model_validate(
+        runtime.validation_results[strict.run_id]
+    )
+    assert FormalMethodService._receipt(strict, result) == result.receipt
+    policy["s0"] = "isolated_reviewer"
+    with pytest.raises(ConcurrencyConflictError) as exc:
+        FormalMethodService._receipt(
+            FormalMethodValidationRequest.model_validate(document), result
+        )
+    assert exc.value.code == "formal_validation_stale"

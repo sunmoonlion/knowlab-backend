@@ -41,6 +41,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowbots.formal_method import CollaborationStep
 from app.domain.knowbots.formal_method_admission import FormalMethodDraft
 from app.domain.knowbots.managed_capabilities_generated import MethodAccess
 
@@ -352,29 +353,6 @@ class MethodReference(Strict):
         return self
 
 
-class CollaborationStep(Strict):
-    # Each key is the producer whose accepted output this step reviews.
-    review_requirements: dict[
-        Annotated[str, Field(pattern=STEP_ID)],
-        Literal["isolated_reviewer", "different_model_family"],
-    ] = Field(default_factory=dict, max_length=100, exclude_if=lambda value: not value)
-
-    isolation_group: Annotated[str, Field(pattern=STEP_ID)] | None = None
-    handoff_from: tuple[Annotated[str, Field(pattern=STEP_ID)], ...] = Field(
-        default=(), max_length=100
-    )
-
-    @model_validator(mode="after")
-    def has_requirement(self):
-        if (
-            self.isolation_group is None
-            and not self.handoff_from
-            and not self.review_requirements
-        ):
-            raise ValueError("A collaboration step must declare a requirement")
-        return self
-
-
 class WorkdraftBody(Strict):
     collaboration: (
         dict[Annotated[str, Field(pattern=STEP_ID)], CollaborationStep] | None
@@ -413,42 +391,19 @@ class WorkdraftBody(Strict):
 
     @model_validator(mode="after")
     def _consistent(self) -> WorkdraftBody:
+        if (
+            self.formal_method
+            and self.formal_method.definition.procedure.kind == "orchestration"
+            and self.formal_method.definition.procedure.collaboration is not None
+        ):
+            raise ValueError("Edit collaboration in the author collaboration cell")
         if self.collaboration:
             graph = (
                 self.formal_method.definition.procedure if self.formal_method else None
             )
             if graph is None or graph.kind != "orchestration":
                 raise ValueError("Collaboration requires a formal orchestration draft")
-            steps = {s.id: s for s in graph.steps}
-            for name, role in self.collaboration.items():
-                if name not in steps or not set(role.handoff_from) <= set(
-                    steps[name].depends_on
-                ):
-                    raise ValueError("Handoffs must reference an explicit predecessor")
-                for producer in role.review_requirements:
-                    if (
-                        producer == name
-                        or producer not in steps
-                        or producer not in steps[name].depends_on
-                        or not any(
-                            entry.binding.source == "step"
-                            and entry.binding.step == producer
-                            and entry.binding.output in steps[producer].outputs
-                            for entry in steps[name].inputs.values()
-                        )
-                    ):
-                        raise ValueError(
-                            "Review requires an input bound to a producer output"
-                        )
-                    producer_role = self.collaboration.get(producer)
-                    if (
-                        role.isolation_group
-                        and producer_role
-                        and (role.isolation_group == producer_role.isolation_group)
-                    ):
-                        raise ValueError(
-                            "Reviewer and producer cannot share an isolation group"
-                        )
+            graph.validate_collaboration(self.collaboration)
         if self.formal_method is not None and (
             self.steps or self.planning or self.method_refs or self.public_capabilities
         ):
