@@ -387,7 +387,8 @@ async def test_execution_outbound_paths_and_schema_aliases():
     assert "schema_" not in seen[0].content.decode()
     assert FormalMethodExecutionRequest.model_validate(posted) == payload
     assert [r.method for r in seen] == ["POST", "GET", "POST", "POST"]
-    assert str(seen[2].url).endswith("/cancel")
+    assert seen[2].url.path.endswith("/cancel")
+    assert seen[2].url.params["owner_subject"] == OWNER
     assert "/actions/" in str(seen[3].url)
     assert json.loads(seen[3].content)["owner_subject"] == OWNER
 

@@ -97,6 +97,7 @@ from app.domain.knowbots.delivery import (
     DeliverySubmitIn,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
+from app.domain.knowbots.formal_method import ValueSlot
 from app.domain.knowbots.formal_method_admission import (
     FreezeFormalMethod,
     ValidateFormalMethod,
@@ -1678,6 +1679,28 @@ async def formal_sources(
     principal: User, methods: FormalMethods, request_id: ItemId
 ) -> JSONResponse:
     return _ok(await methods.sources(principal.subject, request_id))
+
+
+class OutputSlotQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slot: ValueSlot
+    exclude_method_id: UUID
+    offset: int = Field(default=0, ge=0)
+
+
+@web_router.post("/knowbot-requests/{request_id}/incubation-tools/matching-outputs")
+async def matching_outputs(
+    principal: User, methods: FormalMethods, request_id: ItemId, body: OutputSlotQuery
+):
+    return _ok(
+        await methods.matching_outputs(
+            principal.subject,
+            request_id,
+            body.slot,
+            body.exclude_method_id,
+            body.offset,
+        )
+    )
 
 
 class IncubationAssetSelection(BaseModel):

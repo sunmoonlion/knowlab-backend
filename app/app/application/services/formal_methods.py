@@ -52,7 +52,11 @@ from app.domain.knowbots.formal_method_execution import (
     FormalMethodExecutionResult,
     FormalTestSuite,
 )
-from app.domain.knowbots.workdraft import record_ids, source_problems
+from app.domain.knowbots.workdraft import (
+    collaboration_gaps,
+    record_ids,
+    source_problems,
+)
 
 
 def admitted_definition(record: MethodVersionRecord) -> FormalMethodDefinition:
@@ -430,6 +434,36 @@ class FormalMethodService:
             raise BadGatewayError("Different incubation binding receipt")
         return expected
 
+    async def matching_outputs(
+        self, owner, request_id, slot, exclude_method_id, offset
+    ):
+        limit = 20
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+            rows = await self.repo.method_output_slots(
+                owner, slot, exclude_method_id, offset, limit + 1
+            )
+        items = []
+        registered = {}
+        for row in rows[:limit]:
+            reference = MethodRef(
+                method_id=row["method_id"], version=row["version"], digest=row["digest"]
+            )
+            key = (reference.method_id, reference.version)
+            if key not in registered:
+                registered[key] = await self._registered(
+                    request.runtime, owner, reference
+                )
+            if registered[key]:
+                items.append(
+                    {
+                        "reference": reference.model_dump(mode="json"),
+                        "output": row["output"],
+                        "title": row["title"],
+                    }
+                )
+        return {"items": items, "next": offset + limit if len(rows) > limit else None}
+
     async def shared_tools(self, owner, request_id, *, reference=None, after=None):
         async with self.repo.transaction():
             request = await self.workdrafts._request(owner, request_id)
@@ -523,6 +557,11 @@ class FormalMethodService:
         request = await self.workdrafts._request(owner, str(command.request_id))
         current = await self.workdrafts.locked(request, command.revision)
         body = parse_body(current.body)
+        if collaboration_gaps(current.body):
+            raise ConcurrencyConflictError(
+                "The runner cannot execute this draft's collaboration requirements",
+                code="runtime_capability_gap",
+            )
         draft = body.formal_method
         if draft is None:
             raise BadRequestError(

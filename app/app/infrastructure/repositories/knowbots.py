@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator, Collection, Sequence
 from contextlib import asynccontextmanager
@@ -1819,6 +1820,38 @@ class SqlKnowlabRepository:
             )
         )
         await self.session.flush()
+
+    async def method_output_slots(self, owner, slot, exclude_method_id, offset, limit):
+        stmt = text("""
+            SELECT s.method_id, s.version, v.digest, s.name AS output,
+                   v.definition->'capability_declaration'->>'title' AS title
+              FROM method_version_slots s
+              JOIN knowbot_method_version v USING (method_id,version)
+              JOIN knowbot_method m ON m.id = s.method_id
+             WHERE m.owner_subject = :owner AND s.method_id <> :exclude
+               AND s.direction = 'outputs' AND v.provenance->>'method_kind' = 'tool'
+               AND coalesce(v.provenance->'allowed_callers', '["host"]'::jsonb) ? 'host'
+               AND coalesce(nullif(v.provenance #> '{validation,execution,validated_callers}', 'null'::jsonb),
+                            '["host"]'::jsonb) ? 'host'
+               AND s.meaning = CAST(:meaning AS jsonb)
+               AND s.value_schema = CAST(:schema AS jsonb)
+               AND (NOT :required OR s.guaranteed)
+             ORDER BY s.method_id,s.version DESC,s.name
+             LIMIT :limit OFFSET :offset
+        """)
+        rows = await self.session.execute(
+            stmt,
+            {
+                "owner": owner,
+                "exclude": exclude_method_id,
+                "required": slot.required,
+                "meaning": json.dumps(slot.meaning),
+                "schema": json.dumps(slot.schema_),
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+        return [dict(row) for row in rows.mappings()]
 
     async def list_methods(
         self, owner_subject: str, *, limit: int, offset: int, formal_only: bool = False

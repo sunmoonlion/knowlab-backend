@@ -22,7 +22,7 @@ from app.domain.knowbots.methods import BindMethod, FreezeMethod
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from tests.dynamic_method_fixtures import body
 from tests.knowbot_fakes import OWNER, FakeRuntime, request_body
-from tests.test_knowbot_repository_db import _run
+from tests.test_knowbot_repository_db import _run, _versions
 from tests.test_knowbot_repository_db import db as db
 
 pytestmark = pytest.mark.asyncio
@@ -237,17 +237,18 @@ async def test_empty_migration_roundtrip_and_nonempty_downgrade_guard(db):
     migration = (
         Path(__file__).parents[1] / "alembic/versions/20261102_0025_author_methods.py"
     )
+    chain = [p for p in _versions() if p.name >= migration.name]
     async with db() as session:
         async with session.begin():
             conn = await session.connection()
-            await conn.run_sync(lambda c: _run(c, [migration], "downgrade"))
-            await conn.run_sync(lambda c: _run(c, [migration], "upgrade"))
+            await conn.run_sync(lambda c: _run(c, chain[::-1], "downgrade"))
+            await conn.run_sync(lambda c: _run(c, chain, "upgrade"))
     await publish(db, uuid.uuid4(), await source(db))
     async with db() as session:
         with pytest.raises(RuntimeError, match="cannot discard"):
             async with session.begin():
                 await (await session.connection()).run_sync(
-                    lambda c: _run(c, [migration], "downgrade")
+                    lambda c: _run(c, chain[::-1], "downgrade")
                 )
 
 

@@ -745,6 +745,10 @@ class KnowlabRepository(Protocol):
         source_workdraft_id: uuid.UUID,
     ) -> None: ...
 
+    async def method_output_slots(
+        self, owner, slot, exclude_method_id, offset, limit
+    ) -> list[dict[str, Any]]: ...
+
     async def list_methods(
         self, owner_subject: str, *, limit: int, offset: int, formal_only: bool = False
     ) -> Sequence[dict[str, Any]]: ...

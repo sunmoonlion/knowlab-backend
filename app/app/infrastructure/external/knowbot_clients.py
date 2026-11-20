@@ -228,8 +228,8 @@ class RuntimeTestClients:
     async def cancel_formal_method_execution(self, runtime, subject, run_id):
         _, body = await self._client(runtime).request(
             "POST",
-            f"/formal-method-executions/{quote(run_id, safe='')}/cancel",
-            json={"owner_subject": subject},
+            f"/formal-method-executions/{quote(run_id, safe='')}/cancel?"
+            + urlencode({"owner_subject": subject}),
         )
         return body
 

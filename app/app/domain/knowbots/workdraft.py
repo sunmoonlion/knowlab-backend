@@ -352,7 +352,28 @@ class MethodReference(Strict):
         return self
 
 
+class CollaborationStep(Strict):
+    isolation_group: Annotated[str, Field(pattern=STEP_ID)] | None = None
+    handoff_from: tuple[Annotated[str, Field(pattern=STEP_ID)], ...] = Field(
+        default=(), max_length=100
+    )
+
+    @model_validator(mode="after")
+    def has_requirement(self):
+        if self.isolation_group is None and not self.handoff_from:
+            raise ValueError("An isolation or handoff requirement is required")
+        return self
+
+
 class WorkdraftBody(Strict):
+    collaboration: (
+        dict[Annotated[str, Field(pattern=STEP_ID)], CollaborationStep] | None
+    ) = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        exclude_if=lambda value: value is None,
+    )
     formal_method: FormalMethodDraft | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
@@ -382,6 +403,18 @@ class WorkdraftBody(Strict):
 
     @model_validator(mode="after")
     def _consistent(self) -> WorkdraftBody:
+        if self.collaboration:
+            graph = (
+                self.formal_method.definition.procedure if self.formal_method else None
+            )
+            if graph is None or graph.kind != "orchestration":
+                raise ValueError("Collaboration requires a formal orchestration draft")
+            steps = {s.id: s for s in graph.steps}
+            for name, role in self.collaboration.items():
+                if name not in steps or not set(role.handoff_from) <= set(
+                    steps[name].depends_on
+                ):
+                    raise ValueError("Handoffs must reference an explicit predecessor")
         if self.formal_method is not None and (
             self.steps or self.planning or self.method_refs or self.public_capabilities
         ):
@@ -412,6 +445,17 @@ class WorkdraftBody(Strict):
         return self
 
 
+def collaboration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
+    """No current runner supports an independent role or a staged handoff."""
+    gaps = []
+    for name, role in (body.get("collaboration") or {}).items():
+        if role.get("isolation_group"):
+            gaps.append({"step": name, "primitive": "isolation_group"})
+        if role.get("handoff_from"):
+            gaps.append({"step": name, "primitive": "staged_handoff"})
+    return gaps
+
+
 def empty_body() -> dict[str, Any]:
     return WorkdraftBody().model_dump(mode="json")
 
@@ -438,6 +482,13 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
     text("scope/does", body.scope.does)
     text("scope/does_not", body.scope.does_not)
     text("scope/elsewhere", body.scope.elsewhere)
+    if body.collaboration:
+        found["collaboration"] = canonical(
+            {
+                name: role.model_dump(mode="json")
+                for name, role in body.collaboration.items()
+            }
+        )
     if body.formal_method is not None:
         found["formal_method"] = canonical(
             body.formal_method.model_dump(mode="json", by_alias=True)
@@ -544,6 +595,7 @@ def apply(body: Mapping[str, Any], path: str, value: Any) -> dict[str, Any]:
             "planning",
             "public_capabilities",
             "formal_method",
+            "collaboration",
         )
         and len(parts) == 1
     ):
