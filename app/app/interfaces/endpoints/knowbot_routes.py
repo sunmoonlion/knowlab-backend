@@ -701,6 +701,7 @@ class SaveCellsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=0)  # 读到的那一版；对不上回 409
     cells: list[CellIn] = Field(min_length=1, max_length=200)
+    adopt_p1: bool = Field(default=False, strict=True)
 
 
 class ImportIn(BaseModel):
@@ -726,6 +727,11 @@ async def my_workdraft(
     return _ok(
         workdraft_view(request, found, await workdrafts.origins(found))
         | {"proposals": [proposal_view(p, admin=False) for p in proposals]}
+        | (
+            {"p1_adoption": receipt}
+            if (receipt := await workdrafts.p1_receipt(found))
+            else {}
+        )
     )
 
 
@@ -769,9 +775,13 @@ async def save_cells(
         request_id,
         revision=body.revision,
         edits=[(c.path, c.value) for c in body.cells],
+        adopt_p1=body.adopt_p1,
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found, await workdrafts.origins(found)))
+    view = workdraft_view(request, found, await workdrafts.origins(found))
+    if receipt := await workdrafts.p1_receipt(found):
+        view["p1_adoption"] = receipt
+    return _ok(view)
 
 
 @web_router.post("/knowbot-requests/{request_id}/workdraft/import")

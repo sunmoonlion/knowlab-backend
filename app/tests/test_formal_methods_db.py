@@ -240,3 +240,55 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         with pytest.raises(NotFoundError):
             await service.validate(consumer, str(parent), retry)
         assert retry.run_id not in runtime.validation_requests
+
+
+async def test_p1_adoption_replays_only_the_same_confirmed_revision(db):
+    from copy import deepcopy
+
+    from app.application.errors.exceptions import BadRequestError
+    from tests.test_formal_method import composite, frozen
+
+    runtime, _, cmd = await prepared(db)
+    rid = str(cmd.request_id)
+    plan = {
+        "definition": composite(frozen(), frozen()),
+        "source": None,
+        "allowed_callers": ["host"],
+    }
+
+    async def save(revision, doc, *, owner=OWNER):
+        async with db() as session:
+            service = KnowbotWorkdraftService(SqlKnowlabRepository(session))
+            got = await service.save(
+                owner,
+                rid,
+                revision=revision,
+                edits=[("formal_method", doc)],
+                adopt_p1=True,
+            )
+            return got, await service.p1_receipt(got)
+
+    (first, proof), (retry, duplicate) = await asyncio.gather(
+        save(1, plan), save(1, plan)
+    )
+    assert first == retry and proof == duplicate
+    assert (proof["base_revision"], proof["saved_revision"]) == (1, 2)
+    assert first.sources["formal_method"] == {
+        "kind": "user_confirmed",
+        "ref": "record:" + proof["record_id"],
+    }
+    with pytest.raises(NotFoundError):
+        await save(1, plan, owner="other-author")
+    with pytest.raises(BadRequestError):
+        await save(2, plan)
+    changed = deepcopy(plan)
+    changed["definition"]["procedure"]["instructions"] = (
+        "Modified after the first preview"
+    )
+    with pytest.raises(ConcurrencyConflictError):
+        await save(1, changed)
+    newer, later = await save(2, changed)
+    assert later["previous_record"] == first.sources["formal_method"]["ref"]
+    assert newer.revision == 3 and later["digest"] != proof["digest"]
+    with pytest.raises(ConcurrencyConflictError):
+        await save(1, plan)

@@ -194,6 +194,33 @@ class KnowbotWorkdraftService:
             ) from None
         return snapshots
 
+    async def p1_receipt(self, current: WorkdraftRecord | None):
+        if current is None:
+            return None
+        source = current.sources.get("formal_method", {})
+        if source.get("kind") != "user_confirmed":
+            return None
+        ids = record_ids({"formal_method": source})
+        for entry in await self.repo.list_workdraft_entries(ids):
+            if (
+                entry.workdraft_id != current.id
+                or entry.actor_subject != current.owner_subject
+                or entry.path != "formal_method"
+                or entry.kind != "accept"
+            ):
+                continue
+            ref = entry.suggestion_ref or ""
+            if ref.startswith("p1:"):
+                _, base, digest, previous = ref.split(":", 3)
+                return {
+                    "base_revision": int(base),
+                    "saved_revision": int(base) + 1,
+                    "digest": digest,
+                    "record_id": str(entry.id),
+                    "previous_record": previous or None,
+                }
+        return None
+
     # ---------- 作者直接改 ----------
     async def save(
         self,
@@ -202,6 +229,7 @@ class KnowbotWorkdraftService:
         *,
         revision: int,
         edits: Sequence[tuple[str, Any]],
+        adopt_p1: bool = False,
     ) -> WorkdraftRecord:
         """存几格（path, value）：按顺序改，改完整份核一次形状。"""
         if not edits or len(edits) > MAX_EDITS:
@@ -214,9 +242,34 @@ class KnowbotWorkdraftService:
                 "Pick data from the knowledge column, not as a cell",
                 code="workdraft_path_invalid",
             )
+        fingerprint = None
+        if adopt_p1:
+            paths = [p for p, _ in edits]
+            if (
+                paths.count("formal_method") != 1
+                or len(set(paths)) != len(paths)
+                or set(paths) - {"formal_method", "collaboration"}
+            ):
+                raise BadRequestError(
+                    "Expected one reviewed expert draft", code="workdraft_invalid"
+                )
+            fingerprint = hashlib.sha256(canonical(dict(edits)).encode()).hexdigest()
         request = await self._request(owner_subject, request_id)
         async with self.repo.transaction():
-            current = await self.locked(request, revision)
+            try:
+                current = await self.locked(request, revision)
+            except ConcurrencyConflictError:
+                if adopt_p1:
+                    head = await self.repo.get_workdraft(request.id)
+                    if head and head.revision == revision + 1:
+                        receipt = await self.p1_receipt(head)
+                        if (
+                            receipt
+                            and receipt["base_revision"] == revision
+                            and receipt["digest"] == fingerprint
+                        ):
+                            return head
+                raise
             doc: dict[str, Any] = current.body
             for path, value in edits:
                 try:
@@ -227,19 +280,35 @@ class KnowbotWorkdraftService:
                     ) from None
             body = parse_body(doc)
             before, after = cells(parse_body(current.body)), cells(body)
+            if adopt_p1 and (
+                not body.formal_method
+                or body.formal_method.definition.procedure.kind != "orchestration"
+                or before.get("formal_method") == after.get("formal_method")
+            ):
+                raise BadRequestError(
+                    "Expected a changed orchestration", code="workdraft_invalid"
+                )
             sources = {p: s for p, s in current.sources.items() if p in after}
             for path, text in after.items():
                 if before.get(path) == text and path in sources:
                     continue
+                accepted = adopt_p1 and path == "formal_method"
+                previous = current.sources.get(path, {}).get("ref", "")
                 entry = await self.repo.add_workdraft_entry(
                     workdraft_id=current.id,
-                    kind="edit",
+                    kind="accept" if accepted else "edit",
+                    suggestion_ref=f"p1:{revision}:{fingerprint}:{previous}"
+                    if accepted
+                    else None,
                     actor_subject=owner_subject,
                     actor_role=AUTHOR,
                     path=path,
                     text=text,
                 )
-                sources[path] = {"kind": "user_text", "ref": f"record:{entry.id}"}
+                sources[path] = {
+                    "kind": "user_confirmed" if accepted else "user_text",
+                    "ref": f"record:{entry.id}",
+                }
             return await self.store(current, body, sources)
 
     # ---------- 导入、复制 ----------
