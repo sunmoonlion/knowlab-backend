@@ -56,7 +56,7 @@ from app.domain.knowbots.formal_method_execution import (
     ReceiveBranch,
 )
 from app.domain.knowbots.workdraft import (
-    collaboration_gaps,
+    orchestration_gaps,
     record_ids,
     source_problems,
 )
@@ -821,6 +821,15 @@ class FormalMethodService:
                         "Version already records another freeze",
                         code="method_version_conflict",
                     )
+            else:
+                # Reject unsupported graphs before asking the runtime for evidence.
+                # _prepare checks this same immutable revision again before writing.
+                current = await self.workdrafts.locked(request, command.revision)
+                if orchestration_gaps(current.body):
+                    raise ConcurrencyConflictError(
+                        "The runner lacks a required orchestration primitive",
+                        code="runtime_capability_gap",
+                    )
         if frozen is None:
             frozen = await self._freeze_version(owner, method_id, version, command)
         # Freeze commits before registration. Retrying the same command sends
@@ -910,11 +919,6 @@ class FormalMethodService:
                     run_id=command.run_id,
                 ),
             )
-            if collaboration_gaps(current.body):
-                raise ConcurrencyConflictError(
-                    "The runner cannot execute this draft's collaboration requirements",
-                    code="runtime_capability_gap",
-                )
             receipt = self._receipt(payload, result)
             source = payload.draft.source
             if (

@@ -33,7 +33,7 @@ from app.domain.knowbots.lifecycle import ACTIVE_TESTS, draft_label, review_stat
 from app.domain.knowbots.manual_release import manifest_digest
 from app.domain.knowbots.platform_grants import basis as grant_basis
 from app.domain.knowbots.platform_grants import state as grant_state
-from app.domain.knowbots.workdraft import collaboration_gaps, empty_body
+from app.domain.knowbots.workdraft import empty_body, orchestration_gaps
 
 
 def iso(value: Any) -> str | None:
@@ -451,8 +451,8 @@ def workdraft_view(
         "revision": workdraft.revision,
         "body": workdraft.body,
         **(
-            {"runtime_gaps": collaboration_gaps(workdraft.body)}
-            if workdraft.body.get("collaboration")
+            {"runtime_gaps": gaps}
+            if (gaps := orchestration_gaps(workdraft.body))
             else {}
         ),
         "sources": workdraft.sources,

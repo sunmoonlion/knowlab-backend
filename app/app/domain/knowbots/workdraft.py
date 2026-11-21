@@ -434,9 +434,18 @@ class WorkdraftBody(Strict):
         return self
 
 
-def collaboration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
-    """No current runner supports an independent role or a staged handoff."""
+def orchestration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
+    """List declared orchestration primitives unavailable in the current runner."""
     gaps = []
+    graph = ((body.get("formal_method") or {}).get("definition") or {}).get(
+        "procedure"
+    ) or {}
+    if graph.get("object_batch"):
+        for step in graph["steps"]:
+            if any(
+                i["binding"]["source"] == "object_item" for i in step["inputs"].values()
+            ):
+                gaps.append({"step": step["id"], "primitive": "bounded_fanout"})
     for name, role in (body.get("collaboration") or {}).items():
         if role.get("isolation_group"):
             gaps.append({"step": name, "primitive": "isolation_group"})

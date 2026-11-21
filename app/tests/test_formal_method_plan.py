@@ -295,3 +295,103 @@ def test_export_includes_plan_provider_source_and_rewrites_imports(tmp_path):
     assert "def unique_plan(" in generated
     lock = json.loads(outputs[tmp_path / "contracts/formal-method-lock.json"])
     assert "formal_method_plan.py" in lock["source_sha256"]
+
+
+def comparison_graph():
+    raw = composite(frozen(), frozen())
+    graph = raw["procedure"]
+    graph.update(
+        max_replans=0,
+        max_steps=4,
+        max_expansions=5,
+        object_batch={"max_objects": 3, "on_missing": "stop"},
+    )
+    worker, collector = graph["steps"]
+    item = worker["inputs"]["value"]
+    item["slot"]["schema"] = {"type": "string"}
+    item["binding"] = {"source": "object_item", "name": "objects"}
+    rows = collector["inputs"]["value"]
+    rows["slot"]["schema"] = {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["object_id", "value"],
+            "properties": {
+                "object_id": item["slot"]["schema"],
+                "value": worker["outputs"]["result"]["schema"],
+            },
+        },
+    }
+    rows["binding"] = {
+        "source": "object_rows",
+        "step": worker["id"],
+        "output": "result",
+    }
+    collector["depends_on"] = [worker["id"]]
+    graph["exports"]["result"]["step"] = collector["id"]
+    return raw
+
+
+def test_object_batch_policy_changes_identity_and_cannot_enter_fixed_executor():
+    raw = comparison_graph()
+    batch = FormalMethodDefinition.model_validate(raw)
+    assert set(batch.interfaces()["inputs"]) == {"objects"}
+    with pytest.raises(ValueError, match="bounded object fanout"):
+        unique_plan(batch)
+    raw["procedure"]["object_batch"]["on_missing"] = "request_partial"
+    assert FormalMethodDefinition.model_validate(raw).digest() != batch.digest()
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("object_batch",), None),
+        (("object_batch", "max_objects"), 0),
+        (("object_batch", "max_objects"), 100),
+        (("max_expansions",), 4),
+        (("exports", "result", "step"), "s0"),
+        (("steps", 0, "outputs", "result", "required"), False),
+        (
+            ("steps", 0, "outputs", "result", "schema"),
+            {"$defs": {"n": {"type": "number"}}, "$ref": "#/$defs/n"},
+        ),
+        (("steps", 0, "always_required"), False),
+        (("steps", 1, "depends_on"), []),
+        (("steps", 1, "inputs", "value", "binding", "output"), "missing"),
+        (("steps", 1, "inputs", "value", "slot", "meaning"), {"unit": "incomparable"}),
+        (
+            (
+                "steps",
+                1,
+                "inputs",
+                "value",
+                "slot",
+                "schema",
+                "items",
+                "properties",
+                "value",
+            ),
+            {"type": "null"},
+        ),
+    ],
+)
+def test_object_batch_requires_closed_typed_collection(path, replacement):
+    raw = comparison_graph()
+    target = raw["procedure"]
+    for field in path[:-1]:
+        target = target[field]
+    target[path[-1]] = replacement
+    with pytest.raises(ValidationError):
+        FormalMethodDefinition.model_validate(raw)
+
+
+def test_object_list_cannot_alias_an_ordinary_input():
+    raw = comparison_graph()
+    collector = raw["procedure"]["steps"][1]
+    collector["inputs"]["extra"] = {
+        **collector["inputs"]["value"],
+        "binding": {"source": "caller", "name": "objects"},
+    }
+    with pytest.raises(ValidationError, match="distinct list input"):
+        FormalMethodDefinition.model_validate(raw)

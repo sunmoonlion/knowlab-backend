@@ -496,7 +496,7 @@ async def test_listing_uses_one_scoped_registry_page_without_local_enumeration(
 
 
 def test_review_policy_requires_an_independent_consumer_of_the_producer_output():
-    from app.domain.knowbots.workdraft import WorkdraftBody, collaboration_gaps
+    from app.domain.knowbots.workdraft import WorkdraftBody, orchestration_gaps
 
     definition = composite(frozen(), frozen())
     steps = definition["procedure"]["steps"]
@@ -522,7 +522,7 @@ def test_review_policy_requires_an_independent_consumer_of_the_producer_output()
     }
     saved = WorkdraftBody.model_validate(body).model_dump(mode="json", by_alias=True)
     assert "review_requirements" not in saved["collaboration"]["s0"]
-    assert {"step": "s1", "primitive": "different_model_family"} in collaboration_gaps(
+    assert {"step": "s1", "primitive": "different_model_family"} in orchestration_gaps(
         saved
     )
     from app.domain.knowbots.formal_method import FormalMethodDefinition
@@ -550,8 +550,8 @@ def test_review_policy_requires_an_independent_consumer_of_the_producer_output()
         "binding": {"source": "step", "step": "s0", "output": "assessment"},
     }
     staged = WorkdraftBody.model_validate(body).model_dump(mode="json", by_alias=True)
-    assert {"step": "s1", "primitive": "sealed_findings"} in collaboration_gaps(staged)
-    assert {"step": "s1", "primitive": "staged_handoff"} in collaboration_gaps(staged)
+    assert {"step": "s1", "primitive": "sealed_findings"} in orchestration_gaps(staged)
+    assert {"step": "s1", "primitive": "staged_handoff"} in orchestration_gaps(staged)
     extra = dict(steps[1]["inputs"]["notes"])
     extra["binding"] = {"source": "caller", "name": "unreviewed"}
     steps[1]["inputs"]["unreviewed"] = extra
