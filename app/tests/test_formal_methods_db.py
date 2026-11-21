@@ -158,7 +158,9 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
     grant = {"reference": ref, "scope": scope, "title": "Echo"}
     available = True
 
-    async def grants(runtime_name, subject, *, reference=None, after=None):
+    async def grants(
+        runtime_name, subject, *, reference=None, after=None, declaration=None
+    ):
         assert subject == consumer
         if not available:
             return {"items": [], "next": None}

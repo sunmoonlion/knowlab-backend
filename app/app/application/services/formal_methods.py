@@ -357,16 +357,26 @@ class FormalMethodService:
             method_id=current.method_id,
         ).model_dump(mode="json")
 
+    async def _incubation_basis(self, owner, request_id):
+        async with self.repo.transaction():
+            request, saved = await self.workdrafts.get(owner, request_id)
+            draft = parse_body(saved.body).formal_method if saved else None
+        declaration = (
+            draft.definition.capability_declaration.model_dump(mode="json")
+            if draft
+            else None
+        )
+        return request.runtime, declaration
+
     async def listing(self, owner: str, *, limit: int, offset: int, request_id=None):
         if not 1 <= limit <= 100 or offset < 0:
             raise BadRequestError("Invalid method page", code="method_page")
         runtime = "knowbench"
+        declaration = None
         if request_id is not None:
-            async with self.repo.transaction():
-                request = await self.workdrafts._request(owner, request_id)
-            runtime = request.runtime
+            runtime, declaration = await self._incubation_basis(owner, request_id)
         return await self.runtimes.method_skill_center_incubation_methods(
-            runtime, owner, limit=limit, offset=offset
+            runtime, owner, limit=limit, offset=offset, declaration=declaration
         )
 
     async def _registered(self, runtime: str, owner: str, reference: MethodRef) -> bool:
@@ -415,14 +425,15 @@ class FormalMethodService:
         after=None,
     ):
         limit = 20
-        async with self.repo.transaction():
-            request = await self.workdrafts._request(owner, request_id)
+        runtime, declaration = await self._incubation_basis(owner, request_id)
         # A shared page is bounded by the market cursor. Match only the exact
         # versions authorized on this page, including their immutable digests.
         next_page = None
         granted = None
         if shared:
-            page = await self._shared_tools(request.runtime, owner, after=after)
+            page = await self._shared_tools(
+                runtime, owner, after=after, declaration=declaration
+            )
             granted = [item["reference"] for item in page["items"]]
             next_page = page["next"]
             if not granted:
@@ -432,7 +443,12 @@ class FormalMethodService:
             scanned = 0
             while True:
                 rows = await self.runtimes.method_skill_center_incubation_methods(
-                    request.runtime, owner, limit=100, offset=scanned, all_versions=True
+                    runtime,
+                    owner,
+                    limit=100,
+                    offset=scanned,
+                    all_versions=True,
+                    declaration=declaration,
                 )
                 granted.extend(
                     {
@@ -449,7 +465,6 @@ class FormalMethodService:
             return {"items": [], "next": next_page}
         async with self.repo.transaction():
             rows = await self.repo.method_output_slots(
-                owner,
                 slot,
                 exclude_method_id,
                 offset,
@@ -474,10 +489,13 @@ class FormalMethodService:
         return {"items": items, "next": next_page}
 
     async def shared_tools(self, owner, request_id, *, reference=None, after=None):
-        async with self.repo.transaction():
-            request = await self.workdrafts._request(owner, request_id)
+        runtime, declaration = await self._incubation_basis(owner, request_id)
         page = await self._shared_tools(
-            request.runtime, owner, reference=reference, after=after
+            runtime,
+            owner,
+            reference=reference,
+            after=after,
+            declaration=declaration if reference is None else None,
         )
         for item in page["items"]:
             definition = item.pop("definition")
@@ -490,11 +508,13 @@ class FormalMethodService:
                 }
         return page
 
-    async def _shared_tools(self, runtime, owner, *, reference=None, after=None):
+    async def _shared_tools(
+        self, runtime, owner, *, reference=None, after=None, declaration=None
+    ):
         from app.domain.knowbots.incubation_tools import SharedToolsPage
 
         raw = await self.runtimes.incubation_tool_versions(
-            runtime, owner, reference=reference, after=after
+            runtime, owner, reference=reference, after=after, declaration=declaration
         )
         try:
             page = SharedToolsPage.model_validate(raw)

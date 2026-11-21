@@ -171,7 +171,7 @@ class RuntimeTestClients:
             ) from exc
 
     async def method_skill_center_incubation_methods(
-        self, runtime, subject, *, limit, offset, all_versions=False
+        self, runtime, subject, *, limit, offset, all_versions=False, declaration=None
     ):
         params = urlencode(
             {
@@ -181,9 +181,10 @@ class RuntimeTestClients:
             }
         )
         _, body = await self._client(runtime).request(
-            "GET",
+            "POST",
             f"{USERS}/{quote(subject, safe='')}/method-skill-center/"
             f"incubation-methods?{params}",
+            json={"declaration": declaration},
         )
         rows = body.get("items") if isinstance(body, dict) else None
         if not isinstance(rows, list) or len(rows) > limit:
@@ -282,7 +283,7 @@ class RuntimeTestClients:
         return body
 
     async def incubation_tool_versions(
-        self, runtime, subject, *, reference=None, after=None
+        self, runtime, subject, *, reference=None, after=None, declaration=None
     ):
         _, body = await self._client(runtime).request(
             "POST",
@@ -291,6 +292,7 @@ class RuntimeTestClients:
                 "subject": subject,
                 "reference": reference.model_dump(mode="json") if reference else None,
                 "after": after,
+                "declaration": declaration,
             },
         )
         return body

@@ -91,7 +91,9 @@ def test_only_fully_configured_https_relations_count() -> None:
 @pytest.mark.asyncio
 async def test_author_catalog_uses_method_skill_center_with_pagination():
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.method == "GET"
+        assert request.method == "POST" and json.loads(request.content) == {
+            "declaration": None
+        }
         assert request.url.path.endswith(
             "/users/author/method-skill-center/incubation-methods"
         )

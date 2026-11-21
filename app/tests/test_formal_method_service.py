@@ -132,7 +132,7 @@ class Runtime(FakeRuntime):
         }
 
     async def method_skill_center_incubation_methods(
-        self, runtime, subject, *, limit, offset, all_versions=False
+        self, runtime, subject, *, limit, offset, all_versions=False, declaration=None
     ):
         rows = []
         seen = set()
@@ -476,7 +476,13 @@ async def test_listing_uses_one_scoped_registry_page_without_local_enumeration(
     repo, runtime, service, _, command = await setup()
     page = [{"method_id": str(uuid4()), "latest_version": 1}]
 
-    async def registry(runtime_name, owner, *, limit, offset):
+    async def registry(runtime_name, owner, *, limit, offset, declaration):
+        assert (
+            declaration
+            == repo.workdrafts[command.request_id].body["formal_method"]["definition"][
+                "capability_declaration"
+            ]
+        )
         assert owner == OWNER and limit == 4 and offset == 1
         return page
 

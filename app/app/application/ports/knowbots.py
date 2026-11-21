@@ -772,7 +772,7 @@ class KnowlabRepository(Protocol):
     ) -> bool: ...
 
     async def method_output_slots(
-        self, owner, slot, exclude_method_id, offset, limit, *, granted=None
+        self, slot, exclude_method_id, offset, limit, *, granted
     ) -> list[dict[str, Any]]: ...
 
     async def list_methods(
@@ -938,6 +938,7 @@ class RuntimeTestClient(Protocol):
         limit: int,
         offset: int,
         all_versions: bool = False,
+        declaration: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]: ...
 
     async def formal_method_sources(
@@ -975,7 +976,13 @@ class RuntimeTestClient(Protocol):
     async def select_incubation_binding(self, runtime: str, document: dict) -> dict: ...
 
     async def incubation_tool_versions(
-        self, runtime: str, subject: str, *, reference=None, after=None
+        self,
+        runtime: str,
+        subject: str,
+        *,
+        reference=None,
+        after=None,
+        declaration=None,
     ) -> dict[str, Any]: ...
 
     async def formal_self_review(

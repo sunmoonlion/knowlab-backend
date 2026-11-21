@@ -1889,20 +1889,24 @@ class SqlKnowlabRepository:
         return cast(CursorResult, result).rowcount == 1
 
     async def method_output_slots(
-        self, owner, slot, exclude_method_id, offset, limit, *, granted=None
+        self, slot, exclude_method_id, offset, limit, *, granted
     ):
         stmt = text("""
+            WITH eligible AS (
+                SELECT (pin->>'method_id')::uuid AS method_id,
+                       (pin->>'version')::int AS version,
+                       pin->>'digest' AS digest, min(pos) AS rank
+                FROM jsonb_array_elements(CAST(:granted AS jsonb))
+                     WITH ORDINALITY AS p(pin,pos)
+                GROUP BY 1,2,3
+            )
             SELECT s.method_id, s.version, v.digest, s.name AS output,
                    v.definition->'capability_declaration'->>'title' AS title
               FROM method_version_slots s
               JOIN knowbot_method_version v USING (method_id,version)
-              JOIN knowbot_method m ON m.id = s.method_id
-             WHERE (m.owner_subject = :owner OR EXISTS (
-                       SELECT 1 FROM jsonb_to_recordset(CAST(:granted AS jsonb))
-                         AS g(method_id uuid, version integer, digest text)
-                        WHERE (g.method_id, g.version, g.digest)
-                            = (v.method_id, v.version, v.digest)
-                   )) AND s.method_id <> :exclude
+              JOIN eligible e ON (e.method_id,e.version,e.digest)
+                              = (v.method_id,v.version,v.digest)
+             WHERE s.method_id <> :exclude
                AND s.direction = 'outputs' AND v.provenance->>'method_kind' = 'tool'
                AND coalesce(v.provenance->'allowed_callers', '["host"]'::jsonb) ? 'host'
                AND coalesce(nullif(v.provenance
@@ -1912,14 +1916,13 @@ class SqlKnowlabRepository:
                AND s.meaning = CAST(:meaning AS jsonb)
                AND s.value_schema = CAST(:schema AS jsonb)
                AND (NOT :required OR s.guaranteed)
-             ORDER BY s.method_id,s.version DESC,s.name
+             ORDER BY e.rank,s.method_id,s.version DESC,s.name
              LIMIT :limit OFFSET :offset
         """)
         rows = await self.session.execute(
             stmt,
             {
-                "owner": owner if granted is None else None,
-                "granted": json.dumps(granted or []),
+                "granted": json.dumps(granted),
                 "exclude": exclude_method_id,
                 "required": slot.required,
                 "meaning": json.dumps(slot.meaning),
