@@ -182,7 +182,8 @@ class RuntimeTestClients:
         )
         _, body = await self._client(runtime).request(
             "GET",
-            f"{USERS}/{quote(subject, safe='')}/method-skill-center/incubation-methods?{params}",
+            f"{USERS}/{quote(subject, safe='')}/method-skill-center/"
+            f"incubation-methods?{params}",
         )
         rows = body.get("items") if isinstance(body, dict) else None
         if not isinstance(rows, list) or len(rows) > limit:

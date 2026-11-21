@@ -833,7 +833,7 @@ class FormalMethodService:
                 )
             if (
                 source
-                and source.kind == "skill_instruction"
+                and source.is_instruction
                 and (command.visibility != "private" or receipt.execution is None)
             ):
                 raise BadRequestError(
