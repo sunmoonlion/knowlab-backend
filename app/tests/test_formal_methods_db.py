@@ -369,3 +369,68 @@ async def test_plan_adoption_replays_only_the_same_confirmed_revision(db):
     assert newer.revision == 3 and later["digest"] != proof["digest"]
     with pytest.raises(ConcurrencyConflictError):
         await save(1, plan)
+
+
+async def test_candidate_preview_resolves_shared_choices_after_database_transaction(
+    db, monkeypatch
+):
+    from app.domain.knowbots.formal_method import FormalMethodDefinition, ToolProcedure
+    from tests.test_formal_method import frozen
+    from tests.test_formal_method_candidate_choice import choice_definition
+
+    runtime, _, command = await prepared(db)
+    graph, definitions = choice_definition()
+    leaf = next(
+        item
+        for item in definitions.values()
+        if isinstance(item.definition.procedure, ToolProcedure)
+    )
+    alternatives = [leaf, frozen(leaf.definition.document())]
+    step = graph["procedure"]["steps"][0]
+    step["candidates"] = [
+        item.reference.model_dump(mode="json") for item in alternatives
+    ]
+    for case, pin in zip(
+        step["candidate_choice"]["cases"], step["candidates"], strict=True
+    ):
+        case["candidate"] = pin
+    seen = []
+    async with db() as session:
+        svc = FormalMethodService(SqlKnowlabRepository(session), runtime)
+
+        async def grants(_, subject, *, reference, **kwargs):
+            assert subject == OWNER and not session.in_transaction()
+            seen.append(reference)
+            asset = str(uuid4())
+            return {
+                "next": None,
+                "items": [
+                    {
+                        "reference": reference.model_dump(mode="json"),
+                        "scope": "acquired",
+                        "title": "Choice",
+                        "definition": leaf.definition.document(),
+                        "selected": asset,
+                        "installations": [
+                            {
+                                "asset_id": asset,
+                                "revision": 1,
+                                "name": "fixture",
+                                "account": None,
+                            }
+                        ],
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(runtime, "incubation_tool_versions", grants, raising=False)
+        outcome = await svc.preview_candidate_choice(
+            OWNER,
+            str(command.request_id),
+            uuid4(),
+            command.revision,
+            FormalMethodDefinition.model_validate(graph),
+        )
+        assert outcome["fits"] and set(seen) == {
+            item.reference for item in alternatives
+        }
