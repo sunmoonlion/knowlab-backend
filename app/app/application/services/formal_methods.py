@@ -824,12 +824,14 @@ class FormalMethodService:
             source = payload.draft.source
             if (
                 source
-                and source.kind == "registered_script"
+                and source.kind in ("registered_script", "service_function")
                 and (command.visibility != "private" or receipt.execution is None)
             ):
                 raise BadRequestError(
-                    "Registered scripts require a private freeze with trial evidence",
-                    code="formal_script_trial_required",
+                    "This source requires a private freeze with trial evidence",
+                    code="formal_function_trial_required"
+                    if source.kind == "service_function"
+                    else "formal_script_trial_required",
                 )
             if (
                 source
