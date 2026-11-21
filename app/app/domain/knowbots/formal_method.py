@@ -105,6 +105,7 @@ class ImplementationRef(Strict):
         "mcp",
         "skill_instruction",
         "skill_script",
+        "service_function",
         "registered_script",
         "registered_instruction",
     ]
