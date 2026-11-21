@@ -52,6 +52,7 @@ from app.domain.knowbots.formal_method_execution import (
     FormalMethodExecutionRequest,
     FormalMethodExecutionResult,
     FormalTestSuite,
+    PrepareBranchReview,
     ReceiveBranch,
 )
 from app.domain.knowbots.workdraft import (
@@ -304,7 +305,7 @@ class FormalMethodService:
         )
         report = next(
             (
-                c.partial
+                c.partial or c.verified_steps
                 for c in current.cases
                 if (c.case_id, c.repetition) == (command.case_id, command.repetition)
             ),
@@ -326,17 +327,37 @@ class FormalMethodService:
             )
         async with self.repo.transaction():
             request = await self.workdrafts._request(owner, str(command.request_id))
-        raw = await self.runtimes.receive_trial_branch(
-            request.runtime, owner, run_id, command
-        )
+        scope = set(ReceiveBranch.model_fields)
+        if isinstance(command, PrepareBranchReview):
+            if command.step not in report.received or command.artifact != step.artifact:
+                raise ConcurrencyConflictError(
+                    "Reopen the accepted artifact before review",
+                    code="review_scope_changed",
+                )
+            if not set(command.criteria.outputs).issubset(step.artifact.output_names):
+                raise BadRequestError(
+                    "Unknown review output", code="review_output_missing"
+                )
+            raw = await self.runtimes.prepare_trial_review(
+                request.runtime, owner, run_id, command
+            )
+        else:
+            raw = await self.runtimes.receive_trial_branch(
+                request.runtime, owner, run_id, command
+            )
         try:
             result = BranchDelivery.model_validate(raw)
             if (
                 result.method_id != current.method_id
                 or result.run_id != current.run_id
                 or result.artifact != step.artifact
-                or result.model_dump(include=set(ReceiveBranch.model_fields))
-                != command.model_dump()
+                or result.model_dump(include=scope) != command.model_dump(include=scope)
+                or (
+                    isinstance(command, PrepareBranchReview)
+                    and (
+                        not result.review or result.review.criteria != command.criteria
+                    )
+                )
             ):
                 raise ValueError("Different partial scope or artifact")
         except ValueError as exc:

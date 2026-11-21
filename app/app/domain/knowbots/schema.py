@@ -30,6 +30,7 @@ from app.domain.knowbots.formal_method_execution import (
     FormalExecutionDecision,
     FormalMethodExecutionRequest,
     FormalMethodExecutionResult,
+    PrepareBranchReview,
     ReceiveBranch,
 )
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
@@ -79,6 +80,10 @@ CONTRACTS: dict[str, tuple[str, dict[str, tuple[type[BaseModel], str]]]] = {
             "partial-delivery-request.schema.json": (
                 ReceiveBranch,
                 "Reviewed trial branch selection",
+            ),
+            "branch-review-request.schema.json": (
+                PrepareBranchReview,
+                "Prepare a directed review of an accepted branch",
             ),
             "partial-delivery-result.schema.json": (
                 BranchDelivery,

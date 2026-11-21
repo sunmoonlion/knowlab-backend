@@ -107,6 +107,7 @@ from app.domain.knowbots.formal_method_execution import (
     CancelFormalExecution,
     DecideFormalExecution,
     ExecuteFormalMethod,
+    PrepareBranchReview,
     ReceiveBranch,
 )
 from app.domain.knowbots.incubation_tools import AutomaticOutputSearch, SampleColumn
@@ -1668,13 +1669,26 @@ async def formal_execution(
     )
 
 
-@web_router.post("/method-units/{method_id}/executions/{run_id}/partial-deliveries")
+@web_router.post("/method-units/{method_id}/executions/{run_id}/step-deliveries")
 async def receive_trial_branch(
     principal: User,
     methods: FormalMethods,
     method_id: ItemId,
     run_id: ItemId,
     body: ReceiveBranch,
+) -> JSONResponse:
+    return _ok(
+        await methods.receive_trial_branch(principal.subject, method_id, run_id, body)
+    )
+
+
+@web_router.post("/method-units/{method_id}/executions/{run_id}/branch-review")
+async def prepare_trial_review(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    run_id: ItemId,
+    body: PrepareBranchReview,
 ) -> JSONResponse:
     return _ok(
         await methods.receive_trial_branch(principal.subject, method_id, run_id, body)

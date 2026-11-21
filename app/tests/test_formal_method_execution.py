@@ -493,3 +493,76 @@ async def test_postgres_suite_concurrent_freeze_and_new_version(db, caller):
         assert old["cases"][0]["input"]["values"]["value"] == 3
         assert old["cases"][0].get("caller", "host") == caller
         assert ("model_prompt" in old["cases"][0]["input"]) == (caller == "model")
+
+
+def test_directed_review_uses_exact_received_values_and_scopes_every_check():
+    from app.domain.knowbots.formal_method_execution import (
+        BranchDelivery,
+        ReviewCriteria,
+        fingerprint,
+    )
+
+    outputs = {"result": {"n": 3, "flags": ["ready"]}, "notes": "private"}
+    receipt = BranchDelivery.model_validate(
+        {
+            "request_id": uuid4(),
+            "run_id": uuid4(),
+            "method_id": uuid4(),
+            "case_id": "example",
+            "step": "source",
+            "repetition": 1,
+            "scope_digest": fingerprint("case"),
+            "received_at": "2026-11-21T10:00:00Z",
+            "artifact": {
+                "id": uuid4(),
+                "digest": "a" * 64,
+                "version": 3,
+                "content_digest": fingerprint(outputs),
+                "output_names": sorted(outputs),
+            },
+            "outputs": outputs,
+        }
+    )
+    rules = [
+        {
+            "kind": "approx",
+            "pointer": "/result/n",
+            "value": 3.1,
+            "absolute_tolerance": 0.2,
+        },
+        {"kind": "contains", "pointer": "/result/flags/0", "value": "ready"},
+    ]
+    spec = {
+        "outputs": ["result"],
+        "assertions": rules,
+        "reviewer": "different_model_family",
+    }
+
+    def prepare(**changes):
+        return receipt.prepare_review(
+            ReviewCriteria.model_validate({**spec, **changes})
+        )
+
+    passed = prepare()
+    assert passed.status == "awaiting_isolation"
+    assert passed.handoff == {"result": fingerprint(outputs["result"])}
+    assert passed.digest != prepare(reviewer="isolated_reviewer").digest
+    for pointer, value in [("/result/flags/1", None), ("/result/n", True)]:
+        failed = prepare(
+            assertions=[{"kind": "equals", "pointer": pointer, "value": value}]
+        )
+        assert failed.status == "v0_failed" and failed.handoff == {}
+    for changes in [
+        {"outputs": ["result", "notes"]},
+        {"outputs": ["result", "result"]},
+        {"assertions": []},
+        {"assertions": [dict(rules[0], pointer="")]},
+        {"assertions": [dict(rules[0], pointer="/notes")]},
+    ]:
+        with pytest.raises(ValueError):
+            prepare(**changes)
+    stored = {**receipt.model_dump(), "review": passed.model_dump()}
+    assert BranchDelivery.model_validate(stored).review == passed
+    stored["review"]["handoff"]["notes"] = fingerprint(outputs["notes"])
+    with pytest.raises(ValidationError):
+        BranchDelivery.model_validate(stored)

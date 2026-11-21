@@ -961,6 +961,10 @@ class RuntimeTestClient(Protocol):
         self, runtime: str, subject: str, run_id: str, command: Any
     ) -> dict[str, Any]: ...
 
+    async def prepare_trial_review(
+        self, runtime: str, subject: str, run_id: str, command: Any
+    ) -> dict[str, Any]: ...
+
     async def cancel_formal_method_execution(
         self, runtime: str, subject: str, run_id: str
     ) -> dict[str, Any]: ...

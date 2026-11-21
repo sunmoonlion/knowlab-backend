@@ -254,10 +254,25 @@ class RuntimeTestClients:
     async def receive_trial_branch(self, runtime, subject, run_id, command):
         _, body = await self._client(runtime).request(
             "POST",
-            f"/formal-method-executions/{quote(run_id, safe='')}/partial-deliveries?"
+            f"/formal-method-executions/{quote(run_id, safe='')}/step-deliveries?"
             + urlencode({"owner_subject": subject}),
             json=command.model_dump(mode="json"),
         )
+        return body
+
+    async def prepare_trial_review(self, runtime, subject, run_id, command):
+        status, body = await self._client(runtime).request(
+            "POST",
+            f"/formal-method-executions/{quote(run_id, safe='')}/branch-review?"
+            + urlencode({"owner_subject": subject}),
+            json=command.model_dump(mode="json"),
+            accept=(409,),
+        )
+        if status == 409:
+            raise ConcurrencyConflictError(
+                "Reopen the reviewed branch after a version conflict",
+                code="review_scope_changed",
+            )
         return body
 
     async def cancel_formal_method_execution(self, runtime, subject, run_id):
