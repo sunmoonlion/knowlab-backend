@@ -132,9 +132,9 @@ def test_topology_and_closure_are_canonical_without_changing_definition_digest()
     )
 
 
-def test_platform_and_internal_model_leaf_are_not_supported():
+def test_platform_leaf_is_not_supported():
     platform = frozen()
-    with pytest.raises(ValueError, match="direct MCP"):
+    with pytest.raises(ValueError, match="Unsupported execution contract"):
         expanded(expert(platform), platform)
 
 
@@ -150,3 +150,19 @@ def test_mixed_plan_retains_each_frozen_connector_and_script_invocation():
         connector.reference,
     ]
     assert len(plan.dependencies) == 2
+
+
+def test_instruction_leaf_requires_exactly_one_model_turn():
+    raw = tool()
+    procedure = raw["procedure"]
+    procedure["implementation"].update(kind="skill_instruction", entry="SKILL.md")
+    procedure["max_model_turns"] = 1
+    instruction = frozen(raw)
+    assert (
+        expanded(expert(instruction), instruction).leaf_nodes[0].reference
+        == instruction.reference
+    )
+    procedure["max_model_turns"] = 2
+    unbounded = frozen(raw)
+    with pytest.raises(ValueError, match="Unsupported execution contract"):
+        expanded(expert(unbounded), unbounded)
