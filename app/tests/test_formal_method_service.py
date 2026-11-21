@@ -131,7 +131,7 @@ class Runtime(FakeRuntime):
             "status": "registered",
         }
 
-    async def registry_incubation_methods(
+    async def method_skill_center_incubation_methods(
         self, runtime, subject, *, limit, offset, all_versions=False
     ):
         rows = []
@@ -480,7 +480,7 @@ async def test_listing_uses_one_scoped_registry_page_without_local_enumeration(
         assert owner == OWNER and limit == 4 and offset == 1
         return page
 
-    monkeypatch.setattr(runtime, "registry_incubation_methods", registry)
+    monkeypatch.setattr(runtime, "method_skill_center_incubation_methods", registry)
     assert (
         await service.listing(
             OWNER, request_id=str(command.request_id), limit=4, offset=1

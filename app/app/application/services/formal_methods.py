@@ -365,7 +365,7 @@ class FormalMethodService:
             async with self.repo.transaction():
                 request = await self.workdrafts._request(owner, request_id)
             runtime = request.runtime
-        return await self.runtimes.registry_incubation_methods(
+        return await self.runtimes.method_skill_center_incubation_methods(
             runtime, owner, limit=limit, offset=offset
         )
 
@@ -431,7 +431,7 @@ class FormalMethodService:
             granted = []
             scanned = 0
             while True:
-                rows = await self.runtimes.registry_incubation_methods(
+                rows = await self.runtimes.method_skill_center_incubation_methods(
                     request.runtime, owner, limit=100, offset=scanned, all_versions=True
                 )
                 granted.extend(

@@ -170,7 +170,7 @@ class RuntimeTestClients:
                 "Invalid capability catalog", code="runtime_capabilities_invalid"
             ) from exc
 
-    async def registry_incubation_methods(
+    async def method_skill_center_incubation_methods(
         self, runtime, subject, *, limit, offset, all_versions=False
     ):
         params = urlencode(
@@ -182,7 +182,7 @@ class RuntimeTestClients:
         )
         _, body = await self._client(runtime).request(
             "GET",
-            f"{USERS}/{quote(subject, safe='')}/registry/incubation-methods?{params}",
+            f"{USERS}/{quote(subject, safe='')}/method-skill-center/incubation-methods?{params}",
         )
         rows = body.get("items") if isinstance(body, dict) else None
         if not isinstance(rows, list) or len(rows) > limit:

@@ -89,6 +89,31 @@ def test_only_fully_configured_https_relations_count() -> None:
 
 
 @pytest.mark.asyncio
+async def test_author_catalog_uses_method_skill_center_with_pagination():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path.endswith(
+            "/users/author/method-skill-center/incubation-methods"
+        )
+        assert dict(request.url.params) == {
+            "limit": "10",
+            "offset": "20",
+            "all_versions": "true",
+        }
+        return httpx.Response(200, json={"items": []})
+
+    clients = RuntimeTestClients(
+        KNOWBENCH, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+    )
+    assert (
+        await clients.method_skill_center_incubation_methods(
+            "knowbench", "author", limit=10, offset=20, all_versions=True
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
 async def test_start_and_status_use_the_registered_runtime_with_a_cached_token():
     seen: list[httpx.Request] = []
 

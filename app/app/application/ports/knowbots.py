@@ -930,7 +930,7 @@ class RuntimeTestClient(Protocol):
 
     async def capabilities(self, runtime: str, subject: str) -> dict[str, Any]: ...
 
-    async def registry_incubation_methods(
+    async def method_skill_center_incubation_methods(
         self,
         runtime: str,
         subject: str,
