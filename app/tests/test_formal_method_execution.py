@@ -136,6 +136,8 @@ async def prepared(repo=None, runtime=None, *, caller="host", carrier="mcp"):
     body = draft().model_dump(mode="json", by_alias=True)
     body["allowed_callers"] = [caller]
     body["definition"]["procedure"]["implementation"]["kind"] = carrier
+    if carrier == "skill_instruction":
+        body["definition"]["procedure"]["max_model_turns"] = 1
     body["source"].update(kind=carrier, asset_id=str(uuid4()), asset_revision=1)
     await KnowbotWorkdraftService(repo).save(
         OWNER, str(intake.request_id), revision=1, edits=[("formal_method", body)]
@@ -173,6 +175,17 @@ async def test_script_execution_request_is_host_only():
     )
     with pytest.raises(ValidationError, match="host-only"):
         FormalMethodExecutionRequest.model_validate(payload)
+
+
+@pytest.mark.asyncio
+async def test_instruction_execution_requires_exactly_one_host_inference():
+    _, runtime, service, mid, command = await prepared(carrier="skill_instruction")
+    await service.execute(OWNER, str(mid), command)
+    payload = runtime.submitted[command.run_id].model_dump(mode="json", by_alias=True)
+    for turns in (0, 2):
+        payload["draft"]["definition"]["procedure"]["max_model_turns"] = turns
+        with pytest.raises(ValidationError, match="single-turn|bounded model turns"):
+            FormalMethodExecutionRequest.model_validate(payload)
 
 
 def test_suite_digest_and_case_thresholds_are_independent_of_method():

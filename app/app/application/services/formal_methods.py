@@ -857,6 +857,16 @@ class FormalMethodService:
                     code="runtime_capability_gap",
                 )
             receipt = self._receipt(payload, result)
+            source = payload.draft.source
+            if (
+                source
+                and source.kind == "skill_instruction"
+                and (command.visibility != "private" or receipt.execution is None)
+            ):
+                raise BadRequestError(
+                    "Instruction methods require a private freeze with trial evidence",
+                    code="formal_instruction_trial_required",
+                )
             if (
                 isinstance(payload.draft.definition.procedure, Orchestration)
                 and command.visibility != "private"
@@ -872,7 +882,6 @@ class FormalMethodService:
                     "Public methods require complete declared coverage",
                     code="formal_validation_uncovered",
                 )
-            source = payload.draft.source
             if (
                 command.visibility == "public"
                 and source
