@@ -440,6 +440,9 @@ def orchestration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
     graph = ((body.get("formal_method") or {}).get("definition") or {}).get(
         "procedure"
     ) or {}
+    for step in graph.get("steps", ()):
+        if step.get("candidate_choice"):
+            gaps.append({"step": step["id"], "primitive": "candidate_selection"})
     if graph.get("object_batch"):
         for step in graph["steps"]:
             if any(

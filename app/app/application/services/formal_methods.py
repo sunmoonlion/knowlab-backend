@@ -42,7 +42,11 @@ from app.domain.knowbots.formal_method_admission import (
     FrozenFormalMethod,
     ValidateFormalMethod,
 )
-from app.domain.knowbots.formal_method_compiler import FrozenMethod, compile_method
+from app.domain.knowbots.formal_method_compiler import (
+    CandidateLimits,
+    FrozenMethod,
+    compile_method,
+)
 from app.domain.knowbots.formal_method_execution import (
     EXECUTION_CONTRACT,
     BranchDelivery,
@@ -62,13 +66,25 @@ from app.domain.knowbots.workdraft import (
 )
 
 
-def admitted_definition(record: MethodVersionRecord) -> FormalMethodDefinition:
+def admitted_definition(
+    record: MethodVersionRecord, *, require_host: bool = False
+) -> FormalMethodDefinition:
     """Old method versions remain history; they never become formal dependencies."""
     try:
         definition = FormalMethodDefinition.model_validate(record.definition)
         receipt = FormalMethodValidationReceipt.model_validate(
             record.provenance["validation"]
         )
+        if require_host and (
+            "host" not in record.provenance.get("allowed_callers", ["host"])
+            or (
+                receipt.execution
+                and "host" not in (receipt.execution.validated_callers or ("host",))
+            )
+        ):
+            raise BadRequestError(
+                "Candidate lacks host qualification", code="formal_method_invalid"
+            )
         if (
             definition.digest() != record.digest
             or receipt.definition_digest != record.digest
@@ -488,6 +504,55 @@ class FormalMethodService:
             raise BadGatewayError("Different incubation binding receipt")
         return expected
 
+    async def preview_candidate_choice(
+        self,
+        owner: str,
+        request_id: str,
+        method_id: UUID,
+        revision: int,
+        definition: FormalMethodDefinition,
+    ):
+        graph = definition.procedure
+        if not isinstance(graph, Orchestration) or not graph.has_candidate_choice:
+            raise BadRequestError(
+                "Expected a candidate choice", code="formal_method_invalid"
+            )
+        async with self.repo.transaction():
+            request, current = await self.workdrafts.get(owner, request_id)
+            if revision != (current.revision if current else 0):
+                raise ConcurrencyConflictError(
+                    "Draft revision changed", code="workdraft_revision"
+                )
+            if (await self.repo.method_owner(method_id)) not in (None, owner):
+                raise NotFoundError("No such method", code="method_not_found")
+            resolved, owned = await self._dependencies(
+                owner, definition, runtime=request.runtime
+            )
+        for reference in owned:
+            if not await self._registered(request.runtime, owner, reference):
+                raise ConcurrencyConflictError(
+                    "Candidate registration changed", code="formal_method_unregistered"
+                )
+        try:
+            compiled = compile_method(method_id, definition, resolved)
+        except CandidateLimits as exc:
+            return {
+                "fits": False,
+                "depth": exc.depth,
+                "steps": exc.steps,
+                "expansions": exc.expansions,
+                "revision": revision,
+            }
+        except ValueError as exc:
+            raise BadRequestError(str(exc), code="formal_method_invalid") from exc
+        return {
+            "fits": True,
+            "depth": compiled.required_depth,
+            "steps": compiled.required_steps,
+            "expansions": compiled.required_expansions,
+            "revision": revision,
+        }
+
     async def matching_outputs(
         self,
         owner,
@@ -608,6 +673,10 @@ class FormalMethodService:
     async def _dependencies(
         self, owner: str, definition: FormalMethodDefinition, *, runtime=None
     ):
+        require_host = (
+            isinstance(definition.procedure, Orchestration)
+            and definition.procedure.has_candidate_choice
+        )
         resolved: dict[tuple[UUID, int], FrozenMethod] = {}
         owned: list[MethodRef] = []
 
@@ -634,7 +703,7 @@ class FormalMethodService:
                             raise ConcurrencyConflictError(
                                 "Method digest changed", code="method_integrity"
                             )
-                        child = admitted_definition(record)
+                        child = admitted_definition(record, require_host=require_host)
                         owned.append(ref)
                     else:
                         if runtime is None:

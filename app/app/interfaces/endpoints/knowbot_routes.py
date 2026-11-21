@@ -98,7 +98,7 @@ from app.domain.knowbots.delivery import (
     DeliverySubmitIn,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
-from app.domain.knowbots.formal_method import ValueSlot
+from app.domain.knowbots.formal_method import FormalMethodDefinition, ValueSlot
 from app.domain.knowbots.formal_method_admission import (
     FreezeFormalMethod,
     ValidateFormalMethod,
@@ -1731,6 +1731,28 @@ async def formal_sources(
     principal: User, methods: FormalMethods, request_id: ItemId
 ) -> JSONResponse:
     return _ok(await methods.sources(principal.subject, request_id))
+
+
+class CandidatePreview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    method_id: UUID
+    revision: int = Field(ge=0, strict=True)
+    definition: FormalMethodDefinition
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/candidate-preview")
+async def preview_candidate_choice(
+    principal: User, methods: FormalMethods, request_id: ItemId, body: CandidatePreview
+):
+    return _ok(
+        await methods.preview_candidate_choice(
+            principal.subject,
+            request_id,
+            body.method_id,
+            body.revision,
+            body.definition,
+        )
+    )
 
 
 class OutputSlotQuery(BaseModel):
