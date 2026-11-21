@@ -701,7 +701,7 @@ class SaveCellsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     revision: int = Field(ge=0)  # 读到的那一版；对不上回 409
     cells: list[CellIn] = Field(min_length=1, max_length=200)
-    adopt_p1: bool = Field(default=False, strict=True)
+    adopt_plan: bool = Field(default=False, strict=True)
 
 
 class ImportIn(BaseModel):
@@ -728,8 +728,8 @@ async def my_workdraft(
         workdraft_view(request, found, await workdrafts.origins(found))
         | {"proposals": [proposal_view(p, admin=False) for p in proposals]}
         | (
-            {"p1_adoption": receipt}
-            if (receipt := await workdrafts.p1_receipt(found))
+            {"plan_adoption": receipt}
+            if (receipt := await workdrafts.plan_receipt(found))
             else {}
         )
     )
@@ -775,12 +775,12 @@ async def save_cells(
         request_id,
         revision=body.revision,
         edits=[(c.path, c.value) for c in body.cells],
-        adopt_p1=body.adopt_p1,
+        adopt_plan=body.adopt_plan,
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
     view = workdraft_view(request, found, await workdrafts.origins(found))
-    if receipt := await workdrafts.p1_receipt(found):
-        view["p1_adoption"] = receipt
+    if receipt := await workdrafts.plan_receipt(found):
+        view["plan_adoption"] = receipt
     return _ok(view)
 
 

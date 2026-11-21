@@ -194,7 +194,7 @@ class KnowbotWorkdraftService:
             ) from None
         return snapshots
 
-    async def p1_receipt(self, current: WorkdraftRecord | None):
+    async def plan_receipt(self, current: WorkdraftRecord | None):
         if current is None:
             return None
         source = current.sources.get("formal_method", {})
@@ -210,7 +210,7 @@ class KnowbotWorkdraftService:
             ):
                 continue
             ref = entry.suggestion_ref or ""
-            if ref.startswith("p1:"):
+            if ref.startswith(("plan:", "p1:")):
                 _, base, digest, previous = ref.split(":", 3)
                 return {
                     "base_revision": int(base),
@@ -229,7 +229,7 @@ class KnowbotWorkdraftService:
         *,
         revision: int,
         edits: Sequence[tuple[str, Any]],
-        adopt_p1: bool = False,
+        adopt_plan: bool = False,
     ) -> WorkdraftRecord:
         """存几格（path, value）：按顺序改，改完整份核一次形状。"""
         if not edits or len(edits) > MAX_EDITS:
@@ -243,7 +243,7 @@ class KnowbotWorkdraftService:
                 code="workdraft_path_invalid",
             )
         fingerprint = None
-        if adopt_p1:
+        if adopt_plan:
             paths = [p for p, _ in edits]
             if (
                 paths.count("formal_method") != 1
@@ -259,10 +259,10 @@ class KnowbotWorkdraftService:
             try:
                 current = await self.locked(request, revision)
             except ConcurrencyConflictError:
-                if adopt_p1:
+                if adopt_plan:
                     head = await self.repo.get_workdraft(request.id)
                     if head and head.revision == revision + 1:
-                        receipt = await self.p1_receipt(head)
+                        receipt = await self.plan_receipt(head)
                         if (
                             receipt
                             and receipt["base_revision"] == revision
@@ -280,7 +280,7 @@ class KnowbotWorkdraftService:
                     ) from None
             body = parse_body(doc)
             before, after = cells(parse_body(current.body)), cells(body)
-            if adopt_p1 and (
+            if adopt_plan and (
                 not body.formal_method
                 or body.formal_method.definition.procedure.kind != "orchestration"
                 or before.get("formal_method") == after.get("formal_method")
@@ -292,12 +292,12 @@ class KnowbotWorkdraftService:
             for path, text in after.items():
                 if before.get(path) == text and path in sources:
                     continue
-                accepted = adopt_p1 and path == "formal_method"
+                accepted = adopt_plan and path == "formal_method"
                 previous = current.sources.get(path, {}).get("ref", "")
                 entry = await self.repo.add_workdraft_entry(
                     workdraft_id=current.id,
                     kind="accept" if accepted else "edit",
-                    suggestion_ref=f"p1:{revision}:{fingerprint}:{previous}"
+                    suggestion_ref=f"plan:{revision}:{fingerprint}:{previous}"
                     if accepted
                     else None,
                     actor_subject=owner_subject,

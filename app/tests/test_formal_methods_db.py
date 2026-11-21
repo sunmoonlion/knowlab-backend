@@ -244,7 +244,7 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         assert retry.run_id not in runtime.validation_requests
 
 
-async def test_p1_adoption_replays_only_the_same_confirmed_revision(db):
+async def test_plan_adoption_replays_only_the_same_confirmed_revision(db):
     from copy import deepcopy
 
     from app.application.errors.exceptions import BadRequestError
@@ -266,9 +266,9 @@ async def test_p1_adoption_replays_only_the_same_confirmed_revision(db):
                 rid,
                 revision=revision,
                 edits=[("formal_method", doc)],
-                adopt_p1=True,
+                adopt_plan=True,
             )
-            return got, await service.p1_receipt(got)
+            return got, await service.plan_receipt(got)
 
     (first, proof), (retry, duplicate) = await asyncio.gather(
         save(1, plan), save(1, plan)
