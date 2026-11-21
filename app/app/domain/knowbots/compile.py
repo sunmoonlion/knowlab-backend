@@ -70,9 +70,9 @@ RULES_LINE = "规则："
 USES_LINE = "用上："
 OUTPUTS_LINE = "交回一个 JSON，包含："
 
-# 与 knowbench `V2_TOOLS` 一致：分身能用的只有 knowbase 数据 MCP 的读工具、要数据、
+# 与 knowbench `V2_TOOLS` 一致：分身能用的只有 KnowBase 的已登记资料函数、要数据、
 # 查主体、计算
-DATA_MCP_TOOLS = frozenset(
+EXPERT_DATA_TOOLS = frozenset(
     {
         "list_inputs",
         "read_input",
@@ -84,7 +84,7 @@ DATA_MCP_TOOLS = frozenset(
         "lookup",
     }
 )
-V2_TOOLS = DATA_MCP_TOOLS | {
+V2_TOOLS = EXPERT_DATA_TOOLS | {
     "compute",
     "request_data",
     "find_subject",
