@@ -251,6 +251,15 @@ class RuntimeTestClients:
         )
         return body
 
+    async def receive_trial_branch(self, runtime, subject, run_id, command):
+        _, body = await self._client(runtime).request(
+            "POST",
+            f"/formal-method-executions/{quote(run_id, safe='')}/partial-deliveries?"
+            + urlencode({"owner_subject": subject}),
+            json=command.model_dump(mode="json"),
+        )
+        return body
+
     async def cancel_formal_method_execution(self, runtime, subject, run_id):
         _, body = await self._client(runtime).request(
             "POST",

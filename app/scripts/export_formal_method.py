@@ -17,11 +17,13 @@ from app.domain.knowbots.formal_method_admission import (
     FrozenFormalMethod,
 )
 from app.domain.knowbots.formal_method_execution import (
+    BranchDelivery,
     ExecuteFormalMethod,
     FormalExecutionInput,
     FormalMethodExecutionRequest,
     FormalMethodExecutionResult,
     FormalTestSuite,
+    ReceiveBranch,
 )
 from app.domain.knowbots.schema import FORMAL_METHOD, render
 
@@ -39,6 +41,8 @@ WEB_MODELS = {
     "execution-input": FormalExecutionInput,
     "execution-request": FormalMethodExecutionRequest,
     "execution-result": FormalMethodExecutionResult,
+    "partial-delivery-request": ReceiveBranch,
+    "partial-delivery-result": BranchDelivery,
     "validation-result": FormalMethodValidationResult,
     "registration-request": FrozenFormalMethod,
     "suite": FormalTestSuite,
@@ -111,6 +115,8 @@ def generate(consumer: Path) -> dict[Path, str]:
             "execution-request",
             "execution-result",
             "execution-decision",
+            "partial-delivery-request",
+            "partial-delivery-result",
         )
     }
     for name, content in validation_schemas.items():

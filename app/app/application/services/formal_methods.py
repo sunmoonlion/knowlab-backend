@@ -45,12 +45,14 @@ from app.domain.knowbots.formal_method_admission import (
 from app.domain.knowbots.formal_method_compiler import FrozenMethod, compile_method
 from app.domain.knowbots.formal_method_execution import (
     EXECUTION_CONTRACT,
+    BranchDelivery,
     DecideFormalExecution,
     ExecuteFormalMethod,
     FormalExecutionDecision,
     FormalMethodExecutionRequest,
     FormalMethodExecutionResult,
     FormalTestSuite,
+    ReceiveBranch,
 )
 from app.domain.knowbots.workdraft import (
     collaboration_gaps,
@@ -292,6 +294,55 @@ class FormalMethodService:
                 code="formal_execution_invalid",
             )
         self._execution_cases(result, FormalTestSuite.model_validate(suite))
+        return result.model_dump(mode="json")
+
+    async def receive_trial_branch(
+        self, owner: str, method_id: str, run_id: str, command: ReceiveBranch
+    ):
+        current = FormalMethodExecutionResult.model_validate(
+            await self.execution(owner, method_id, str(command.request_id), run_id)
+        )
+        report = next(
+            (
+                c.partial
+                for c in current.cases
+                if (c.case_id, c.repetition) == (command.case_id, command.repetition)
+            ),
+            None,
+        )
+        if (
+            not report
+            or current.status not in ("failed", "cancelled", "passed")
+            or report.scope_digest != command.scope_digest
+        ):
+            raise ConcurrencyConflictError(
+                "Partial delivery differs from the reviewed case",
+                code="partial_scope_changed",
+            )
+        step = next((s for s in report.steps if s.step == command.step), None)
+        if not step or step.state != "accepted" or not step.artifact:
+            raise BadRequestError(
+                "This step has no verified output", code="partial_output_missing"
+            )
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, str(command.request_id))
+        raw = await self.runtimes.receive_trial_branch(
+            request.runtime, owner, run_id, command
+        )
+        try:
+            result = BranchDelivery.model_validate(raw)
+            if (
+                result.method_id != current.method_id
+                or result.run_id != current.run_id
+                or result.artifact != step.artifact
+                or result.model_dump(include=set(ReceiveBranch.model_fields))
+                != command.model_dump()
+            ):
+                raise ValueError("Different partial scope or artifact")
+        except ValueError as exc:
+            raise BadGatewayError(
+                "Invalid branch delivery receipt", code="formal_execution_invalid"
+            ) from exc
         return result.model_dump(mode="json")
 
     async def cancel_execution(

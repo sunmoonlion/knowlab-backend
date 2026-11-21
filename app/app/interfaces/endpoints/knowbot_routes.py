@@ -107,6 +107,7 @@ from app.domain.knowbots.formal_method_execution import (
     CancelFormalExecution,
     DecideFormalExecution,
     ExecuteFormalMethod,
+    ReceiveBranch,
 )
 from app.domain.knowbots.incubation_tools import AutomaticOutputSearch, SampleColumn
 from app.domain.knowbots.lifecycle import (
@@ -1664,6 +1665,19 @@ async def formal_execution(
 ) -> JSONResponse:
     return _ok(
         await methods.execution(principal.subject, method_id, request_id, run_id)
+    )
+
+
+@web_router.post("/method-units/{method_id}/executions/{run_id}/partial-deliveries")
+async def receive_trial_branch(
+    principal: User,
+    methods: FormalMethods,
+    method_id: ItemId,
+    run_id: ItemId,
+    body: ReceiveBranch,
+) -> JSONResponse:
+    return _ok(
+        await methods.receive_trial_branch(principal.subject, method_id, run_id, body)
     )
 
 

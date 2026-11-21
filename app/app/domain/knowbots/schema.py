@@ -26,9 +26,11 @@ from app.domain.knowbots.formal_method_admission import (
     FrozenFormalMethod,
 )
 from app.domain.knowbots.formal_method_execution import (
+    BranchDelivery,
     FormalExecutionDecision,
     FormalMethodExecutionRequest,
     FormalMethodExecutionResult,
+    ReceiveBranch,
 )
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
 from app.domain.knowbots.test_run import (
@@ -73,6 +75,14 @@ CONTRACTS: dict[str, tuple[str, dict[str, tuple[type[BaseModel], str]]]] = {
             "execution-result.schema.json": (
                 FormalMethodExecutionResult,
                 "formal-method execution v1 result",
+            ),
+            "partial-delivery-request.schema.json": (
+                ReceiveBranch,
+                "Reviewed trial branch selection",
+            ),
+            "partial-delivery-result.schema.json": (
+                BranchDelivery,
+                "Verified partial trial delivery",
             ),
             "execution-decision.schema.json": (
                 FormalExecutionDecision,
