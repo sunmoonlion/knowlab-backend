@@ -170,6 +170,25 @@ class RuntimeTestClients:
                 "Invalid capability catalog", code="runtime_capabilities_invalid"
             ) from exc
 
+    async def registry_incubation_methods(
+        self, runtime, subject, *, limit, offset, all_versions=False
+    ):
+        params = urlencode(
+            {
+                "limit": limit,
+                "offset": offset,
+                "all_versions": str(all_versions).lower(),
+            }
+        )
+        _, body = await self._client(runtime).request(
+            "GET",
+            f"{USERS}/{quote(subject, safe='')}/registry/incubation-methods?{params}",
+        )
+        rows = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(rows, list) or len(rows) > limit:
+            raise BadGatewayError("Invalid runtime registration page")
+        return rows
+
     async def formal_method_sources(self, runtime: str, subject: str) -> dict[str, Any]:
         from app.domain.knowbots.formal_method_admission import FormalMethodSource
 

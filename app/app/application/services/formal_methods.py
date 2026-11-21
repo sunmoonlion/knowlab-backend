@@ -6,7 +6,6 @@ browser evidence IDs nor legacy expert test results confer formal admission.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -358,65 +357,17 @@ class FormalMethodService:
             method_id=current.method_id,
         ).model_dump(mode="json")
 
-    async def listing(self, owner: str, *, limit: int, offset: int):
+    async def listing(self, owner: str, *, limit: int, offset: int, request_id=None):
         if not 1 <= limit <= 100 or offset < 0:
             raise BadRequestError("Invalid method page", code="method_page")
-        # The runtime owns registration. A locally committed version awaiting
-        # delivery is recoverable by ID, but is not an author-selectable method.
-        visible: list[dict[str, Any]] = []
-        scanned = 0
-        while len(visible) < offset + limit:
+        runtime = "knowbench"
+        if request_id is not None:
             async with self.repo.transaction():
-                rows = await self.repo.list_methods(
-                    owner, limit=100, offset=scanned, formal_only=True
-                )
-                candidates = []
-                for row in rows:
-                    record = await self.get(owner, str(row["id"]), row["version"])
-                    validation = FormalMethodValidationReceipt.model_validate(
-                        record.provenance["validation"]
-                    )
-                    request = await self.workdrafts._request(
-                        owner, str(validation.request_id)
-                    )
-                    candidates.append((row, request.runtime))
-            # Bound simultaneous network requests, keep the repository order,
-            # and stop fetching once this filtered page is complete.
-            for start in range(0, len(candidates), 8):
-                batch = candidates[start : start + 8]
-                registered = await asyncio.gather(
-                    *(
-                        self._registered(
-                            runtime,
-                            owner,
-                            MethodRef(
-                                method_id=row["id"],
-                                version=row["version"],
-                                digest=row["digest"],
-                            ),
-                        )
-                        for row, runtime in batch
-                    )
-                )
-                for (row, _), allowed in zip(batch, registered, strict=True):
-                    if allowed:
-                        visible.append(
-                            {
-                                "method_id": str(row["id"]),
-                                "latest_version": row["version"],
-                                "digest": row["digest"],
-                                "method_kind": row["method_kind"],
-                                "title": str(row.get("title") or ""),
-                                "summary": str(row.get("summary") or "")[:500],
-                                "created_at": row["created_at"].isoformat(),
-                            }
-                        )
-                if len(visible) >= offset + limit:
-                    break
-            scanned += len(rows)
-            if len(rows) < 100:
-                break
-        return visible[offset : offset + limit]
+                request = await self.workdrafts._request(owner, request_id)
+            runtime = request.runtime
+        return await self.runtimes.registry_incubation_methods(
+            runtime, owner, limit=limit, offset=offset
+        )
 
     async def _registered(self, runtime: str, owner: str, reference: MethodRef) -> bool:
         raw = await self.runtimes.formal_method_registration(
@@ -476,6 +427,26 @@ class FormalMethodService:
             next_page = page["next"]
             if not granted:
                 return {"items": [], "next": next_page}
+        else:
+            granted = []
+            scanned = 0
+            while True:
+                rows = await self.runtimes.registry_incubation_methods(
+                    request.runtime, owner, limit=100, offset=scanned, all_versions=True
+                )
+                granted.extend(
+                    {
+                        "method_id": row["method_id"],
+                        "version": row["latest_version"],
+                        "digest": row["digest"],
+                    }
+                    for row in rows
+                )
+                if len(rows) < 100:
+                    break
+                scanned += len(rows)
+        if not granted:
+            return {"items": [], "next": next_page}
         async with self.repo.transaction():
             rows = await self.repo.method_output_slots(
                 owner,
@@ -485,28 +456,21 @@ class FormalMethodService:
                 None if shared else limit + 1,
                 granted=granted,
             )
-        items = []
-        registered = {}
         if not shared:
             next_page = offset + limit if len(rows) > limit else None
             rows = rows[:limit]
-        for row in rows:
-            reference = MethodRef(
-                method_id=row["method_id"], version=row["version"], digest=row["digest"]
-            )
-            key = (reference.method_id, reference.version)
-            if not shared and key not in registered:
-                registered[key] = await self._registered(
-                    request.runtime, owner, reference
-                )
-            if shared or registered[key]:
-                items.append(
-                    {
-                        "reference": reference.model_dump(mode="json"),
-                        "output": row["output"],
-                        "title": row["title"],
-                    }
-                )
+        items = [
+            {
+                "reference": {
+                    "method_id": str(row["method_id"]),
+                    "version": row["version"],
+                    "digest": row["digest"],
+                },
+                "output": row["output"],
+                "title": row["title"],
+            }
+            for row in rows
+        ]
         return {"items": items, "next": next_page}
 
     async def shared_tools(self, owner, request_id, *, reference=None, after=None):

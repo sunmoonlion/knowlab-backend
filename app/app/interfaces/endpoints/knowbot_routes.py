@@ -1887,13 +1887,17 @@ async def my_methods(
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
     offset: Annotated[int, Query(ge=0)] = 0,
     formal: bool = False,
+    request_id: UUID | None = None,
 ) -> JSONResponse:
     if formal:
         formal_methods = FormalMethodService(methods.repo, runtime_clients())
         return _ok(
             {
                 "items": await formal_methods.listing(
-                    principal.subject, limit=limit, offset=offset
+                    principal.subject,
+                    limit=limit,
+                    offset=offset,
+                    request_id=str(request_id) if request_id else None,
                 )
             }
         )

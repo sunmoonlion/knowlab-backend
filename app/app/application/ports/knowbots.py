@@ -930,6 +930,16 @@ class RuntimeTestClient(Protocol):
 
     async def capabilities(self, runtime: str, subject: str) -> dict[str, Any]: ...
 
+    async def registry_incubation_methods(
+        self,
+        runtime: str,
+        subject: str,
+        *,
+        limit: int,
+        offset: int,
+        all_versions: bool = False,
+    ) -> list[dict[str, Any]]: ...
+
     async def formal_method_sources(
         self, runtime: str, subject: str
     ) -> dict[str, Any]: ...

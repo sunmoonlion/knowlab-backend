@@ -131,6 +131,33 @@ class Runtime(FakeRuntime):
             "status": "registered",
         }
 
+    async def registry_incubation_methods(
+        self, runtime, subject, *, limit, offset, all_versions=False
+    ):
+        rows = []
+        seen = set()
+        for (mid, version), registered in sorted(
+            self.registrations.items(), reverse=True
+        ):
+            if registered.owner_subject != subject or (
+                mid in seen and not all_versions
+            ):
+                continue
+            seen.add(mid)
+            decl = registered.draft.definition.capability_declaration
+            rows.append(
+                {
+                    "method_id": str(mid),
+                    "latest_version": version,
+                    "digest": registered.reference.digest,
+                    "method_kind": "tool" if registered.draft.source else "expert",
+                    "title": decl.title,
+                    "summary": decl.purpose[:500],
+                    "created_at": registered.validation.completed_at.isoformat(),
+                }
+            )
+        return rows[offset : offset + limit]
+
     async def formal_method_registration(self, runtime, owner, method_id, version):
         frozen = self.registrations.get((UUID(method_id), version))
         if frozen is None or frozen.owner_subject != owner:
@@ -443,44 +470,23 @@ async def test_public_skill_without_redistribution_is_rejected_before_freezing()
 
 
 @pytest.mark.asyncio
-async def test_listing_registration_checks_are_bounded_and_keep_page_order(monkeypatch):
-    import asyncio
+async def test_listing_uses_one_scoped_registry_page_without_local_enumeration(
+    monkeypatch,
+):
+    repo, runtime, service, _, command = await setup()
+    page = [{"method_id": str(uuid4()), "latest_version": 1}]
 
-    repo, runtime, service, mid, command = await setup()
-    await service.validate(OWNER, str(mid), command)
-    runtime.complete(command.run_id)
-    original = await service.freeze(OWNER, str(mid), 1, freeze_command(command))
-    ids = [mid, *(uuid4() for _ in range(19))]
-    for other in ids[1:]:
-        provenance = {
-            **original.provenance,
-            "validation": {
-                **original.provenance["validation"],
-                "method_id": str(other),
-            },
-        }
-        repo.method_owners[other] = OWNER
-        repo.method_versions[(other, 1)] = replace(
-            original, method_id=other, provenance=provenance
+    async def registry(runtime_name, owner, *, limit, offset):
+        assert owner == OWNER and limit == 4 and offset == 1
+        return page
+
+    monkeypatch.setattr(runtime, "registry_incubation_methods", registry)
+    assert (
+        await service.listing(
+            OWNER, request_id=str(command.request_id), limit=4, offset=1
         )
-    active = peak = 0
-    checked = []
-
-    async def registration(runtime_name, owner, reference):
-        nonlocal active, peak
-        checked.append(reference.method_id)
-        active += 1
-        peak = max(peak, active)
-        try:
-            await asyncio.sleep(0)
-            return reference.method_id != mid
-        finally:
-            active -= 1
-
-    monkeypatch.setattr(service, "_registered", registration)
-    page = await service.listing(OWNER, limit=4, offset=1)
-    assert [item["method_id"] for item in page] == [str(item) for item in ids[2:6]]
-    assert 1 < peak <= 8 and checked == ids[:8]
+        == page
+    )
 
 
 def test_review_policy_requires_an_independent_consumer_of_the_producer_output():
