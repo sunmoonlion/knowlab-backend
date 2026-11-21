@@ -238,6 +238,23 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
     monkeypatch.setattr(runtime, "incubation_tool_versions", grants, raising=False)
     async with db() as session:
         repo = SqlKnowlabRepository(session)
+
+        def checked(send):
+            async def request(*args, **kwargs):
+                assert not session.in_transaction()
+                return await send(*args, **kwargs)
+
+            return request
+
+        for operation in (
+            "method_skill_center_incubation_methods",
+            "submit_formal_method_validation",
+            "formal_method_validation",
+            "register_formal_method",
+        ):
+            monkeypatch.setattr(
+                runtime, operation, checked(getattr(runtime, operation))
+            )
         service = FormalMethodService(repo, runtime)
         request = await KnowbotCreationService(repo, runtime).submit(
             consumer, KnowbotRequestIn.model_validate(request_body())
@@ -295,7 +312,7 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         monkeypatch.setattr(
             runtime,
             "submit_formal_method_execution",
-            trials.submit_formal_method_execution,
+            checked(trials.submit_formal_method_execution),
             raising=False,
         )
         trial = ExecuteFormalMethod.model_validate(
