@@ -132,7 +132,15 @@ class Runtime(FakeRuntime):
         }
 
     async def method_skill_center_incubation_methods(
-        self, runtime, subject, *, limit, offset, all_versions=False, declaration=None
+        self,
+        runtime,
+        subject,
+        *,
+        limit,
+        offset,
+        all_versions=False,
+        declaration=None,
+        references=None,
     ):
         rows = []
         seen = set()
@@ -141,6 +149,11 @@ class Runtime(FakeRuntime):
         ):
             if registered.owner_subject != subject or (
                 mid in seen and not all_versions
+            ):
+                continue
+            if (
+                references is not None
+                and registered.reference.model_dump(mode="json") not in references
             ):
                 continue
             seen.add(mid)
@@ -623,3 +636,17 @@ async def test_conditional_method_requires_executed_cases_before_freeze():
         await service.freeze(OWNER, str(mid), 1, freeze_command(command))
     assert exc.value.code == "formal_promise_trial_required"
     assert not repo.method_versions
+
+
+def test_author_and_runtime_collaboration_accept_full_step_identifier():
+    from pydantic import TypeAdapter, ValidationError
+
+    from app.domain.knowbots.formal_method import Orchestration
+    from app.domain.knowbots.workdraft import WorkdraftBody
+
+    for model in (WorkdraftBody, Orchestration):
+        collaboration = TypeAdapter(model.model_fields["collaboration"].annotation)
+        step = "a" * 64
+        collaboration.validate_python({step: {"handoff_from": [step]}})
+        with pytest.raises(ValidationError):
+            collaboration.validate_python({step + "a": {"handoff_from": [step]}})

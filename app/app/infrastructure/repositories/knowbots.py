@@ -1889,42 +1889,51 @@ class SqlKnowlabRepository:
         return cast(CursorResult, result).rowcount == 1
 
     async def method_output_slots(
-        self, slot, exclude_method_id, offset, limit, *, granted
+        self, slot, exclude_method_id, offset, limit, *, granted=None, owner=None
     ):
-        stmt = text("""
-            WITH eligible AS (
-                SELECT (pin->>'method_id')::uuid AS method_id,
-                       (pin->>'version')::int AS version,
-                       pin->>'digest' AS digest, min(pos) AS rank
-                FROM jsonb_array_elements(CAST(:granted AS jsonb))
-                     WITH ORDINALITY AS p(pin,pos)
-                GROUP BY 1,2,3
+        if (owner is None) == (granted is None):
+            raise ValueError("Expected either an owner or exact authorized references")
+        if owner is None:
+            join = """JOIN (SELECT method_id, version, digest, min(rank) AS rank
+                        FROM jsonb_to_recordset(CAST(:granted AS jsonb))
+                        AS g(method_id uuid, version int, digest text, rank int)
+                        GROUP BY method_id, version, digest) e
+                        ON (e.method_id,e.version,e.digest)
+                         = (v.method_id,v.version,v.digest)"""
+            rank = "e.rank,"
+        else:
+            join = (
+                "JOIN knowbot_method m ON m.id=s.method_id AND m.owner_subject=:owner"
             )
+            rank = ""
+        stmt = text(f"""
             SELECT s.method_id, s.version, v.digest, s.name AS output,
                    v.definition->'capability_declaration'->>'title' AS title
               FROM method_version_slots s
               JOIN knowbot_method_version v USING (method_id,version)
-              JOIN eligible e ON (e.method_id,e.version,e.digest)
-                              = (v.method_id,v.version,v.digest)
+              {join}
              WHERE s.method_id <> :exclude
                AND s.direction = 'outputs'
                AND v.definition->>'contract' = 'knowlab/formal-method/v1'
-               AND v.definition #>> '{procedure,kind}' = 'direct'
+               AND v.definition #>> '{{procedure,kind}}' = 'direct'
                AND coalesce(v.provenance->'allowed_callers', '["host"]'::jsonb) ? 'host'
                AND coalesce(nullif(v.provenance
-                                   #> '{validation,execution,validated_callers}',
+                                   #> '{{validation,execution,validated_callers}}',
                                    'null'::jsonb),
                             '["host"]'::jsonb) ? 'host'
                AND s.meaning = CAST(:meaning AS jsonb)
                AND s.value_schema = CAST(:schema AS jsonb)
                AND (NOT :required OR s.guaranteed)
-             ORDER BY e.rank,s.method_id,s.version DESC,s.name
+             ORDER BY {rank}s.method_id,s.version DESC,s.name
              LIMIT :limit OFFSET :offset
         """)
         rows = await self.session.execute(
             stmt,
             {
-                "granted": json.dumps(granted),
+                "granted": json.dumps(
+                    [dict(pin, rank=n) for n, pin in enumerate(granted or [])]
+                ),
+                "owner": owner,
                 "exclude": exclude_method_id,
                 "required": slot.required,
                 "meaning": json.dumps(slot.meaning),

@@ -171,7 +171,15 @@ class RuntimeTestClients:
             ) from exc
 
     async def method_skill_center_incubation_methods(
-        self, runtime, subject, *, limit, offset, all_versions=False, declaration=None
+        self,
+        runtime,
+        subject,
+        *,
+        limit,
+        offset,
+        all_versions=False,
+        declaration=None,
+        references=None,
     ):
         params = urlencode(
             {
@@ -184,7 +192,10 @@ class RuntimeTestClients:
             "POST",
             f"{USERS}/{quote(subject, safe='')}/method-skill-center/"
             f"incubation-methods?{params}",
-            json={"declaration": declaration},
+            json={
+                "declaration": declaration,
+                **({"references": references} if references is not None else {}),
+            },
         )
         rows = body.get("items") if isinstance(body, dict) else None
         if not isinstance(rows, list) or len(rows) > limit:

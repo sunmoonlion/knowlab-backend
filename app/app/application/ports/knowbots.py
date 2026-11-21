@@ -772,7 +772,7 @@ class KnowlabRepository(Protocol):
     ) -> bool: ...
 
     async def method_output_slots(
-        self, slot, exclude_method_id, offset, limit, *, granted
+        self, slot, exclude_method_id, offset, limit, *, granted=None, owner=None
     ) -> list[dict[str, Any]]: ...
 
     async def list_methods(
@@ -939,6 +939,7 @@ class RuntimeTestClient(Protocol):
         offset: int,
         all_versions: bool = False,
         declaration: dict[str, Any] | None = None,
+        references: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]: ...
 
     async def formal_method_sources(

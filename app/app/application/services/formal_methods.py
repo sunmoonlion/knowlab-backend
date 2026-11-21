@@ -245,6 +245,9 @@ class FormalMethodService:
 
     async def execute(self, owner: str, method_id: str, command: ExecuteFormalMethod):
         mid = parse_id(method_id, "method")
+        shared = await self._shared_dependencies(
+            owner, command.request_id, command.revision
+        )
         async with self.repo.transaction():
             request, _, admission, _, _ = await self._prepare(
                 owner,
@@ -254,6 +257,7 @@ class FormalMethodService:
                     revision=command.revision,
                     run_id=command.run_id,
                 ),
+                shared=shared,
             )
             try:
                 payload = FormalMethodExecutionRequest.model_validate(
@@ -517,6 +521,9 @@ class FormalMethodService:
             raise BadRequestError(
                 "Expected a candidate choice", code="formal_method_invalid"
             )
+        shared = await self._shared_dependencies(
+            owner, request_id, revision, definition
+        )
         async with self.repo.transaction():
             request, current = await self.workdrafts.get(owner, request_id)
             if revision != (current.revision if current else 0):
@@ -525,9 +532,7 @@ class FormalMethodService:
                 )
             if (await self.repo.method_owner(method_id)) not in (None, owner):
                 raise NotFoundError("No such method", code="method_not_found")
-            resolved, owned = await self._dependencies(
-                owner, definition, runtime=request.runtime
-            )
+            resolved, owned = await self._dependencies(owner, definition, shared=shared)
         for reference in owned:
             if not await self._registered(request.runtime, owner, reference):
                 raise ConcurrencyConflictError(
@@ -578,31 +583,6 @@ class FormalMethodService:
             next_page = page["next"]
             if not granted:
                 return {"items": [], "next": next_page}
-        else:
-            granted = []
-            scanned = 0
-            while True:
-                rows = await self.runtimes.method_skill_center_incubation_methods(
-                    runtime,
-                    owner,
-                    limit=100,
-                    offset=scanned,
-                    all_versions=True,
-                    declaration=declaration,
-                )
-                granted.extend(
-                    {
-                        "method_id": row["method_id"],
-                        "version": row["latest_version"],
-                        "digest": row["digest"],
-                    }
-                    for row in rows
-                )
-                if len(rows) < 100:
-                    break
-                scanned += len(rows)
-        if not granted:
-            return {"items": [], "next": next_page}
         async with self.repo.transaction():
             rows = await self.repo.method_output_slots(
                 slot,
@@ -610,10 +590,40 @@ class FormalMethodService:
                 offset,
                 None if shared else limit + 1,
                 granted=granted,
+                owner=None if shared else owner,
             )
         if not shared:
             next_page = offset + limit if len(rows) > limit else None
             rows = rows[:limit]
+            if rows:
+                pins = [
+                    dict(
+                        method_id=str(r["method_id"]),
+                        version=r["version"],
+                        digest=r["digest"],
+                    )
+                    for r in rows
+                ]
+                authorized = await self.runtimes.method_skill_center_incubation_methods(
+                    runtime,
+                    owner,
+                    limit=limit,
+                    offset=0,
+                    all_versions=True,
+                    declaration=declaration,
+                    references=pins,
+                )
+                rank = {
+                    (str(r["method_id"]), r["latest_version"], r["digest"]): n
+                    for n, r in enumerate(authorized)
+                }
+
+                def key(row):
+                    return (str(row["method_id"]), row["version"], row["digest"])
+
+                rows = sorted(
+                    (r for r in rows if key(r) in rank), key=lambda r: rank[key(r)]
+                )
         items = [
             {
                 "reference": {
@@ -670,8 +680,33 @@ class FormalMethodService:
             raise BadGatewayError("Invalid incubation tool response") from exc
         return page.model_dump(mode="json", by_alias=True, exclude_none=False)
 
+    async def _shared_dependencies(self, owner, request_id, revision, definition=None):
+        missing = set()
+        async with self.repo.transaction():
+            request, current = await self.workdrafts.get(owner, str(request_id))
+            if revision != (current.revision if current else 0):
+                raise ConcurrencyConflictError(
+                    "Draft revision changed", code="workdraft_revision"
+                )
+            if definition is None:
+                draft = parse_body(current.body).formal_method if current else None
+                definition = draft.definition if draft else None
+            if definition and isinstance(definition.procedure, Orchestration):
+                await self._dependencies(owner, definition, shared={}, missing=missing)
+        shared = {}
+        for ref in sorted(missing, key=lambda r: (r.method_id, r.version, r.digest)):
+            page = await self._shared_tools(request.runtime, owner, reference=ref)
+            if not page["items"] or not page["items"][0]["selected"]:
+                raise NotFoundError(
+                    "Incubation tool unavailable", code="method_not_found"
+                )
+            shared[ref] = FormalMethodDefinition.model_validate(
+                page["items"][0]["definition"]
+            )
+        return shared
+
     async def _dependencies(
-        self, owner: str, definition: FormalMethodDefinition, *, runtime=None
+        self, owner: str, definition: FormalMethodDefinition, *, shared, missing=None
     ):
         require_host = (
             isinstance(definition.procedure, Orchestration)
@@ -706,19 +741,19 @@ class FormalMethodService:
                         child = admitted_definition(record, require_host=require_host)
                         owned.append(ref)
                     else:
-                        if runtime is None:
+                        if missing is not None:
+                            missing.add(ref)
+                            if len(missing) + len(resolved) > 1000:
+                                raise BadRequestError(
+                                    "Method dependency limit",
+                                    code="formal_method_invalid",
+                                )
+                            continue
+                        child = shared.get(ref)
+                        if child is None:
                             raise NotFoundError(
                                 "No such dependency", code="method_not_found"
                             )
-                        page = await self._shared_tools(runtime, owner, reference=ref)
-                        if not page["items"] or not page["items"][0]["selected"]:
-                            raise NotFoundError(
-                                "Incubation tool unavailable",
-                                code="method_not_found",
-                            )
-                        child = FormalMethodDefinition.model_validate(
-                            page["items"][0]["definition"]
-                        )
                     resolved[key] = FrozenMethod(ref, child)
                     await visit(child, depth + 1)
 
@@ -726,7 +761,7 @@ class FormalMethodService:
         return resolved, owned
 
     async def _prepare(
-        self, owner: str, method_id: UUID, command: ValidateFormalMethod
+        self, owner: str, method_id: UUID, command: ValidateFormalMethod, *, shared
     ):
         method_owner = await self.repo.method_owner(method_id)
         if method_owner is not None and method_owner != owner:
@@ -761,7 +796,7 @@ class FormalMethodService:
             definition = draft.definition.model_copy(update={"procedure": graph})
             draft = draft.model_copy(update={"definition": definition})
         resolved, owned = await self._dependencies(
-            owner, draft.definition, runtime=request.runtime
+            owner, draft.definition, shared=shared
         )
         try:
             compiled = compile_method(method_id, draft.definition, resolved)
@@ -832,9 +867,12 @@ class FormalMethodService:
         return receipt
 
     async def validate(self, owner: str, method_id: str, command: ValidateFormalMethod):
+        shared = await self._shared_dependencies(
+            owner, command.request_id, command.revision
+        )
         async with self.repo.transaction():
             request, _, payload, _, owned = await self._prepare(
-                owner, parse_id(method_id, "method"), command
+                owner, parse_id(method_id, "method"), command, shared=shared
             )
         # _dependencies already resolved shared versions under live grants.
         # Registration by subject covers only the dependencies this author owns.
@@ -959,6 +997,15 @@ class FormalMethodService:
                     "Execution receipt changed", code="formal_validation_stale"
                 )
         async with self.repo.transaction():
+            already_frozen = await self.repo.method_version(mid, version)
+        shared = (
+            {}
+            if already_frozen
+            else await self._shared_dependencies(
+                owner, command.request_id, command.revision
+            )
+        )
+        async with self.repo.transaction():
             await self.repo.lock_method(mid)
             have_owner = await self.repo.method_owner(mid)
             if have_owner is not None and have_owner != owner:
@@ -987,6 +1034,7 @@ class FormalMethodService:
                     revision=command.revision,
                     run_id=command.run_id,
                 ),
+                shared=shared,
             )
             receipt = self._receipt(payload, result)
             source = payload.draft.source

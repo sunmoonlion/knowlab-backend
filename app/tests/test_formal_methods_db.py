@@ -204,6 +204,7 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         runtime_name, subject, *, reference=None, after=None, declaration=None
     ):
         assert subject == consumer
+        assert not session.in_transaction()
         if not available:
             return {"items": [], "next": None}
         if reference:
@@ -249,6 +250,13 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
                 consumer, rid, wanted, exclude, 0, shared=shared, after=after
             )
 
+        owned = await service.matching_outputs(
+            OWNER, str(command.request_id), slot, parent, 0
+        )
+        assert owned == {
+            "items": [{"reference": ref, "output": "result", "title": "Echo"}],
+            "next": None,
+        }
         assert await match(shared=False) == {"items": [], "next": None}
         assert await match() == {"items": [], "next": cursor}
         assert await match(after=cursor) == {
@@ -269,6 +277,8 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
             "source": None,
             "allowed_callers": ["host"],
         }
+        proposal["definition"]["procedure"]["max_replans"] = 0
+        proposal["definition"]["procedure"]["steps"][0]["on_failure"] = "fail"
         await service.workdrafts.save(
             consumer, rid, revision=0, edits=[("formal_method", proposal)]
         )
@@ -278,6 +288,29 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         assert (await service.validate(consumer, str(parent), validate))[
             "status"
         ] == "pending"
+        from app.domain.knowbots.formal_method_execution import ExecuteFormalMethod
+        from tests.test_formal_method_execution import ExecutionRuntime, execution
+
+        trials = ExecutionRuntime()
+        monkeypatch.setattr(
+            runtime,
+            "submit_formal_method_execution",
+            trials.submit_formal_method_execution,
+            raising=False,
+        )
+        trial = ExecuteFormalMethod.model_validate(
+            {
+                "request_id": request.id,
+                "revision": 1,
+                "run_id": uuid4(),
+                "execution": execution(),
+            }
+        )
+        assert (await service.execute(consumer, str(parent), trial))[
+            "status"
+        ] == "pending"
+        runtime.complete(validate.run_id)
+        await service.freeze(consumer, str(parent), 1, freeze_command(validate))
         available = False
         assert await match(after=cursor) == {"items": [], "next": None}
         retry = validate.model_copy(update={"run_id": uuid4()})

@@ -131,6 +131,11 @@ def generate(consumer: Path) -> dict[Path, str]:
             name: hashlib.sha256(value.encode()).hexdigest()
             for name, value in sources.items()
         },
+        "generated_sha256": {
+            path.name: hashlib.sha256(value.encode()).hexdigest()
+            for path, value in outputs.items()
+            if path.suffix == ".py"
+        },
         "schema_sha256": hashlib.sha256(schema.encode()).hexdigest(),
         "validation_schema_sha256": {
             name: hashlib.sha256(content.encode()).hexdigest()
