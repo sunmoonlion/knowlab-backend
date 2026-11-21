@@ -45,6 +45,18 @@ class MaterialFormat(BaseModel):
 class KnowbaseLibrary(KnowbaseClient):
     BASE = "/api/internal/v2/user-data"
 
+    async def check_column(
+        self, user_token: str, material_id: str, version_no: int, sheet: str, column: str
+    ) -> dict[str, Any]:
+        path = f"/materials/{_segment(material_id)}/versions/{version_no}/column-check"
+        try:
+            _, body, _ = await self._send(
+                "POST", path, user_token, json={"sheet": sheet, "column": column}
+            )
+        except KnowbaseRefused as exc:
+            raise _refused(exc) from None
+        return body
+
     async def read_format(
         self, user_token: str, material_id: str, version_no: int
     ) -> dict[str, Any] | None:

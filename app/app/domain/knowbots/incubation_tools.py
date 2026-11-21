@@ -54,3 +54,15 @@ class AutomaticOutputSearch(Strict):
     directory: Literal["owned", "shared"]
     page_limit: int = Field(strict=True, ge=1, le=100)
     action_id: UUID
+
+
+class SampleColumn(Strict):
+    material_id: str = Field(min_length=1, max_length=200)
+    version_no: int = Field(strict=True, ge=1)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    sheet: str = Field(max_length=255)
+    column: str = Field(min_length=1, max_length=200, pattern=r"\S")
+
+
+class SampleColumnResult(SampleColumn):
+    status: Literal["present", "missing", "unknown"]

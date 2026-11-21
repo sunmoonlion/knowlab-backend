@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from app.application.errors.exceptions import (
+    BadGatewayError,
     BadRequestError,
     ConcurrencyConflictError,
     NotFoundError,
@@ -19,6 +20,7 @@ from app.application.services.knowbot_library import KnowbotLibraryService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.drafts import KnowbotRequestIn
+from app.domain.knowbots.incubation_tools import SampleColumn
 from tests.knowbot_fakes import (
     MATERIAL,
     OWNER,
@@ -239,3 +241,32 @@ async def test_unreadable_table_axes_still_save_the_pick(w: Wired):
     )
     assert picked.data_formats[MATERIAL]["tables"] == []
     assert picked.data_formats[MATERIAL]["readings"]
+
+
+@pytest.mark.parametrize(
+    "alter",
+    [
+        {"version_no": 2},
+        {"sha256": "0" * 64},
+        {"column": "other"},
+        {"rows": ["not allowed"]},
+    ],
+)
+async def test_column_check_requires_owned_project_and_exact_provider_receipt(w, alter):
+    from unittest.mock import AsyncMock
+
+    request = await w.request()
+    sample = SampleColumn(
+        material_id=MATERIAL, version_no=1, sha256="a" * 64, sheet="", column="receipt"
+    )
+    response = {**sample.model_dump(), "status": "present"}
+    w.knowbase.check_column = AsyncMock(return_value=response)
+    fresh = AsyncMock(return_value=TOKEN)
+    with pytest.raises(NotFoundError):
+        await w.library.check_column("other", str(request.id), sample, fresh)
+    fresh.assert_not_awaited()
+    result = await w.library.check_column(OWNER, str(request.id), sample, fresh)
+    assert result.model_dump() == response
+    w.knowbase.check_column.return_value = response | alter
+    with pytest.raises(BadGatewayError, match="sample|column"):
+        await w.library.check_column(OWNER, str(request.id), sample, fresh)

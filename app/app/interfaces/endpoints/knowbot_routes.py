@@ -108,7 +108,7 @@ from app.domain.knowbots.formal_method_execution import (
     DecideFormalExecution,
     ExecuteFormalMethod,
 )
-from app.domain.knowbots.incubation_tools import AutomaticOutputSearch
+from app.domain.knowbots.incubation_tools import AutomaticOutputSearch, SampleColumn
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
     RevisionIn,
@@ -808,6 +808,18 @@ async def copy_mine(
     request, _ = await workdrafts.get(principal.subject, request_id)
     view = workdraft_view(request, found, await workdrafts.origins(found))
     return _ok(view | {"notes": notes})
+
+
+@web_router.post("/knowbot-requests/{request_id}/workdraft/column-check")
+async def check_sample_column(
+    principal: User,
+    body: SampleColumn,
+    library: Library,
+    user_token: KnowbaseToken,
+    request_id: ItemId,
+) -> JSONResponse:
+    result = await library.check_column(principal.subject, request_id, body, user_token)
+    return _ok(result.model_dump())
 
 
 @web_router.put("/knowbot-requests/{request_id}/workdraft/data-picks")

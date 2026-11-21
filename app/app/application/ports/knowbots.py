@@ -1016,6 +1016,15 @@ class KnowbaseLibraryClient(Protocol):
         """一份资料某一版的各种读法与就绪与否（RenditionRead）。"""
         ...
 
+    async def check_column(
+        self,
+        user_token: str,
+        material_id: str,
+        version_no: int,
+        sheet: str,
+        column: str,
+    ) -> dict[str, Any]: ...
+
     async def read_format(
         self, user_token: str, material_id: str, version_no: int
     ) -> dict[str, Any] | None:
