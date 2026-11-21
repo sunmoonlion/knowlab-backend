@@ -188,6 +188,52 @@ async def test_instruction_execution_requires_exactly_one_host_inference():
             FormalMethodExecutionRequest.model_validate(payload)
 
 
+@pytest.mark.asyncio
+async def test_conditional_promises_require_bound_inputs_and_output_assertions():
+    _, runtime, service, mid, command = await prepared()
+    await service.execute(OWNER, str(mid), command)
+    original = runtime.submitted[command.run_id]
+    payload = original.model_dump(mode="json", by_alias=True)
+    declaration = payload["draft"]["definition"]["capability_declaration"]
+    declaration["conditions"] = {
+        "value": {"when": "An observation is available", "input_slots": ["value"]}
+    }
+    suite = payload["execution"]["suite"]
+    suite.pop("digest")
+    case = suite["cases"][0]
+
+    def check():
+        payload["execution"]["suite"] = (
+            FormalTestSuiteDraft.model_validate(suite).freeze().model_dump(mode="json")
+        )
+        return FormalMethodExecutionRequest.model_validate(payload)
+
+    with pytest.raises(ValidationError, match="covering every promise"):
+        check()
+    case["covers_promises"] = ["value"]
+    request = check()
+    assert (
+        request.execution.suite.cases[0].execution_input()
+        == original.execution.suite.cases[0].execution_input()
+    )
+    assert request.draft.definition.digest() != original.draft.definition.digest()
+    with pytest.raises(ValidationError, match="unknown delivery promise"):
+        case["covers_promises"] = ["other"]
+        check()
+    case["covers_promises"] = ["value"]
+    with pytest.raises(ValidationError, match="public input slots"):
+        declaration["conditions"]["value"]["input_slots"] = ["absent"]
+        check()
+    declaration["conditions"]["value"]["input_slots"] = ["value"]
+    with pytest.raises(ValidationError, match="lacks the inputs"):
+        case["input"]["values"].clear()
+        check()
+    case["input"]["values"]["value"] = 3
+    with pytest.raises(ValidationError, match="every promised output"):
+        case["expected"]["assertions"][0]["pointer"] = "/unrelated"
+        check()
+
+
 def test_suite_digest_and_case_thresholds_are_independent_of_method():
     source = suite()
     frozen = FormalTestSuiteDraft.model_validate(source).freeze()

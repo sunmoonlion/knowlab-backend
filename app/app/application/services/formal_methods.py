@@ -843,6 +843,14 @@ class FormalMethodService:
             receipt = self._receipt(payload, result)
             source = payload.draft.source
             if (
+                payload.draft.definition.capability_declaration.conditions
+                and receipt.execution is None
+            ):
+                raise BadRequestError(
+                    "Conditional delivery promises require execution evidence",
+                    code="formal_promise_trial_required",
+                )
+            if (
                 source
                 and source.kind in ("registered_script", "service_function")
                 and (command.visibility != "private" or receipt.execution is None)

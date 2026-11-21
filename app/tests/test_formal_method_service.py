@@ -583,3 +583,22 @@ def test_prior_receipt_cannot_admit_a_graph_with_changed_review_requirement():
             FormalMethodValidationRequest.model_validate(document), result
         )
     assert exc.value.code == "formal_validation_stale"
+
+
+@pytest.mark.asyncio
+async def test_conditional_method_requires_executed_cases_before_freeze():
+    repo, runtime, service, mid, command = await setup()
+    body = draft().model_dump(mode="json", by_alias=True)
+    body["definition"]["capability_declaration"]["conditions"] = {
+        "value": {"when": "Observation available", "input_slots": ["value"]}
+    }
+    await service.workdrafts.save(
+        OWNER, str(command.request_id), revision=1, edits=[("formal_method", body)]
+    )
+    command = command.model_copy(update={"revision": 2})
+    await service.validate(OWNER, str(mid), command)
+    runtime.complete(command.run_id)
+    with pytest.raises(BadRequestError) as exc:
+        await service.freeze(OWNER, str(mid), 1, freeze_command(command))
+    assert exc.value.code == "formal_promise_trial_required"
+    assert not repo.method_versions
