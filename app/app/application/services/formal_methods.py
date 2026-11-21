@@ -334,7 +334,10 @@ class FormalMethodService:
                     "Reopen the accepted artifact before review",
                     code="review_scope_changed",
                 )
-            if not set(command.criteria.outputs).issubset(step.artifact.output_names):
+            selected = set(command.criteria.outputs)
+            if command.criteria.comparison:
+                selected.add(command.criteria.comparison.assessment_output)
+            if not selected.issubset(step.artifact.output_names):
                 raise BadRequestError(
                     "Unknown review output", code="review_output_missing"
                 )

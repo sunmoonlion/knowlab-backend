@@ -541,6 +541,27 @@ def test_review_policy_requires_an_independent_consumer_of_the_producer_output()
     assert FormalMethodDefinition.model_validate(legacy).digest() == (
         "sha256:fc041d5b4590352bbb535a2cd2915097c30724a0d2ac91f70ad271b410504bef"
     )
+    role["comparison"] = {"assessment_output": "assessment", "max_reworks": 1}
+    with pytest.raises(ValueError, match="distinct review"):
+        WorkdraftBody.model_validate(body)
+    steps[0]["outputs"]["assessment"] = steps[0]["outputs"]["result"]
+    steps[1]["inputs"]["notes"] = {
+        **steps[1]["inputs"]["value"],
+        "binding": {"source": "step", "step": "s0", "output": "assessment"},
+    }
+    staged = WorkdraftBody.model_validate(body).model_dump(mode="json", by_alias=True)
+    assert {"step": "s1", "primitive": "sealed_findings"} in collaboration_gaps(staged)
+    assert {"step": "s1", "primitive": "staged_handoff"} in collaboration_gaps(staged)
+    extra = dict(steps[1]["inputs"]["notes"])
+    extra["binding"] = {"source": "caller", "name": "unreviewed"}
+    steps[1]["inputs"]["unreviewed"] = extra
+    with pytest.raises(ValueError, match="distinct review"):
+        WorkdraftBody.model_validate(body)
+    del steps[1]["inputs"]["unreviewed"]
+    graph["collaboration"] = staged["collaboration"]
+    assert FormalMethodDefinition.model_validate(definition).digest() != strict.digest()
+    del graph["collaboration"]
+    del role["comparison"]
     role["isolation_group"] = "primary"
     with pytest.raises(ValueError, match="isolation group"):
         WorkdraftBody.model_validate(body)

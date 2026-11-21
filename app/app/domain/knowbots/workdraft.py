@@ -440,7 +440,9 @@ def collaboration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
     for name, role in (body.get("collaboration") or {}).items():
         if role.get("isolation_group"):
             gaps.append({"step": name, "primitive": "isolation_group"})
-        if role.get("handoff_from"):
+        if role.get("comparison"):
+            gaps.append({"step": name, "primitive": "sealed_findings"})
+        if role.get("handoff_from") or role.get("comparison"):
             gaps.append({"step": name, "primitive": "staged_handoff"})
         reviews = role.get("review_requirements", {})
         if reviews:

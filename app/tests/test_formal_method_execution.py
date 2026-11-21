@@ -547,6 +547,30 @@ def test_directed_review_uses_exact_received_values_and_scopes_every_check():
     assert passed.status == "awaiting_isolation"
     assert passed.handoff == {"result": fingerprint(outputs["result"])}
     assert passed.digest != prepare(reviewer="isolated_reviewer").digest
+    comparison = {"assessment_output": "notes", "max_reworks": 2}
+    strict = prepare(comparison=comparison)
+    assert strict.digest != passed.digest
+    assert passed.deferred is None and strict.deferred is not None
+    assert strict.handoff == passed.handoff
+    assert strict.deferred.assessment_digest == fingerprint(outputs["notes"])
+    assert strict.deferred.opens_after == "independent_findings_sealed"
+    assert strict.digest != prepare(comparison={**comparison, "max_reworks": 0}).digest
+    for invalid in [
+        {"assessment_output": "result"},
+        {"assessment_output": "absent"},
+        {"max_reworks": 3},
+    ]:
+        with pytest.raises(ValueError):
+            prepare(comparison={**comparison, **invalid})
+    failed_strict = prepare(
+        comparison=comparison,
+        assertions=[{"kind": "equals", "pointer": "/result/n", "value": 0}],
+    )
+    assert not failed_strict.handoff and failed_strict.deferred is None
+    stored_strict = {**receipt.model_dump(), "review": strict.model_dump()}
+    stored_strict["review"]["deferred"]["assessment_digest"] = fingerprint("another")
+    with pytest.raises(ValueError):
+        BranchDelivery.model_validate(stored_strict)
     for pointer, value in [("/result/flags/1", None), ("/result/n", True)]:
         failed = prepare(
             assertions=[{"kind": "equals", "pointer": pointer, "value": value}]
