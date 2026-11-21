@@ -11,7 +11,10 @@ from app.application.errors.exceptions import (
     ServiceUnavailableError,
 )
 from app.application.services.formal_methods import FormalMethodService
-from app.application.services.knowbot_methods import KnowbotMethodService
+from app.application.services.knowbot_methods import (
+    KnowbotMethodService,
+    method_version_view,
+)
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from tests.test_formal_method_service import (
@@ -63,6 +66,45 @@ async def test_concurrent_formal_freeze_replays_one_immutable_version(db):
         assert await KnowbotMethodService(repo).listing(OWNER, limit=30, offset=0) == []
         with pytest.raises(NotFoundError):
             await service.get("other-user", str(mid), 1)
+
+
+async def test_historical_expert_classification_preserves_frozen_record(db):
+    from tests.test_formal_method import composite, frozen
+
+    runtime, leaf_id, command = await prepared(db)
+    leaf = await freeze(db, runtime, leaf_id, command)
+    child = frozen(leaf.definition, mid=leaf_id)
+    left, right = frozen(composite(child)), frozen(composite(child))
+    root = frozen(composite(left, right))
+    ref = root.reference
+    historical = {"method_kind": "expert_team"}
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        async with repo.transaction():
+            await repo.create_method(ref.method_id, OWNER)
+            await repo.insert_method_version(
+                method_id=ref.method_id,
+                version=1,
+                digest=ref.digest,
+                command_digest=leaf.command_digest,
+                definition=root.definition.document(),
+                provenance=historical,
+                source_workdraft_id=leaf.source_workdraft_id,
+            )
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        rows = await repo.list_methods(OWNER, limit=30, offset=0, formal_only=True)
+        assert {r["id"]: r["method_kind"] for r in rows} == {
+            leaf_id: "tool",
+            ref.method_id: "expert",
+        }
+        stored = await repo.method_version(ref.method_id, 1)
+        assert stored is not None
+        view = method_version_view(stored)
+        assert view["provenance"]["method_kind"] == "expert"
+        assert view["digest"] == root.definition.digest()
+        assert stored.provenance == historical
+        assert (await repo.method_version(ref.method_id, 1)) == stored
 
 
 async def test_changed_workdraft_cannot_freeze_using_earlier_runtime_receipt(db):

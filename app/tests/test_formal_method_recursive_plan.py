@@ -50,15 +50,15 @@ def test_nested_paths_classification_and_per_invocation_counts():
     assert all(n.parent_path == n.path[:-1] for n in plan.nodes)
 
 
-def test_same_expert_id_versions_are_one_kind_but_two_expert_ids_form_team():
+def test_versions_and_distinct_subexperts_preserve_expert_kind_at_every_depth():
     base = leaf()
     a = expert(base)
     a2 = expert(base, mid=a.reference.method_id, version=2)
     b = expert(base)
     assert expanded(expert(a, a2), base, a, a2).method_kind == "expert"
     team = expert(a, b)
-    assert expanded(team, base, a, b).method_kind == "expert_team"
-    assert expanded(expert(team), base, a, b, team).method_kind == "expert_team"
+    assert expanded(team, base, a, b).method_kind == "expert"
+    assert expanded(expert(team), base, a, b, team).method_kind == "expert"
 
 
 @pytest.mark.parametrize(

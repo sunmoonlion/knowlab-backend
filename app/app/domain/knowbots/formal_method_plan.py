@@ -28,8 +28,8 @@ from app.domain.knowbots.formal_method import (
 from app.domain.knowbots.formal_method_compiler import (
     FrozenMethod,
     Kind,
-    classify_dependencies,
     compile_method,
+    implementation_kind,
 )
 
 
@@ -96,9 +96,9 @@ def expand_unique_plan(
             leaves += 1
             if leaves > 100:
                 raise ValueError("Recursive plan exceeds 100 actual tool leaf calls")
-            return "tool", [], 1, 1, 0
+            return implementation_kind(current.procedure.kind), [], 1, 1, 0
         local = unique_plan(current)
-        nodes, kinds = [], []
+        nodes = []
         depth, expansions, steps = 1, 1, len(local)
         for step in local:
             ref = step.candidates[0]
@@ -119,7 +119,6 @@ def expand_unique_plan(
             )
             nodes.append(PlanNode(child_path, path, step, ref, child.definition, kind))
             nodes.extend(descendants)
-            kinds.append((ref.method_id, kind))
             depth = max(depth, 1 + child_depth)
             expansions += child_expansions
             steps += child_steps
@@ -132,7 +131,7 @@ def expand_unique_plan(
         ):
             raise ValueError("Recursive plan exceeds an ancestor's subtree limits")
         return (
-            classify_dependencies("orchestration", tuple(kinds)),
+            implementation_kind(p.kind),
             nodes,
             depth,
             expansions,

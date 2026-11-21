@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import case, func, or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1907,7 +1907,9 @@ class SqlKnowlabRepository:
               JOIN eligible e ON (e.method_id,e.version,e.digest)
                               = (v.method_id,v.version,v.digest)
              WHERE s.method_id <> :exclude
-               AND s.direction = 'outputs' AND v.provenance->>'method_kind' = 'tool'
+               AND s.direction = 'outputs'
+               AND v.definition->>'contract' = 'knowlab/formal-method/v1'
+               AND v.definition #>> '{procedure,kind}' = 'direct'
                AND coalesce(v.provenance->'allowed_callers', '["host"]'::jsonb) ? 'host'
                AND coalesce(nullif(v.provenance
                                    #> '{validation,execution,validated_callers}',
@@ -1944,6 +1946,14 @@ class SqlKnowlabRepository:
             .group_by(KnowbotMethodVersion.method_id)
             .subquery()
         )
+        method_kind = (
+            case(
+                {"direct": "tool", "orchestration": "expert"},
+                value=KnowbotMethodVersion.definition["procedure"]["kind"].as_string(),
+            )
+            if formal_only
+            else KnowbotMethodVersion.provenance["method_kind"].as_string()
+        )
         rows = (
             await self.session.execute(
                 select(
@@ -1951,9 +1961,7 @@ class SqlKnowlabRepository:
                     KnowbotMethod.created_at,
                     latest.c.version,
                     KnowbotMethodVersion.digest,
-                    KnowbotMethodVersion.provenance["method_kind"]
-                    .as_string()
-                    .label("method_kind"),
+                    method_kind.label("method_kind"),
                     func.coalesce(
                         KnowbotMethodVersion.definition["capability_declaration"][
                             "title"

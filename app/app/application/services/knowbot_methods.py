@@ -26,6 +26,7 @@ from app.application.services.knowbot_workdraft import (
     KnowbotWorkdraftService,
     parse_body,
 )
+from app.domain.knowbots.formal_method_compiler import implementation_kind
 from app.domain.knowbots.methods import (
     AnyMethodDefinition,
     BindMethod,
@@ -40,12 +41,20 @@ from app.domain.knowbots.workdraft import WorkdraftBody, bundle_text, cells
 
 
 def method_version_view(record: MethodVersionRecord) -> dict[str, Any]:
+    provenance = record.provenance
+    if record.definition.get("contract") == "knowlab/formal-method/v1":
+        kind = record.definition["procedure"]["kind"]
+        if kind not in ("direct", "orchestration"):
+            raise ConcurrencyConflictError(
+                "Invalid frozen procedure", code="method_integrity"
+            )
+        provenance = {**provenance, "method_kind": implementation_kind(kind)}
     return {
         "method_id": str(record.method_id),
         "version": record.version,
         "digest": record.digest,
         "definition": record.definition,
-        "provenance": record.provenance,
+        "provenance": provenance,
         "created_at": record.created_at.isoformat(),
     }
 

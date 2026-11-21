@@ -121,34 +121,35 @@ def test_tool_generates_views_and_has_no_extra_authored_views():
         FormalMethodDefinition.model_validate(raw)
 
 
-def test_classification_counts_expert_identities_across_every_allowed_candidate():
+def test_orchestration_kind_is_independent_of_candidate_identity_and_depth():
     base = frozen()
     expert = frozen(composite(base))
     another_version = frozen(composite(base), mid=expert.reference.method_id, version=2)
     other_expert = frozen(composite(base))
     sources = resolved(base, expert, another_version, other_expert)
-    for children, expected in [
-        ((base, base), "expert"),
-        ((expert, another_version), "expert"),
-        ((expert, other_expert), "expert_team"),
+    for children in [
+        (base, base),
+        (expert, another_version),
+        (expert, other_expert),
     ]:
         doc = FormalMethodDefinition.model_validate(composite(*children))
-        assert compile_method(uuid4(), doc, sources).method_kind == expected
-    # Even a one-step choice between two expert identities has team scope.
+        assert compile_method(uuid4(), doc, sources).method_kind == "expert"
     doc = composite(expert)
     doc["procedure"]["steps"][0]["candidates"].append(
         other_expert.reference.model_dump(mode="json")
     )
-    team = frozen(doc)
+    choice = frozen(doc)
     assert (
-        compile_method(team.reference.method_id, team.definition, sources).method_kind
-        == "expert_team"
+        compile_method(
+            choice.reference.method_id, choice.definition, sources
+        ).method_kind
+        == "expert"
     )
-    sources.update(resolved(team))
-    top = frozen(composite(team))
+    sources.update(resolved(choice))
+    top = frozen(composite(choice))
     assert (
         compile_method(top.reference.method_id, top.definition, sources).method_kind
-        == "expert_team"
+        == "expert"
     )
 
 
