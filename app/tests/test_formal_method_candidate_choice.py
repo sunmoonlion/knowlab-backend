@@ -8,7 +8,11 @@ from pydantic import ValidationError
 
 from app.domain.knowbots.formal_method import FormalMethodDefinition, Orchestration
 from app.domain.knowbots.formal_method_compiler import compile_method
-from app.domain.knowbots.formal_method_plan import unique_plan
+from app.domain.knowbots.formal_method_plan import (
+    UnmatchedCandidate,
+    select_plan,
+    unique_plan,
+)
 from tests.test_formal_method import composite, frozen, resolved, tool
 
 
@@ -65,6 +69,13 @@ def test_candidate_rules_match_exact_values_and_budget_only_one_subtree():
     assert compiled.dependencies == step.candidates
     with pytest.raises(ValueError, match="conditional candidate selection"):
         unique_plan(definition)
+    for index, value in enumerate(("direct", "checked")):
+        fixed = select_plan(definition, {"route": value})
+        assert isinstance(fixed.procedure, Orchestration)
+        assert fixed.procedure.steps[0].candidates == (step.candidates[index],)
+    with pytest.raises(UnmatchedCandidate, match="route"):
+        select_plan(definition, {"route": "other"})
+    assert step.candidate_choice == choice and len(step.candidates) == 2
     graph_doc = raw["procedure"]
     graph_doc["steps"][0]["candidate_choice"]["cases"].reverse()
     # Case order never decides which method wins.
