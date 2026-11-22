@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, model_validator
 
 from app.domain.knowbots.drafts import RuntimeIncubationIn, Strict
+from app.domain.knowbots.formal_method import MethodRef
 
 Identifier = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,47}$")]
 Text = Annotated[str, Field(min_length=1, max_length=2000)]
@@ -106,6 +107,41 @@ class RuntimeIncubationV2(RuntimeIncubationIn):
                 else ""
             )
         )
+
+
+class SuggestedPlan(Strict):
+    sketch_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+    methods: tuple[MethodRef, ...] = Field(min_length=1, max_length=3)
+    outputs: tuple[Text, ...] = Field(max_length=100)
+
+
+class FormalHandoff(RuntimeIncubationIn):
+    """Approved problem and interface gap; only the method owner may seed a revision."""
+
+    contract: Literal["knowlab/formal-handoff/v1"]
+    project_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    task_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
+
+    @model_validator(mode="after")
+    def source_task(self):
+        if not self.task_id:
+            raise ValueError("Formal feedback requires its original task")
+        return self
+
+    suggested_plan: SuggestedPlan | None = None
+    reference_answer: None = None
+    reference: MethodRef | None = None
+    gap: Text
+    review_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
+
+    def digest(self):
+        return hashlib.sha256(
+            json.dumps(
+                self.model_dump(mode="json", exclude_none=True),
+                sort_keys=True,
+                ensure_ascii=False,
+            ).encode()
+        ).hexdigest()
 
 
 def render() -> str:

@@ -1726,6 +1726,13 @@ async def decide_formal_execution(
     )
 
 
+@web_router.get("/knowbot-requests/{request_id}/planning-capabilities")
+async def planning_capabilities(
+    principal: User, methods: FormalMethods, request_id: ItemId
+):
+    return _ok(await methods.planning_capabilities(principal.subject, request_id))
+
+
 @web_router.get("/knowbot-requests/{request_id}/formal-method-sources")
 async def formal_sources(
     principal: User, methods: FormalMethods, request_id: ItemId

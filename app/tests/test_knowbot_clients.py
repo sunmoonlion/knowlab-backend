@@ -416,3 +416,40 @@ async def test_incubation_without_the_incubate_relation_is_unavailable() -> None
     with pytest.raises(BadGatewayError) as caught:
         await broken.status("knowlab-inc-0001")
     assert caught.value.code == "incubation_contract_invalid"
+
+
+@pytest.mark.asyncio
+async def test_author_runtime_inventory_requires_matching_structural_evidence():
+    import hashlib
+
+    doc = {
+        "contract": "knowbench/consumer-planning/v1",
+        "patterns": dict.fromkeys(
+            ("sequence", "join", "independent_review", "object_batch", "conditional"),
+            True,
+        ),
+    }
+    body = {
+        **doc,
+        "digest": "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                doc, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest(),
+    }
+
+    def handler(request):
+        assert request.url.path.endswith("/knowbot-runtime/planning-capabilities")
+        return httpx.Response(200, json=body)
+
+    clients = RuntimeTestClients(
+        KNOWBENCH, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
+    )
+    assert await clients.planning_capabilities("knowbench") == {
+        "digest": body["digest"],
+        "patterns": doc["patterns"],
+    }
+    body["patterns"]["independent_review"] = False
+    with pytest.raises(BadGatewayError):
+        await clients.planning_capabilities("knowbench")

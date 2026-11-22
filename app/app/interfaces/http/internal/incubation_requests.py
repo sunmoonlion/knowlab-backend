@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.bootstrap.knowbots import knowbot_service
 from app.domain.knowbots.drafts import RuntimeIncubationIn
-from app.domain.knowbots.method_demand import RuntimeIncubationV2
+from app.domain.knowbots.method_demand import FormalHandoff, RuntimeIncubationV2
 from app.infrastructure.security.relation_auth import (
     ServiceCaller,
     require_incubation_request_service,
@@ -41,7 +41,7 @@ def service(
 @router.post("/incubation-requests")
 async def incubation_request(
     caller: Annotated[ServiceCaller, Depends(require_incubation_request_service)],
-    body: RuntimeIncubationV2 | RuntimeIncubationIn,
+    body: FormalHandoff | RuntimeIncubationV2 | RuntimeIncubationIn,
     svc: Annotated[KnowbotCreationService, Depends(service)],
 ) -> JSONResponse:
     """以这个用户的名义建一份「问题」申请（自己来，只有他看得到，建了不花钱）。"""
@@ -55,6 +55,11 @@ async def incubation_request(
             "request_id": str(found.id),
             "title": found.title,
             "created": created,
+            **(
+                {"handoff": (found.origin or {})["handoff"]}
+                if isinstance(body, FormalHandoff)
+                else {}
+            ),
         },
         headers=NO_STORE,
     )

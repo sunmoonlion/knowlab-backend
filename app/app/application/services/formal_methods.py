@@ -195,6 +195,11 @@ class FormalMethodService:
             "status": result["status"],
         }
 
+    async def planning_capabilities(self, owner: str, request_id: str):
+        async with self.repo.transaction():
+            request = await self.workdrafts._request(owner, request_id)
+        return await self.runtimes.planning_capabilities(request.runtime)
+
     async def sources(self, owner: str, request_id: str) -> dict[str, Any]:
         async with self.repo.transaction():
             request = await self.workdrafts._request(owner, request_id)

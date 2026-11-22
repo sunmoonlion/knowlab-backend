@@ -202,6 +202,39 @@ class RuntimeTestClients:
             raise BadGatewayError("Invalid runtime registration page")
         return rows
 
+    async def planning_capabilities(self, runtime: str) -> dict[str, Any]:
+        import hashlib
+        import json
+
+        _, body = await self._client(runtime).request("GET", "/planning-capabilities")
+        if not isinstance(body, dict):
+            raise BadGatewayError("Invalid planning capabilities")
+        proof = {k: v for k, v in body.items() if k != "digest"}
+        fingerprint = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    proof, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+                ).encode()
+            ).hexdigest()
+        )
+        required = {
+            "sequence",
+            "join",
+            "independent_review",
+            "object_batch",
+            "conditional",
+        }
+        if (
+            body.get("contract") != "knowbench/consumer-planning/v1"
+            or body.get("digest") != fingerprint
+            or not isinstance(body.get("patterns"), dict)
+            or set(body["patterns"]) != required
+            or any(type(v) is not bool for v in body["patterns"].values())
+        ):
+            raise BadGatewayError("Unverified runtime planning capabilities")
+        return {"digest": fingerprint, "patterns": body["patterns"]}
+
     async def formal_method_sources(self, runtime: str, subject: str) -> dict[str, Any]:
         from app.domain.knowbots.formal_method_admission import FormalMethodSource
 

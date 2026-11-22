@@ -81,7 +81,7 @@ from app.domain.knowbots.lifecycle import (
     review_state,
     status_from_run,
 )
-from app.domain.knowbots.method_demand import RuntimeIncubationV2
+from app.domain.knowbots.method_demand import FormalHandoff, RuntimeIncubationV2
 from app.domain.knowbots.platform_grants import expiry as grant_expiry
 from app.domain.knowbots.test_run import (
     CONTRACT,
@@ -256,7 +256,7 @@ class KnowbotCreationService:
     async def submit_from_runtime(
         self,
         owner_subject: str,
-        body: RuntimeIncubationIn | RuntimeIncubationV2,
+        body: RuntimeIncubationIn | RuntimeIncubationV2 | FormalHandoff,
         *,
         runtime: str,
     ) -> tuple[RequestRecord, bool]:
@@ -273,7 +273,7 @@ class KnowbotCreationService:
 
         def existing(mine: RequestRecord) -> tuple[RequestRecord, bool]:
             if (
-                isinstance(body, RuntimeIncubationV2)
+                isinstance(body, (RuntimeIncubationV2, FormalHandoff))
                 and (mine.origin or {}).get("request_digest") != body.digest()
             ):
                 raise ConcurrencyConflictError(
@@ -288,6 +288,58 @@ class KnowbotCreationService:
         title = question.splitlines()[0].strip()[:80] or question[:80]
         try:
             async with self.repo.transaction():
+                handoff = {}
+                source = None
+                if isinstance(body, FormalHandoff):
+                    mode = "new"
+                    if body.reference:
+                        source = await self.repo.method_version(
+                            body.reference.method_id, body.reference.version
+                        )
+                        if source is None or source.digest != body.reference.digest:
+                            raise BadRequestError(
+                                "Source method version changed", code="method_integrity"
+                            )
+                        if (
+                            source.owner_subject != owner_subject
+                            and source.provenance.get("visibility") != "public"
+                        ):
+                            raise BadRequestError(
+                                "This version cannot accept external feedback",
+                                code="method_integrity",
+                            )
+                        mode = (
+                            "author_revision"
+                            if source.owner_subject == owner_subject
+                            else "user_demand"
+                        )
+                    handoff = {
+                        "handoff": mode,
+                        **(
+                            {
+                                "suggested_plan": body.suggested_plan.model_dump(
+                                    mode="json"
+                                )
+                            }
+                            if body.suggested_plan
+                            else {}
+                        ),
+                        **(
+                            {
+                                "next_version": await self.repo.method_head(
+                                    source.method_id
+                                )
+                                + 1
+                            }
+                            if source and mode == "author_revision"
+                            else {}
+                        ),
+                        "request_digest": body.digest(),
+                        "gap": body.gap,
+                        "method_reference": body.reference.model_dump(mode="json")
+                        if body.reference
+                        else None,
+                    }
                 created = await self.repo.create_request(
                     owner_subject=owner_subject,
                     title=title,
@@ -300,6 +352,7 @@ class KnowbotCreationService:
                         "project_id": body.project_id,
                         "task_id": body.task_id,
                         "key": body.key,
+                        **handoff,
                         **(
                             {
                                 "method_demand": body.method_demand.model_dump(
@@ -315,6 +368,56 @@ class KnowbotCreationService:
                     if isinstance(body, RuntimeIncubationV2)
                     else (body.reference_answer or "").strip() or None,
                 )
+                if isinstance(body, FormalHandoff) and source:
+                    if handoff["handoff"] == "user_demand":
+                        # Attribute the suggestion in the original author's inbox.
+                        from uuid import UUID
+
+                        await self.repo.create_amendment(
+                            request_id=UUID(
+                                source.provenance["validation"]["request_id"]
+                            ),
+                            owner_subject=owner_subject,
+                            text=body.gap,
+                        )
+                    else:
+                        from app.domain.knowbots.workdraft import (
+                            WorkdraftBody,
+                            bundle_text,
+                            cells,
+                            empty_body,
+                        )
+
+                        draft = empty_body()
+                        draft["formal_method"] = {
+                            "definition": source.definition,
+                            "source": source.provenance["source"],
+                            "allowed_callers": source.provenance["allowed_callers"],
+                        }
+                        copied = await self.repo.create_workdraft(
+                            request_id=created.id,
+                            owner_subject=owner_subject,
+                            body=draft,
+                        )
+                        fields = cells(WorkdraftBody.model_validate(draft))
+                        entry = await self.repo.add_workdraft_entry(
+                            workdraft_id=copied.id,
+                            kind="copy",
+                            actor_subject=owner_subject,
+                            actor_role="author",
+                            text=bundle_text(
+                                str(source.method_id), fields, digest=source.digest
+                            ),
+                        )
+                        await self.repo.update_workdraft(
+                            copied.id,
+                            body=draft,
+                            revision=1,
+                            sources={
+                                name: {"kind": "user_text", "ref": f"record:{entry.id}"}
+                                for name in fields
+                            },
+                        )
                 await self.repo.add_acceptance(
                     self_acceptance(created.id, 1, self.now())
                 )
