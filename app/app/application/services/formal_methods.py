@@ -706,7 +706,13 @@ class FormalMethodService:
         return shared
 
     async def _dependencies(
-        self, owner: str, definition: FormalMethodDefinition, *, shared, missing=None
+        self,
+        owner: str,
+        definition: FormalMethodDefinition,
+        *,
+        shared,
+        missing=None,
+        public=False,
     ):
         require_host = (
             isinstance(definition.procedure, Orchestration)
@@ -733,6 +739,15 @@ class FormalMethodService:
                             )
                         continue
                     record = await self.repo.method_version(ref.method_id, ref.version)
+                    if public and (
+                        record is None
+                        or record.owner_subject != owner
+                        or record.provenance.get("visibility") != "public"
+                    ):
+                        raise BadRequestError(
+                            "Public dependencies must belong to the expert author",
+                            code="formal_delivery_denied",
+                        )
                     if record is not None and record.owner_subject == owner:
                         if record.digest != ref.digest:
                             raise ConcurrencyConflictError(
@@ -761,7 +776,13 @@ class FormalMethodService:
         return resolved, owned
 
     async def _prepare(
-        self, owner: str, method_id: UUID, command: ValidateFormalMethod, *, shared
+        self,
+        owner: str,
+        method_id: UUID,
+        command: ValidateFormalMethod,
+        *,
+        shared,
+        public=False,
     ):
         method_owner = await self.repo.method_owner(method_id)
         if method_owner is not None and method_owner != owner:
@@ -796,7 +817,7 @@ class FormalMethodService:
             definition = draft.definition.model_copy(update={"procedure": graph})
             draft = draft.model_copy(update={"definition": definition})
         resolved, owned = await self._dependencies(
-            owner, draft.definition, shared=shared
+            owner, draft.definition, shared=shared, public=public
         )
         try:
             compiled = compile_method(method_id, draft.definition, resolved)
@@ -1035,6 +1056,7 @@ class FormalMethodService:
                     run_id=command.run_id,
                 ),
                 shared=shared,
+                public=command.visibility == "public",
             )
             receipt = self._receipt(payload, result)
             source = payload.draft.source
@@ -1065,14 +1087,6 @@ class FormalMethodService:
                 raise BadRequestError(
                     "Instruction methods require a private freeze with trial evidence",
                     code="formal_instruction_trial_required",
-                )
-            if (
-                isinstance(payload.draft.definition.procedure, Orchestration)
-                and command.visibility != "private"
-            ):
-                raise BadRequestError(
-                    "Formal expert execution currently qualifies private use only",
-                    code="formal_validation_private_only",
                 )
             if command.visibility == "public" and (
                 receipt.uncovered or "business" not in receipt.checks

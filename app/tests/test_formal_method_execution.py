@@ -343,13 +343,9 @@ async def test_same_suite_version_cannot_silently_replace_expected_answers():
     assert len(runtime.submitted) == 1
 
 
-@pytest.mark.asyncio
-async def test_completed_execution_reference_is_preserved_by_freeze_and_checked():
-    # Test double checks only provider binding; real execution is tested in KB.
-    _, runtime, service, mid, command = await prepared()
-    await service.execute(OWNER, str(mid), command)
+def complete_trial(runtime, command, *, business):
     payload = runtime.submitted[command.run_id]
-    receipt = runtime.complete(command.run_id, business=False)
+    receipt = runtime.complete(command.run_id, business=business)
     receipt["execution"] = {
         "contract": payload.contract,
         "request_digest": payload.fingerprint(),
@@ -378,6 +374,15 @@ async def test_completed_execution_reference_is_preserved_by_freeze_and_checked(
         ],
     )
     FormalMethodExecutionResult.model_validate(report)
+    return receipt, report
+
+
+@pytest.mark.asyncio
+async def test_completed_execution_reference_is_preserved_by_freeze_and_checked():
+    # Test double checks only provider binding; real execution is tested in KB.
+    _, runtime, service, mid, command = await prepared()
+    await service.execute(OWNER, str(mid), command)
+    receipt, report = complete_trial(runtime, command, business=False)
     for outcome in ("unknown", "cancelled"):
         corrupt = copy.deepcopy(report)
         corrupt["cases"][0]["outcome"] = outcome

@@ -19,7 +19,7 @@ from tests.test_formal_method_service import draft, freeze_command, setup
 
 
 @pytest.mark.asyncio
-async def test_complete_expert_receipt_allows_private_freeze_but_never_public():
+async def test_expert_cannot_publish_a_private_dependency():
     repo, runtime, service, child_id, child_command = await setup()
     child_draft = draft().model_dump(mode="json", by_alias=True)
     child_draft["definition"]["procedure"]["implementation"]["kind"] = "mcp"
@@ -66,7 +66,7 @@ async def test_complete_expert_receipt_allows_private_freeze_but_never_public():
         await service.freeze(
             OWNER, str(parent_id), 1, freeze_command(command, "public")
         )
-    assert rejected.value.code == "formal_validation_private_only"
+    assert rejected.value.code == "formal_delivery_denied"
     assert (parent_id, 1) not in repo.method_versions
     assert parent_id not in repo.method_owners
     assert len(runtime.registration_calls) == registrations_before
@@ -80,3 +80,56 @@ async def test_complete_expert_receipt_allows_private_freeze_but_never_public():
     assert saved.provenance["validation"]["run_id"] == str(command.run_id)
     assert runtime.registrations[(parent_id, 1)].visibility == "private"
     assert len(runtime.registration_calls) == registrations_before + 1
+
+
+@pytest.mark.asyncio
+async def test_reviewed_child_and_expert_freeze_as_public_versions():
+    from app.domain.knowbots.formal_method_admission import FreezeFormalMethod
+    from tests.test_formal_method_execution import complete_trial, prepared
+
+    repo, runtime, service, child_id, command = await prepared()
+
+    async def freeze_reviewed(mid, trial):
+        await service.execute(OWNER, str(mid), trial)
+        complete_trial(runtime, trial, business=True)
+        return await service.freeze(
+            OWNER,
+            str(mid),
+            1,
+            FreezeFormalMethod(
+                request_id=trial.request_id,
+                revision=trial.revision,
+                run_id=trial.run_id,
+                visibility="public",
+            ),
+        )
+
+    child = await freeze_reviewed(child_id, command)
+    definition = composite(frozen(child.definition, mid=child_id))
+    definition["procedure"]["max_replans"] = 0
+    definition["procedure"]["steps"][0]["on_failure"] = "fail"
+    request = await KnowbotCreationService(repo, runtime).submit(
+        OWNER, KnowbotRequestIn.model_validate(request_body())
+    )
+    await service.workdrafts.save(
+        OWNER,
+        str(request.id),
+        revision=0,
+        edits=[
+            (
+                "formal_method",
+                {"definition": definition, "source": None, "allowed_callers": ["host"]},
+            )
+        ],
+    )
+    trial_body = command.model_dump(mode="json")
+    trial_body.update(request_id=str(request.id), revision=1, run_id=str(uuid4()))
+    trial_body["execution"]["suite"]["suite_id"] = str(uuid4())
+    trial = type(command).model_validate(trial_body)
+    parent_id = uuid4()
+    root = await freeze_reviewed(parent_id, trial)
+    assert root.provenance["visibility"] == "public"
+    assert runtime.registrations[(parent_id, 1)].visibility == "public"
+    assert root.provenance["dependencies"] == [
+        runtime.registrations[(child_id, 1)].reference.model_dump(mode="json")
+    ]
