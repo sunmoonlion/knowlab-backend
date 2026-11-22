@@ -61,7 +61,8 @@ from app.domain.knowbots.formal_method_execution import (
 )
 from app.domain.knowbots.formal_method_plan import (
     expand_unique_plan,
-    single_review_edge,
+    review_group,
+    select_plan,
 )
 from app.domain.knowbots.workdraft import (
     orchestration_gaps,
@@ -823,9 +824,11 @@ class FormalMethodService:
         resolved, owned = await self._dependencies(
             owner, draft.definition, shared=shared, public=public
         )
-        if single_review_edge(draft.definition.procedure):
+        if review_group(draft.definition.procedure):
             try:
-                expand_unique_plan(method_id, draft.definition, resolved)
+                expand_unique_plan(
+                    method_id, select_plan(draft.definition, {}), resolved
+                )
             except ValueError as exc:
                 raise ConcurrencyConflictError(
                     str(exc), code="runtime_capability_gap"
