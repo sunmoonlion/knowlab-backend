@@ -41,7 +41,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.knowbots.formal_method import NAME_PATTERN, CollaborationStep
+from app.domain.knowbots.formal_method import CollaborationRoles
 from app.domain.knowbots.formal_method_admission import FormalMethodDraft
 from app.domain.knowbots.managed_capabilities_generated import MethodAccess
 
@@ -354,9 +354,7 @@ class MethodReference(Strict):
 
 
 class WorkdraftBody(Strict):
-    collaboration: (
-        dict[Annotated[str, Field(pattern=NAME_PATTERN)], CollaborationStep] | None
-    ) = Field(
+    collaboration: CollaborationRoles | None = Field(
         default=None,
         min_length=1,
         max_length=100,

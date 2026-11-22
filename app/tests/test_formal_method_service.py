@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
+from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 
 from app.application.errors.exceptions import (
     BadGatewayError,
@@ -506,6 +508,41 @@ async def test_listing_uses_one_scoped_registry_page_without_local_enumeration(
         )
         == page
     )
+
+
+@pytest.mark.parametrize("field", ["role", "producer"])
+def test_published_schemas_reject_invalid_collaboration_keys(field):
+    from app.domain.knowbots.formal_method import FormalMethodDefinition
+    from app.domain.knowbots.workdraft import WorkdraftBody
+
+    definition = composite(frozen(), frozen())
+    invalid = "a" * 65
+    roles = (
+        {invalid: {"isolation_group": "review"}}
+        if field == "role"
+        else {"s1": {"review_requirements": {invalid: "isolated_reviewer"}}}
+    )
+    draft = {
+        "formal_method": {
+            "definition": definition,
+            "source": None,
+            "allowed_callers": ["host"],
+        },
+        "collaboration": roles,
+    }
+    for model, document in (
+        (WorkdraftBody, draft),
+        (
+            FormalMethodDefinition,
+            {
+                **definition,
+                "procedure": {**definition["procedure"], "collaboration": roles},
+            },
+        ),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate(document)
+        assert not Draft202012Validator(model.model_json_schema()).is_valid(document)
 
 
 def test_review_policy_requires_an_independent_consumer_of_the_producer_output():
