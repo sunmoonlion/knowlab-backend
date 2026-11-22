@@ -389,8 +389,13 @@ class KnowbotCreationService:
                         )
 
                         draft = empty_body()
+                        definition = dict(source.definition)
+                        procedure = dict(definition["procedure"])
+                        if procedure.get("collaboration") is not None:
+                            draft["collaboration"] = procedure.pop("collaboration")
+                            definition["procedure"] = procedure
                         draft["formal_method"] = {
-                            "definition": source.definition,
+                            "definition": definition,
                             "source": source.provenance["source"],
                             "allowed_callers": source.provenance["allowed_callers"],
                         }

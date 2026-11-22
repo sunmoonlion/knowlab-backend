@@ -133,3 +133,74 @@ async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
         ].id == sent.id
         messages = await repo.list_amendments(initial.request_id)
         assert [(m.owner_subject, m.text) for m in messages] == [("buyer", buyer.gap)]
+
+
+async def test_author_handoff_reopens_collaboration_in_its_editable_cell(db):
+    from uuid import uuid4
+
+    from app.domain.knowbots.formal_method import FormalMethodDefinition
+    from app.domain.knowbots.method_demand import FormalHandoff
+    from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
+    from tests.test_formal_method_plan import composite, frozen
+    from tests.test_formal_methods_db import freeze, prepared
+
+    runtime, mid, command = await prepared(db)
+    original = await freeze(db, runtime, mid, command)
+    definition = composite(frozen(), frozen())
+    graph = definition["procedure"]
+    graph["steps"][1].update(depends_on=["s0"])
+    graph["steps"][1]["inputs"]["value"]["binding"] = {
+        "source": "step",
+        "step": "s0",
+        "output": "result",
+    }
+    graph["collaboration"] = {
+        "s0": {"isolation_group": "primary"},
+        "s1": {
+            "isolation_group": "review",
+            "review_requirements": {"s0": "different_model_family"},
+        },
+    }
+    frozen_graph = FormalMethodDefinition.model_validate(definition)
+    owner = original.owner_subject
+    task = str(uuid4())
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        async with repo.transaction():
+            await repo.insert_method_version(
+                method_id=mid,
+                version=2,
+                definition=definition,
+                digest=frozen_graph.digest(),
+                command_digest=original.command_digest,
+                source_workdraft_id=original.source_workdraft_id,
+                provenance={**original.provenance, "source": None},
+            )
+        handoff = FormalHandoff.model_validate(
+            {
+                "contract": "knowlab/formal-handoff/v1",
+                "question": "Compare the evidence",
+                "project_id": str(uuid4()),
+                "task_id": task,
+                "owner_subject": owner,
+                "key": "handoff:" + task,
+                "gap": "Revise the review criteria",
+                "review_digest": "sha256:" + "a" * 64,
+                "reference": {
+                    "method_id": str(mid),
+                    "version": 2,
+                    "digest": frozen_graph.digest(),
+                },
+            }
+        )
+        result, created = await service(session).submit_from_runtime(
+            owner, handoff, runtime="knowbench"
+        )
+        workdraft = await repo.get_workdraft(result.id)
+        assert created and result.origin["handoff"] == "author_revision"
+        assert workdraft.body["collaboration"] == graph["collaboration"]
+        assert (
+            "collaboration"
+            not in workdraft.body["formal_method"]["definition"]["procedure"]
+        )
+        assert (await repo.method_version(mid, 2)).definition == definition
