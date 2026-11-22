@@ -439,12 +439,6 @@ def orchestration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
     graph = ((body.get("formal_method") or {}).get("definition") or {}).get(
         "procedure"
     ) or {}
-    if graph.get("object_batch"):
-        for step in graph["steps"]:
-            if any(
-                i["binding"]["source"] == "object_item" for i in step["inputs"].values()
-            ):
-                gaps.append({"step": step["id"], "primitive": "bounded_fanout"})
     roles = body.get("collaboration") or {}
     if roles and graph:
         procedure = Orchestration.model_validate({**graph, "collaboration": roles})

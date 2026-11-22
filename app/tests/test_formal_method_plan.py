@@ -333,6 +333,45 @@ def comparison_graph():
     return raw
 
 
+def test_batch_instances_are_bound_to_object_id_and_frozen_list_order():
+    from app.domain.knowbots.formal_method_plan import (
+        BatchItem,
+        InvalidObjectList,
+        bind_step_inputs,
+        select_plan,
+    )
+
+    raw = comparison_graph()
+    raw["procedure"]["steps"][0]["outputs"]["result"]["schema"] = {"type": "integer"}
+    raw["procedure"]["steps"][1]["inputs"]["value"]["slot"]["schema"]["items"][
+        "properties"
+    ]["value"] = {"type": "integer"}
+    definition = FormalMethodDefinition.model_validate(raw)
+
+    def expand(ids):
+        active = select_plan(definition, {"objects": ids})
+        steps = active.procedure.steps
+        return {
+            i.binding.object_id: s.id
+            for s in steps
+            for i in s.inputs.values()
+            if isinstance(i.binding, BatchItem)
+        }, steps[-1]
+
+    ids = ["乙", "A"]
+    keys, collector = expand(ids)
+    assert expand(list(reversed(ids)))[0] == keys
+    results = {key: {"result": 1} for key in keys.values()}
+    expected = [{"object_id": obj, "value": 1} for obj in ids]
+    assert bind_step_inputs(collector, {"objects": ids}, results)["value"] == expected
+    del results[keys["A"]]
+    with pytest.raises(ValueError):
+        bind_step_inputs(collector, {"objects": ids}, results)
+    for invalid in ([], ["A", "A"], ["A", "B", "C", "D"], [None], "A"):
+        with pytest.raises(InvalidObjectList):
+            expand(invalid)
+
+
 def test_object_batch_policy_changes_identity_and_cannot_enter_fixed_executor():
     raw = comparison_graph()
     batch = FormalMethodDefinition.model_validate(raw)
