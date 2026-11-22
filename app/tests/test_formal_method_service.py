@@ -587,6 +587,13 @@ def test_review_policy_requires_an_independent_consumer_of_the_producer_output()
     graph["collaboration"]["s1"]["review_requirements"]["s0"] = "isolated_reviewer"
     assert FormalMethodDefinition.model_validate(definition).digest() != strict.digest()
     del graph["collaboration"]
+    role["review_requirements"]["s0"] = "isolated_reviewer"
+    assert (
+        orchestration_gaps(
+            WorkdraftBody.model_validate(body).model_dump(mode="json", by_alias=True)
+        )
+        == []
+    )
     legacy = composite(frozen(mid=UUID(int=1)), frozen(mid=UUID(int=2)))
     assert FormalMethodDefinition.model_validate(legacy).digest() == (
         "sha256:fc041d5b4590352bbb535a2cd2915097c30724a0d2ac91f70ad271b410504bef"

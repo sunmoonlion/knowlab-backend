@@ -41,8 +41,9 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.domain.knowbots.formal_method import CollaborationRoles
+from app.domain.knowbots.formal_method import CollaborationRoles, Orchestration
 from app.domain.knowbots.formal_method_admission import FormalMethodDraft
+from app.domain.knowbots.formal_method_plan import single_review_edge
 from app.domain.knowbots.managed_capabilities_generated import MethodAccess
 
 STEP_ID = r"^[A-Za-z][A-Za-z0-9_-]{0,47}$"
@@ -447,7 +448,13 @@ def orchestration_gaps(body: Mapping[str, Any]) -> list[dict[str, str]]:
                 i["binding"]["source"] == "object_item" for i in step["inputs"].values()
             ):
                 gaps.append({"step": step["id"], "primitive": "bounded_fanout"})
-    for name, role in (body.get("collaboration") or {}).items():
+    roles = body.get("collaboration") or {}
+    if roles and graph:
+        procedure = Orchestration.model_validate({**graph, "collaboration": roles})
+        if single_review_edge(procedure):
+            # The runtime resolves both exact versions and checks their execution kind.
+            return gaps
+    for name, role in roles.items():
         if role.get("isolation_group"):
             gaps.append({"step": name, "primitive": "isolation_group"})
         if role.get("comparison"):
