@@ -14,9 +14,13 @@ from app.application.services.formal_methods import (
 from app.application.services.knowbot_workdraft import parse_body
 from app.domain.knowbots.formal_method import FormalMethodDefinition, MethodRef
 from app.domain.knowbots.formal_method_admission import FormalMethodDraft
-from app.domain.knowbots.formal_method_compiler import FrozenMethod, compile_method
-from app.domain.knowbots.formal_method_plan import expand_unique_plan, select_plan
-from app.domain.knowbots.selection import Selection, expand
+from app.domain.knowbots.formal_method_compiler import FrozenMethod
+from app.domain.knowbots.selection import (
+    Selection,
+    available,
+    expand,
+    verify_selection_graph,
+)
 
 
 def installation(row):
@@ -44,38 +48,6 @@ def instruction_pin(row):
         )
         if row.get(k) is not None
     }
-
-
-def available(definition, runtime):
-    procedure = definition.procedure
-    if procedure.kind == "direct":
-        kind = procedure.implementation.kind
-        if kind not in (
-            "mcp",
-            "a2a",
-            "registered_script",
-            "skill_script",
-            "skill_instruction",
-            "registered_instruction",
-            "service_function",
-        ):
-            return False
-        if kind in ("registered_script", "skill_script"):
-            return runtime.get("script") is True
-        if kind == "service_function":
-            return runtime.get("material_read") is True
-    else:
-        flags = runtime["patterns"]
-        if (
-            procedure.collaboration
-            and not flags.get("independent_review")
-            or procedure.object_batch
-            and not flags.get("object_batch")
-            or procedure.has_candidate_choice
-            and not flags.get("conditional")
-        ):
-            return False
-    return True
 
 
 PAGE = 24
@@ -400,51 +372,9 @@ class SelectionService:
                 resolved, _ = await self.methods._dependencies(
                     owner, draft.definition, shared=shared
                 )
-            if any(
-                not available(child.definition, capabilities)
-                for child in resolved.values()
-            ):
-                raise ValueError("selection_capability")
-            definition = draft.definition
-            graph = definition.procedure
-            compile_method(target, definition, resolved)
-            if graph.kind == "orchestration":
-                # A nested method must already have a fixed invocation graph.
-                for child in resolved.values():
-                    nested = child.definition.procedure
-                    if nested.kind == "orchestration":
-                        if (
-                            nested.collaboration
-                            or nested.object_batch
-                            or nested.has_candidate_choice
-                        ):
-                            raise ValueError("selection_capability")
-                        expand_unique_plan(
-                            child.reference.method_id, child.definition, resolved
-                        )
-                if not graph.has_candidate_choice:
-                    values = {}
-                    if graph.object_batch:
-                        keys = [str(i) for i in range(graph.object_batch.max_objects)]
-                        values = {
-                            port.binding.name: keys
-                            for step in graph.steps
-                            for port in step.inputs.values()
-                            if port.binding.source == "object_item"
-                        }
-                    if roles:
-                        from app.domain.knowbots.selection import roles_typed
-
-                        definition = definition.model_copy(
-                            update={
-                                "procedure": graph.model_copy(
-                                    update={"collaboration": roles_typed(roles)}
-                                )
-                            }
-                        )
-                    expand_unique_plan(
-                        target, select_plan(definition, values), resolved
-                    )
+            verify_selection_graph(
+                target, draft.definition, resolved, capabilities, roles
+            )
             return draft, roles
         except ValueError as exc:
             code = str(exc)

@@ -36,6 +36,7 @@ FILES = {
     "formal_method_admission.py": "formal_method_admission_generated.py",
     "formal_method_execution.py": "formal_method_execution_generated.py",
 }
+BACKEND_FILES = {**FILES, "selection.py": "incubation_selection.py"}
 WEB_MODELS = {
     "draft": FormalMethodDraft,
     "execution-command": ExecuteFormalMethod,
@@ -58,10 +59,10 @@ def exported(source: str) -> str:
         "app.domain.knowbots.managed_capabilities_generated",
         "app.domain.workbench.method_capabilities",
     )
-    for name in sorted(FILES, key=len, reverse=True):
+    for name in sorted(BACKEND_FILES, key=len, reverse=True):
         source = source.replace(
             "app.domain.knowbots." + Path(name).stem,
-            "app.domain.workbench." + Path(FILES[name]).stem,
+            "app.domain.workbench." + Path(BACKEND_FILES[name]).stem,
         )
     # Rewriting module names changes both import ordering and line lengths.
     # Generate the consumer's formatted source instead of hand-editing it later.
@@ -100,9 +101,9 @@ def exported(source: str) -> str:
 
 def generate(consumer: Path) -> dict[Path, str]:
     provider = Path(__file__).resolve().parents[1] / "app/domain/knowbots"
-    sources = {name: (provider / name).read_text() for name in FILES}
+    sources = {name: (provider / name).read_text() for name in BACKEND_FILES}
     outputs = {
-        consumer / "app/domain/workbench" / FILES[name]: exported(content)
+        consumer / "app/domain/workbench" / BACKEND_FILES[name]: exported(content)
         for name, content in sources.items()
     }
     schema = render("definition.schema.json", FORMAL_METHOD)

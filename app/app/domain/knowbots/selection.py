@@ -1,6 +1,6 @@
 """A model proposes business steps. Only the host expands pinned interfaces."""
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import Field, model_validator
 
@@ -16,8 +16,20 @@ from app.domain.knowbots.formal_method import (
     ValueSlot,
 )
 from app.domain.knowbots.formal_method_admission import FormalMethodDraft
-from app.domain.knowbots.formal_method_compiler import FrozenMethod
-from app.domain.knowbots.workdraft import MethodTemplate, orchestration_gaps
+from app.domain.knowbots.formal_method_compiler import FrozenMethod, compile_method
+from app.domain.knowbots.formal_method_plan import (
+    expand_unique_plan,
+    review_group,
+    select_plan,
+)
+
+
+class DeliveryCriteria(Protocol):
+    goal: str
+    deliverable: str
+    check: str
+    evidence: str
+
 
 Pattern = Literal["P1", "P2", "P3", "P4", "P5"]
 Short = Annotated[str, Field(min_length=1, max_length=1500, pattern=r"\S")]
@@ -165,7 +177,7 @@ def review_issue(selection: Selection, enabled: dict[str, bool]) -> str | None:
 def expand(
     selection: Selection,
     tools: dict[str, FrozenMethod],
-    template: MethodTemplate | None,
+    template: DeliveryCriteria | None,
     enabled: dict[str, bool],
     *,
     required_cases: dict[str, set[str]],
@@ -336,8 +348,10 @@ def expand(
     definition = FormalMethodDefinition.model_validate(doc)
     if roles and isinstance(definition.procedure, Orchestration):
         definition.procedure.validate_collaboration(roles_typed(roles))
-        if orchestration_gaps(
-            {"formal_method": {"definition": doc}, "collaboration": roles}
+        if not review_group(
+            definition.procedure.model_copy(
+                update={"collaboration": roles_typed(roles)}
+            )
         ):
             raise ValueError("selection_capability")
     return FormalMethodDraft(
@@ -349,3 +363,77 @@ def roles_typed(roles):
     from app.domain.knowbots.formal_method import CollaborationStep
 
     return {k: CollaborationStep.model_validate(v) for k, v in roles.items()}
+
+
+def available(definition, runtime):
+    procedure = definition.procedure
+    if procedure.kind == "direct":
+        kind = procedure.implementation.kind
+        if kind not in (
+            "mcp",
+            "a2a",
+            "registered_script",
+            "skill_script",
+            "skill_instruction",
+            "registered_instruction",
+            "service_function",
+        ):
+            return False
+        if kind in ("registered_script", "skill_script"):
+            return runtime.get("script") is True
+        if kind == "service_function":
+            return runtime.get("material_read") is True
+    else:
+        flags = runtime["patterns"]
+        if (
+            procedure.collaboration
+            and not flags.get("independent_review")
+            or procedure.object_batch
+            and not flags.get("object_batch")
+            or procedure.has_candidate_choice
+            and not flags.get("conditional")
+        ):
+            return False
+    return True
+
+
+def verify_selection_graph(target, definition, resolved, capabilities, roles=None):
+    if any(
+        not available(child.definition, capabilities) for child in resolved.values()
+    ):
+        raise ValueError("selection_capability")
+    graph = definition.procedure
+    compile_method(target, definition, resolved)
+    if graph.kind == "orchestration":
+        # A nested method must already have a fixed invocation graph.
+        for child in resolved.values():
+            nested = child.definition.procedure
+            if nested.kind == "orchestration":
+                if (
+                    nested.collaboration
+                    or nested.object_batch
+                    or nested.has_candidate_choice
+                ):
+                    raise ValueError("selection_capability")
+                expand_unique_plan(
+                    child.reference.method_id, child.definition, resolved
+                )
+        if not graph.has_candidate_choice:
+            values = {}
+            if graph.object_batch:
+                keys = [str(i) for i in range(graph.object_batch.max_objects)]
+                values = {
+                    port.binding.name: keys
+                    for step in graph.steps
+                    for port in step.inputs.values()
+                    if port.binding.source == "object_item"
+                }
+            if roles:
+                definition = definition.model_copy(
+                    update={
+                        "procedure": graph.model_copy(
+                            update={"collaboration": roles_typed(roles)}
+                        )
+                    }
+                )
+            expand_unique_plan(target, select_plan(definition, values), resolved)

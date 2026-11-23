@@ -111,7 +111,7 @@ class RuntimeIncubationV2(RuntimeIncubationIn):
 
 class SuggestedPlan(Strict):
     sketch_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
-    methods: tuple[MethodRef, ...] = Field(min_length=1, max_length=3)
+    methods: tuple[MethodRef, ...] = Field(min_length=1, max_length=8)
     outputs: tuple[Text, ...] = Field(max_length=100)
 
 
