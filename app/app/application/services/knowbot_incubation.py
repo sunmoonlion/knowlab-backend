@@ -268,6 +268,7 @@ class KnowbotIncubationService:
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
         mode: str = "self",
         with_test: bool = False,
+        selection_revision: int | None = None,
     ) -> IncubationRecord:
         """发起一轮：先记下（排队），再交运行方；交不出去的记失败，照样报错。
 
@@ -304,6 +305,17 @@ class KnowbotIncubationService:
         await require_model_key(self.runtimes, request)
         runner = await self._runner(request, environment_id, workspace_root)
         report = await self._latest_test(request) if with_test else None
+        selection_context = None
+        if selection_revision is not None:
+            from app.application.services.incubation_selection import SelectionService
+
+            if mode != "self" or with_test or step_id is not None:
+                raise BadRequestError(
+                    "Invalid selection round", code="incubation_invalid"
+                )
+            selection_context = await SelectionService(
+                self.repo, self.runtimes
+            ).catalog(owner_subject, request_id)
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
             current = await self.repo.get_workdraft(request.id, for_update=True)
@@ -322,6 +334,27 @@ class KnowbotIncubationService:
                     "A round of this workdraft is still running",
                     "incubation_running",
                 )
+            if selection_context is not None:
+                if current.revision != selection_revision:
+                    raise _conflict("Workdraft changed", "workdraft_revision")
+                if action == "revise":
+                    previous = next(
+                        (
+                            r.handback["selection"]
+                            for r in sorted(rounds, key=lambda r: r.round, reverse=True)
+                            if r.workdraft_revision == current.revision
+                            and all(
+                                r.seed.get("selection_context", {}).get(key, {})
+                                == selection_context.get(key, {})
+                                for key in ("methods", "instructions")
+                            )
+                            and r.handback
+                            and r.handback.get("selection")
+                        ),
+                        None,
+                    )
+                    if previous:
+                        selection_context["previous"] = previous
             body = parse_body(current.body)
             if body.formal_method is not None:
                 raise BadRequestError(
@@ -363,6 +396,11 @@ class KnowbotIncubationService:
                                 if isinstance(src, dict)
                             },
                         },
+                        **(
+                            {"selection_context": selection_context}
+                            if selection_context is not None
+                            else {}
+                        ),
                         "answers": [
                             {
                                 "id": str(q.id),
@@ -410,7 +448,15 @@ class KnowbotIncubationService:
                     environment_id=runner["environment_id"],
                     workspace_root=runner["workspace_root"],
                     request_version=version.version,
-                    seed={"kind": kind, "text": text},
+                    seed={
+                        "kind": kind,
+                        "text": text,
+                        **(
+                            {"selection_context": selection_context}
+                            if selection_context is not None
+                            else {}
+                        ),
+                    },
                     workdraft_revision=current.revision,
                     answer_ids=[str(q.id) for q in answered],
                     started_at=self.now(),
@@ -585,6 +631,28 @@ class KnowbotIncubationService:
             if result.final:
                 changes["finished_at"] = self.now()
             handback = result.handback
+            if handback is not None and (
+                bool(record.seed.get("selection_context"))
+                != (handback.selection is not None)
+                or (
+                    handback.selection
+                    and (
+                        handback.gaps
+                        or handback.suggestions
+                        or handback.sources
+                        or handback.self_check
+                    )
+                )
+            ):
+                await self.repo.update_incubation(
+                    record.id,
+                    **{
+                        **changes,
+                        "status": "failed",
+                        "error": "selection_response_invalid",
+                    },
+                )
+                return
             if handback is not None:
                 changes["handback"] = handback.model_dump(mode="json")
                 changes["review"] = review(

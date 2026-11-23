@@ -259,3 +259,111 @@ async def test_cancel_and_seed_a_skill(wired) -> None:
         assert cancelled.json()["incubation"]["status"] == "cancelled"
         empty = await c.post(f"{base}/seed-skill", json={"skill": ""}, headers=WEB)
         assert empty.status_code in {400, 422}
+
+
+@pytest.mark.asyncio
+async def test_author_reviews_selection_before_saving_and_source_is_rechecked(
+    wired, monkeypatch
+):
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+
+    svc, repo, incubator = wired
+    request = await _mine(svc)
+    source = dict(
+        asset_id=None,
+        asset_revision=None,
+        kind="registered_instruction",
+        source=str(uuid4()),
+        entry="核对四行",
+        version="1",
+        digest="sha256:" + "a" * 64,
+        license_basis="author_owned",
+    )
+    sources = AsyncMock(return_value={"items": [source]})
+    for name, fn in {
+        "method_skill_center_incubation_methods": AsyncMock(return_value=[]),
+        "incubation_tool_versions": AsyncMock(return_value={"items": [], "next": None}),
+        "formal_method_sources": sources,
+        "planning_capabilities": AsyncMock(
+            return_value={"patterns": {"sequence": True}}
+        ),
+    }.items():
+        monkeypatch.setattr(svc.runtimes, name, fn, raising=False)
+    base = f"/api/web/v1/knowbot-requests/{request.id}/workdraft"
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        r = await c.post(
+            base + "/incubations",
+            json={"action": "draft", "selection_revision": 0},
+            headers=WEB,
+        )
+        assert r.status_code == 201, r.text
+        view = r.json()["incubation"]
+        url = base + "/incubations/" + view["incubation_id"]
+        record = next(iter(repo.incubations.values()))
+        assert (
+            record.seed["selection_context"]["instructions"]["i1"]["digest"]
+            == source["digest"]
+        )
+        selection = dict(
+            status="ready",
+            reason="已获权的核对指令足够",
+            steps=[dict(id="check", task="核对数据", method="i1")],
+            patterns=[],
+            routing_required=False,
+        )
+        incubator.results[record.run_id] = IncubationResultV1.model_validate(
+            dict(
+                contract="knowbot-incubation/v1",
+                incubation_id=record.run_id,
+                status="succeeded",
+                cost={"spent": "0.12"},
+                handback={"selection": selection},
+            )
+        )
+        refresh = await c.post(url + "/refresh", headers=WEB)
+        assert refresh.json()["incubation"]["selection"]["status"] == "ready"
+        assert (await c.get(base)).json()["body"].get("formal_method") is None
+        command = dict(
+            revision=0,
+            method_id=str(uuid4()),
+            cases={},
+            template=dict(
+                template="checked_delivery/v1",
+                goal="核对",
+                deliverable="四行小计",
+                check="逐行一致",
+                evidence="原表",
+            ),
+            step_text={"check": "逐行核对后留依据"},
+            confirmed=True,
+        )
+        assert (
+            await c.post(
+                url + "/confirm-selection",
+                headers=WEB,
+                json={**command, "confirmed": False},
+            )
+        ).status_code in (400, 422)
+        sources.return_value = {"items": []}
+        assert (
+            await c.post(url + "/confirm-selection", headers=WEB, json=command)
+        ).status_code == 404
+        sources.return_value = {"items": [source]}
+        saved = await c.post(url + "/confirm-selection", headers=WEB, json=command)
+        assert saved.status_code == 200, saved.text
+        result = saved.json()
+        assert result["body"]["formal_method"]["source"] == source
+        assert result["body"]["formal_method"]["definition"]["procedure"][
+            "instructions"
+        ].startswith("逐行核对后留依据")
+        replay = await c.post(url + "/confirm-selection", headers=WEB, json=command)
+        assert replay.json()["revision"] == result["revision"]
+        assert (
+            await c.post(
+                url + "/confirm-selection",
+                headers=WEB,
+                json={**command, "step_text": {"check": "覆盖"}},
+            )
+        ).status_code == 409

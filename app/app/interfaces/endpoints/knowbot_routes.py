@@ -32,7 +32,10 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors.exceptions import NotFoundError, ServiceUnavailableError
+from app.application.errors.exceptions import (
+    NotFoundError,
+    ServiceUnavailableError,
+)
 from app.application.ports.knowbots import DraftRecord
 from app.application.services.formal_methods import FormalMethodService
 from app.application.services.knowbot_board import (
@@ -124,7 +127,7 @@ from app.domain.knowbots.platform_grants import (
     PlatformIncubationIn,
     PlatformTestIn,
 )
-from app.domain.knowbots.workdraft import STEP_ID
+from app.domain.knowbots.workdraft import STEP_ID, MethodTemplate
 from app.domain.security import Principal
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import get_db_session
@@ -783,6 +786,10 @@ async def save_cells(
         confirm_brief=body.confirm_brief,
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
+    return await _saved_workdraft(workdrafts, request, found)
+
+
+async def _saved_workdraft(workdrafts, request, found):
     view = workdraft_view(request, found, await workdrafts.origins(found))
     if receipt := await workdrafts.plan_receipt(found):
         view["plan_adoption"] = receipt
@@ -905,6 +912,7 @@ class IncubationIn(BaseModel):
     电脑与目录不给就用上次的。"""
 
     model_config = ConfigDict(extra="forbid")
+    selection_revision: int | None = Field(default=None, ge=0)
     action: Literal["draft", "revise"]
     instruction: str | None = Field(default=None, min_length=1, max_length=4000)
     step_id: str | None = Field(default=None, pattern=STEP_ID)
@@ -975,11 +983,43 @@ async def start_incubation(
         environment_id=body.environment_id,
         workspace_root=body.workspace_root,
         with_test=body.with_test,
+        selection_revision=body.selection_revision,
     )
     return _ok(
         {"incubation": incubation_view(record, await incubations.gaps(record))},
         status_code=201,
     )
+
+
+class ConfirmSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    revision: int = Field(ge=0)
+    method_id: UUID
+    cases: dict[str, list[str]] = Field(max_length=16)
+    template: MethodTemplate
+    step_text: dict[str, str] = Field(max_length=16)
+    confirmed: Literal[True]
+    confirm_brief: bool = False
+
+
+@web_router.post(
+    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}/confirm-selection"
+)
+async def confirm_selection(
+    principal: User,
+    request_id: ItemId,
+    incubation_id: ItemId,
+    body: ConfirmSelection,
+    incubations: Incubations,
+):
+    from app.application.services.incubation_selection import SelectionService
+
+    request, record = await incubations.mine(
+        principal.subject, request_id, incubation_id
+    )
+    service = SelectionService(incubations.repo, incubations.runtimes)
+    found = await service.confirm(principal.subject, request, record, body)
+    return await _saved_workdraft(service.methods.workdrafts, request, found)
 
 
 @web_router.get("/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}")

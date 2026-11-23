@@ -33,6 +33,12 @@ from app.domain.knowbots.lifecycle import ACTIVE_TESTS, draft_label, review_stat
 from app.domain.knowbots.manual_release import manifest_digest
 from app.domain.knowbots.platform_grants import basis as grant_basis
 from app.domain.knowbots.platform_grants import state as grant_state
+from app.domain.knowbots.selection import (
+    Selection,
+    graph_patterns,
+    review_issue,
+    routing_alternatives,
+)
 from app.domain.knowbots.workdraft import empty_body, orchestration_gaps
 
 
@@ -559,6 +565,36 @@ def incubation_view(
         "started_at": iso(record.started_at),
         "finished_at": iso(record.finished_at),
     }
+    if record.seed.get("selection_context"):
+        view["selection_round"] = True
+        if gaps is not None:
+            ctx = record.seed["selection_context"]
+            view["catalog_partial"] = ctx["partial"]
+            view["method_titles"] = {
+                alias: entry["declaration"]["title"]
+                for alias, entry in ctx["methods"].items()
+            }
+            view["method_titles"].update(
+                {
+                    k: f"{v['entry']} · {v['source']} (v{v['version']})"
+                    for k, v in ctx.get("instructions", {}).items()
+                }
+            )
+            view["method_purposes"] = {
+                alias: entry["declaration"]["purpose"]
+                for alias, entry in ctx["methods"].items()
+            }
+            view["selection"] = (record.handback or {}).get("selection")
+            if view["selection"]:
+                proposal = Selection.model_validate(view["selection"])
+                view["routing_alternatives"] = routing_alternatives(
+                    proposal, ctx["methods"]
+                )
+                view["selection_issue"] = review_issue(proposal, ctx["patterns"])
+                view["selection"] = {
+                    **view["selection"],
+                    "patterns": sorted(graph_patterns(proposal)),
+                }
     if gaps is None:
         return view
     handback = record.handback or {}

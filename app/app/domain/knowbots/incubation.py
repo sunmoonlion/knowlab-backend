@@ -34,6 +34,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.domain.knowbots.selection import Selection, SelectionContext
 from app.domain.knowbots.workdraft import (
     CELL_ID,
     NAME,
@@ -221,6 +222,9 @@ class Runner(Strict):
 
 
 class IncubationRequestV1(Strict):
+    selection_context: SelectionContext | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
     contract: Literal["knowbot-incubation/v1"]
     incubation_id: str = Field(pattern=INCUBATION_ID)
     # 作者（Casdoor 用户 id）：委托开在他的账号下，花他的钱
@@ -268,7 +272,7 @@ class IncubationRequestV1(Strict):
 
     @model_validator(mode="after")
     def _fits(self) -> IncubationRequestV1:
-        if _bytes(self.model_dump(mode="json")) > MAX_REQUEST_BYTES:
+        if _bytes(self.model_dump(mode="json", by_alias=True)) > MAX_REQUEST_BYTES:
             raise ValueError("the request is larger than the limit")
         return self
 
@@ -358,6 +362,7 @@ class SelfCheck(Strict):
 
 
 class Handback(Strict):
+    selection: Selection | None = Field(default=None, exclude_if=lambda v: v is None)
     sources: tuple[SourceEntry, ...] = Field(default=(), max_length=2000)
     gaps: tuple[Gap, ...] = Field(default=(), max_length=200)
     suggestions: tuple[Suggestion, ...] = Field(default=(), max_length=500)

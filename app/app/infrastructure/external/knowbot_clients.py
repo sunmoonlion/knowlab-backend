@@ -477,7 +477,7 @@ class KnowbenchIncubationClient:
 
     async def start(self, request: IncubationRequestV1) -> IncubationResultV1:
         _, body = await self._service().request(
-            "POST", INCUBATIONS, json=request.model_dump(mode="json")
+            "POST", INCUBATIONS, json=request.model_dump(mode="json", by_alias=True)
         )
         return _incubation(body, request.incubation_id)
 

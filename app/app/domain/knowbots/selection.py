@@ -1,0 +1,351 @@
+"""A model proposes business steps. Only the host expands pinned interfaces."""
+
+from typing import Annotated, Any, Literal
+
+from pydantic import Field, model_validator
+
+from app.domain.knowbots.formal_method import (
+    CapabilityDeclaration,
+    FormalMethodDefinition,
+    InputSource,
+    MethodRef,
+    Name,
+    ObjectBatch,
+    Orchestration,
+    Strict,
+    ValueSlot,
+)
+from app.domain.knowbots.formal_method_admission import FormalMethodDraft
+from app.domain.knowbots.formal_method_compiler import FrozenMethod
+from app.domain.knowbots.workdraft import MethodTemplate, orchestration_gaps
+
+Pattern = Literal["P1", "P2", "P3", "P4", "P5"]
+Short = Annotated[str, Field(min_length=1, max_length=1500, pattern=r"\S")]
+FEATURES = dict(
+    P1="sequence",
+    P2="join",
+    P3="independent_review",
+    P4="object_batch",
+    P5="conditional",
+)
+
+
+class SketchStep(Strict):
+    id: Name
+    task: Short
+    method: Name
+    inputs: dict[Name, InputSource] = Field(default_factory=dict, max_length=100)
+    # Cases map caller values to versioned catalog aliases.
+    route_input: Name | None = None
+    cases: dict[Short, Name] = Field(default_factory=dict, max_length=8)
+    reviews: tuple[Name, ...] = Field(default=(), max_length=8)
+
+
+class Selection(Strict):
+    status: Literal["ready", "clarify", "gap"]
+    reason: Short
+    patterns: tuple[Pattern, ...] = Field(max_length=5)
+    steps: tuple[SketchStep, ...] = Field(max_length=16)
+    routing_required: bool = Field(strict=True)
+    object_batch: ObjectBatch | None = None
+
+    @model_validator(mode="after")
+    def check_status(self):
+        if self.status != "ready" and (
+            self.steps or self.patterns or self.object_batch
+        ):
+            raise ValueError(
+                "Unresolved choices belong in the reason, not the proposed graph"
+            )
+        if self.status == "ready" and not self.steps:
+            raise ValueError("A ready sketch needs an available method")
+        if len(set(self.patterns)) != len(self.patterns):
+            raise ValueError("Duplicate pattern")
+        return self
+
+
+class InstructionPin(Strict):
+    asset_id: str | None = Field(default=None, exclude_if=lambda v: v is None)
+    asset_revision: int | None = Field(
+        default=None, ge=1, exclude_if=lambda v: v is None
+    )
+    kind: Literal["registered_instruction", "skill_instruction"]
+    source: str
+    entry: str
+    digest: str
+    version: str
+
+
+class SelectionCandidate(Strict):
+    isolated_instruction: bool = False
+    installation: str | None = Field(default=None, exclude_if=lambda v: v is None)
+    scope: Literal["owned", "shared"]
+    reference: MethodRef
+    declaration: CapabilityDeclaration
+    inputs: dict[Name, ValueSlot]
+    outputs: dict[Name, ValueSlot]
+
+
+class SelectionContext(Strict):
+    instructions: dict[Name, InstructionPin] = Field(
+        default_factory=dict, max_length=24, exclude_if=lambda v: not v
+    )
+    methods: dict[Name, SelectionCandidate] = Field(max_length=48)
+    patterns: dict[Name, bool]
+    partial: bool
+    previous: Selection | None = Field(default=None, exclude_if=lambda v: v is None)
+
+
+def graph_patterns(selection: Selection) -> set[str]:
+    patterns = {"P4"} if selection.object_batch else set()
+    for step in selection.steps:
+        deps = {
+            b.step
+            for b in step.inputs.values()
+            if b.source == "step" or b.source == "object_rows"
+        }
+        if step.cases:
+            patterns.add("P5")
+        if step.reviews:
+            patterns.add("P3")
+        elif len(deps) > 1:
+            patterns.add("P2")
+        elif deps and not selection.object_batch:
+            patterns.add("P1")
+    return patterns
+
+
+def routing_alternatives(selection: Selection, methods: dict) -> list[str]:
+    if selection.status != "ready" or any(s.cases for s in selection.steps):
+        return []
+
+    def input_contract(method):
+        return {
+            name: {k: slot[k] for k in ("schema", "meaning", "required", "on_missing")}
+            for name, slot in method["inputs"].items()
+        }
+
+    selected = {step.method for step in selection.steps}
+    contracts = [input_contract(methods[a]) for a in selected if a in methods]
+    return list(
+        dict.fromkeys(
+            method["declaration"]["title"]
+            for alias, method in methods.items()
+            if alias not in selected and input_contract(method) in contracts
+        )
+    )[:3]
+
+
+def review_issue(selection: Selection, enabled: dict[str, bool]) -> str | None:
+    if selection.status != "ready":
+        return None
+    patterns = graph_patterns(selection)
+    if selection.routing_required != ("P5" in patterns):
+        return "selection_route"
+    if "P4" in patterns and (len(selection.steps) != 2 or patterns != {"P4"}):
+        return "selection_capability"
+    if "P3" in patterns and (len(selection.steps) not in (2, 3) or patterns != {"P3"}):
+        return "selection_capability"
+    for step in selection.steps:
+        if step.cases or step.route_input:
+            if len(step.cases) < 2 or not step.route_input:
+                return "selection_route"
+        if step.reviews:
+            deps = {b.step for b in step.inputs.values() if b.source == "step"}
+            if set(step.reviews) != deps or len(deps) not in (1, 2):
+                return "selection_review"
+    # A label alone cannot provide isolation, iteration, or conditional routing.
+    if ({"P3", "P4", "P5"} & set(selection.patterns)) - patterns:
+        return "selection_patterns"
+    if any(not enabled.get(FEATURES[p]) for p in patterns):
+        return "selection_capability"
+    return None
+
+
+def expand(
+    selection: Selection,
+    tools: dict[str, FrozenMethod],
+    template: MethodTemplate | None,
+    enabled: dict[str, bool],
+    *,
+    required_cases: dict[str, set[str]],
+    title: str | None = None,
+):
+    if selection.status != "ready":
+        raise ValueError("selection_unresolved")
+    graph_steps = []
+    roles: dict[str, Any] = {}
+    permissions, approvals = {}, []
+    issue = review_issue(selection, enabled)
+    if issue:
+        raise ValueError(issue)
+    dependencies: dict[str, set[str]] = {}
+    route_values: dict[str, set[str]] = {}
+    for step in selection.steps:
+        aliases = list(step.cases.values()) if step.cases else [step.method]
+        if (
+            step.method not in aliases
+            or any(a not in tools for a in aliases)
+            or len(aliases) != len(set(aliases))
+        ):
+            raise ValueError("selection_candidate")
+        chosen = tools[step.method].definition
+        interface = chosen.interfaces()
+        inputs = {}
+        deps = set()
+        for name, item in interface["inputs"].items():
+            binding = step.inputs.get(name)
+            if binding is None:
+                if item["required_by"]:
+                    raise ValueError("selection_input")
+                continue
+            if binding.source in {"literal", "resource"}:
+                raise ValueError("selection_input")
+            if binding.source == "step" or binding.source == "object_rows":
+                deps.add(binding.step)
+            inputs[name] = dict(
+                slot=item["slot"], binding=binding.model_dump(mode="json")
+            )
+        if step.inputs.keys() - inputs.keys() or step.id in dependencies:
+            raise ValueError("selection_input")
+        dependencies[step.id] = deps
+        graph_step = dict(
+            id=step.id,
+            candidates=[tools[a].reference.model_dump(mode="json") for a in aliases],
+            inputs=inputs,
+            depends_on=sorted(deps),
+            outputs={n: v["slot"] for n, v in interface["outputs"].items()},
+            always_required=True,
+            required_when="always",
+            select_when="always",
+            on_failure="fail",
+        )
+        if step.cases or step.route_input:
+            if not step.route_input or len(step.cases) < 2:
+                raise ValueError("selection_route")
+            route_values[step.id] = set(step.cases)
+            graph_step["candidate_choice"] = dict(
+                input=step.route_input,
+                cases=[
+                    dict(
+                        equals=label,
+                        candidate=tools[a].reference.model_dump(mode="json"),
+                    )
+                    for label, a in step.cases.items()
+                ],
+            )
+        if step.reviews:
+            for alias in (
+                selection_step.method
+                for selection_step in selection.steps
+                if selection_step.id in {*step.reviews, step.id}
+            ):
+                worker = tools.get(alias)
+                if (
+                    not worker
+                    or worker.definition.procedure.kind != "direct"
+                    or worker.definition.procedure.implementation.kind
+                    not in ("registered_instruction", "skill_instruction")
+                ):
+                    raise ValueError("selection_capability")
+            if (
+                len(deps) not in (1, 2)
+                or set(step.reviews) != deps
+                or any(dep == step.id for dep in deps)
+            ):
+                raise ValueError("selection_review")
+            for dep in deps:
+                roles.setdefault(dep, dict(isolation_group=dep))
+            roles[step.id] = dict(
+                isolation_group=step.id,
+                handoff_from=sorted(deps),
+                review_requirements={dep: "isolated_reviewer" for dep in deps},
+            )
+        for alias in aliases:
+            child = tools[alias].definition
+            for req in child.access_requirements:
+                if (
+                    req.requirement_id in permissions
+                    and req != permissions[req.requirement_id]
+                ):
+                    raise ValueError("selection_permission_conflict")
+                permissions[req.requirement_id] = req
+            for rule in child.what_requires_approval:
+                if rule not in approvals:
+                    approvals.append(rule)
+        graph_steps.append(graph_step)
+    if (
+        selection.routing_required != bool(route_values)
+        or required_cases != route_values
+    ):
+        raise ValueError("selection_route")
+    tail = selection.steps[-1]
+    needed = {tail.id}
+    for s in reversed(selection.steps):
+        if s.id not in needed:
+            raise ValueError("selection_disconnected")
+        needed.update(dependencies[s.id])
+    final = tools[tail.method].definition
+    doc = final.document()
+    exports = {
+        n: dict(step=tail.id, output=n, always_present=i["always_present"])
+        for n, i in final.interfaces()["outputs"].items()
+    }
+    doc.update(
+        access_requirements=list(permissions.values()), what_requires_approval=approvals
+    )
+    procedure: dict[str, Any] = dict(
+        kind="orchestration",
+        instructions="\n".join(step.task for step in selection.steps),
+        steps=graph_steps,
+        exports=exports,
+        max_depth=16,
+        max_steps=100,
+        max_expansions=1000,
+        max_replans=0,
+    )
+    if selection.object_batch:
+        procedure["object_batch"] = selection.object_batch.model_dump()
+    doc["procedure"] = procedure
+    if template:
+        declaration = doc["capability_declaration"]
+        declaration.update(
+            title=title or declaration["title"],
+            purpose=template.goal,
+            promises={
+                **declaration["promises"],
+                "template_delivery": template.deliverable,
+            },
+        )
+        if declaration.get("conditions"):
+            declaration["conditions"].pop("template_delivery", None)
+        doc["how_to_validate"] = [
+            *(
+                v
+                for v in doc["how_to_validate"]
+                if v["promise_id"] != "template_delivery"
+            ),
+            dict(
+                promise_id="template_delivery",
+                outputs=list(exports),
+                check=template.check,
+                evidence=template.evidence,
+                on_failure="fail",
+            ),
+        ]
+    definition = FormalMethodDefinition.model_validate(doc)
+    if roles and isinstance(definition.procedure, Orchestration):
+        definition.procedure.validate_collaboration(roles_typed(roles))
+        if orchestration_gaps(
+            {"formal_method": {"definition": doc}, "collaboration": roles}
+        ):
+            raise ValueError("selection_capability")
+    return FormalMethodDraft(
+        definition=definition, source=None, allowed_callers=("host",)
+    ), roles or None
+
+
+def roles_typed(roles):
+    from app.domain.knowbots.formal_method import CollaborationStep
+
+    return {k: CollaborationStep.model_validate(v) for k, v in roles.items()}
