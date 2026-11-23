@@ -354,7 +354,40 @@ class MethodReference(Strict):
         return self
 
 
+class MethodTemplate(Strict):
+    """Confirmed bindings of a versioned, fixed authoring template."""
+
+    template: Literal["checked_delivery/v1"]
+    goal: Annotated[str, Field(min_length=1, max_length=2000, pattern=r"\S")]
+    deliverable: Annotated[str, Field(min_length=1, max_length=2000, pattern=r"\S")]
+    check: Annotated[str, Field(min_length=1, max_length=2000, pattern=r"\S")]
+    evidence: Annotated[str, Field(min_length=1, max_length=2000, pattern=r"\S")]
+
+    def check_definition(self, draft: FormalMethodDraft) -> None:
+        definition = draft.definition
+        declaration = definition.capability_declaration
+        rules = [
+            r for r in definition.how_to_validate if r.promise_id == "template_delivery"
+        ]
+        if (
+            declaration.purpose != self.goal
+            or declaration.promises.get("template_delivery") != self.deliverable
+            or "template_delivery" in declaration.conditions
+            or len(rules) != 1
+            or rules[0].check != self.check
+            or rules[0].evidence != self.evidence
+            or rules[0].on_failure != "fail"
+            or set(rules[0].outputs) != set(definition.interfaces()["outputs"])
+        ):
+            raise ValueError(
+                "Formal definition differs from the confirmed delivery template"
+            )
+
+
 class WorkdraftBody(Strict):
+    method_template: MethodTemplate | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     collaboration: CollaborationRoles | None = Field(
         default=None,
         min_length=1,
@@ -403,8 +436,17 @@ class WorkdraftBody(Strict):
             if graph is None or graph.kind != "orchestration":
                 raise ValueError("Collaboration requires a formal orchestration draft")
             graph.validate_collaboration(self.collaboration)
-        if self.formal_method is not None and (
-            self.steps or self.planning or self.method_refs or self.public_capabilities
+        if self.formal_method is not None and self.method_template:
+            self.method_template.check_definition(self.formal_method)
+        if (
+            self.formal_method is not None
+            and not self.method_template
+            and (
+                self.steps
+                or self.planning
+                or self.method_refs
+                or self.public_capabilities
+            )
         ):
             raise ValueError("A formal method cannot mix two executable definitions")
         ids = [s.id for s in self.steps]
@@ -492,6 +534,10 @@ def cells(body: WorkdraftBody) -> dict[str, str]:
                 name: role.model_dump(mode="json")
                 for name, role in body.collaboration.items()
             }
+        )
+    if body.method_template is not None:
+        found["method_template"] = canonical(
+            body.method_template.model_dump(mode="json")
         )
     if body.formal_method is not None:
         found["formal_method"] = canonical(
@@ -599,6 +645,7 @@ def apply(body: Mapping[str, Any], path: str, value: Any) -> dict[str, Any]:
             "planning",
             "public_capabilities",
             "formal_method",
+            "method_template",
             "collaboration",
         )
         and len(parts) == 1

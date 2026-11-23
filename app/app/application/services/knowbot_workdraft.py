@@ -106,6 +106,17 @@ class KnowbotWorkdraftService:
         request = await self._request(owner_subject, request_id)
         return request, await self.repo.get_workdraft(request.id)
 
+    async def template_seed(self, request: RequestRecord) -> dict[str, str]:
+        version = await self.repo.get_version(request.id, request.latest_version)
+        idea = version.idea if version else {}
+        result = {}
+        if idea.get("method_template"):
+            result["preferred_template"] = idea["method_template"]
+        goal = idea.get("question") or (idea.get("answers") or {}).get("solves")
+        if isinstance(goal, str) and goal.strip():
+            result["idea_goal"] = goal[:2000]
+        return result
+
     async def origins(self, workdraft: WorkdraftRecord | None) -> dict[str, str]:
         """每格的出处是怎么来的：格子路径 → edit、import、copy、accept、question。"""
         if workdraft is None:
@@ -142,6 +153,16 @@ class KnowbotWorkdraftService:
         if workdraft_paths(body.model_dump(mode="json")):
             raise BadRequestError(MESSAGE, code=CODE)
         before = parse_body(current.body)
+        if body.formal_method and (before.method_template or body.method_template):
+            # The ordinary draft remains the author's original brief until withdrawal.
+            def brief(item: WorkdraftBody):
+                return item.model_dump(exclude={"formal_method", "collaboration"})
+
+            if brief(body) != brief(before):
+                raise BadRequestError(
+                    "Withdraw the formal draft before changing its brief",
+                    code="method_template_locked",
+                )
         old_refs, new_refs = before.method_refs or {}, body.method_refs or {}
         old_steps = {s.id: s for s in before.steps}
         new_steps = {s.id: s for s in body.steps}
@@ -230,6 +251,7 @@ class KnowbotWorkdraftService:
         revision: int,
         edits: Sequence[tuple[str, Any]],
         adopt_plan: bool = False,
+        confirm_brief: bool = False,
     ) -> WorkdraftRecord:
         """存几格（path, value）：按顺序改，改完整份核一次形状。"""
         if not edits or len(edits) > MAX_EDITS:
@@ -279,6 +301,25 @@ class KnowbotWorkdraftService:
                         f"Cannot save {path[:80]}: {exc}", code="workdraft_path_invalid"
                     ) from None
             body = parse_body(doc)
+            if (
+                body.formal_method
+                and body.method_template
+                and not current.body.get("formal_method")
+                and any(
+                    current.body.get(key)
+                    for key in (
+                        "steps",
+                        "planning",
+                        "public_capabilities",
+                        "method_refs",
+                    )
+                )
+                and not confirm_brief
+            ):
+                raise BadRequestError(
+                    "Review the original brief before adopting this method",
+                    code="method_template_brief",
+                )
             before, after = cells(parse_body(current.body)), cells(body)
             if adopt_plan and (
                 not body.formal_method
@@ -423,7 +464,7 @@ class KnowbotWorkdraftService:
         self, request: RequestRecord, current: WorkdraftRecord | None, version: str
     ) -> tuple[dict[str, Any], list[Problem]]:
         body = parse_body(empty_body() if current is None else current.body)
-        if body.formal_method is not None:
+        if body.formal_method is not None or body.method_template is not None:
             raise BadRequestError(
                 "Validate and freeze this definition through formal method incubation",
                 code="formal_method_requires_validation",

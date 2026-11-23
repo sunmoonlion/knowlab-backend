@@ -259,7 +259,7 @@ class FormalMethodService:
             owner, command.request_id, command.revision
         )
         async with self.repo.transaction():
-            request, _, admission, _, _ = await self._prepare(
+            request, current, admission, _, _ = await self._prepare(
                 owner,
                 mid,
                 ValidateFormalMethod(
@@ -281,6 +281,15 @@ class FormalMethodService:
                 raise BadRequestError(
                     str(exc), code="formal_execution_unsupported"
                 ) from exc
+            if current.body.get("method_template") and not any(
+                case.expected.outcome == "succeeded"
+                and "template_delivery" in case.covers_promises
+                for case in payload.execution.suite.cases
+            ):
+                raise BadRequestError(
+                    "Select a positive case that verifies the template delivery",
+                    code="method_template_examples",
+                )
             await self.repo.freeze_formal_test_suite(
                 owner, request.id, payload.execution.suite.model_dump(mode="json")
             )
@@ -1079,6 +1088,12 @@ class FormalMethodService:
             )
             receipt = self._receipt(payload, result)
             source = payload.draft.source
+            template = current.body.get("method_template")
+            if template and receipt.execution is None:
+                raise BadRequestError(
+                    "The delivery template requires a completed trial",
+                    code="formal_execution_required",
+                )
             if (
                 payload.draft.definition.capability_declaration.conditions
                 and receipt.execution is None
@@ -1130,6 +1145,7 @@ class FormalMethodService:
                     code="formal_execution_required",
                 )
             provenance = {
+                **({"method_template": template} if template else {}),
                 "contract": CONTRACT,
                 "source": payload.draft.source.model_dump(mode="json")
                 if payload.draft.source

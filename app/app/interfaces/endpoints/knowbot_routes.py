@@ -704,6 +704,7 @@ class SaveCellsIn(BaseModel):
     revision: int = Field(ge=0)  # 读到的那一版；对不上回 409
     cells: list[CellIn] = Field(min_length=1, max_length=200)
     adopt_plan: bool = Field(default=False, strict=True)
+    confirm_brief: bool = Field(default=False, strict=True)
 
 
 class ImportIn(BaseModel):
@@ -728,6 +729,7 @@ async def my_workdraft(
     _, proposals = await props.mine(principal.subject, request_id)
     return _ok(
         workdraft_view(request, found, await workdrafts.origins(found))
+        | await workdrafts.template_seed(request)
         | {"proposals": [proposal_view(p, admin=False) for p in proposals]}
         | (
             {"plan_adoption": receipt}
@@ -778,6 +780,7 @@ async def save_cells(
         revision=body.revision,
         edits=[(c.path, c.value) for c in body.cells],
         adopt_plan=body.adopt_plan,
+        confirm_brief=body.confirm_brief,
     )
     request, _ = await workdrafts.get(principal.subject, request_id)
     view = workdraft_view(request, found, await workdrafts.origins(found))

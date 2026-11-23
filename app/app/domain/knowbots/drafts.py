@@ -99,6 +99,7 @@ class Idea(Strict):
         default=None, max_length=30
     )
 
+    method_template: Literal["checked_delivery/v1"] | None = None
     template_sources: tuple[IdeaMethodChoice, ...] | None = Field(
         default=None, max_length=30
     )
