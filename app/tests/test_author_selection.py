@@ -274,3 +274,86 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     assert (await methods.workdrafts.plan_receipt(saved))[
         "saved_revision"
     ] == saved.revision
+
+
+def test_p5_secondary_direct_candidate_must_be_executable_before_confirmation():
+    from app.domain.knowbots.selection import verify_selection_graph
+
+    source = tool()
+    source["procedure"]["inputs"]["kind"] = {**slot(), "schema": {"type": "string"}}
+    source["procedure"]["implementation"].update(
+        kind="registered_instruction", source=str(uuid4()), entry="instruction"
+    )
+    source["procedure"]["max_model_turns"] = 1
+    a = frozen(source)
+    source["procedure"]["max_model_turns"] = 2
+    b = frozen(source)
+    steps = [
+        step(
+            "route",
+            "a",
+            {
+                "value": {"source": "caller", "name": "rows"},
+                "kind": {"source": "caller", "name": "label"},
+            },
+            route_input="kind",
+            cases={"A": "a", "B": "b"},
+        )
+    ]
+    draft, _ = build(steps, {"a": a, "b": b}, ["P5"], cases={"route": {"A", "B"}})
+    with pytest.raises(ValueError, match="Unsupported execution contract"):
+        verify_selection_graph(
+            uuid4(), draft.definition, resolved(a, b), {"patterns": FLAGS}
+        )
+
+
+def test_p5_leaf_limit_depends_on_reachable_combinations_of_caller_inputs():
+    from app.domain.knowbots.formal_method import FormalMethodDefinition
+    from app.domain.knowbots.selection import verify_selection_graph
+    from tests.test_formal_method import composite
+
+    src = tool()
+    slot_str = {**slot(), "schema": {"type": "string"}}
+    src["procedure"]["inputs"]["value"] = slot_str
+    src["procedure"]["implementation"].update(
+        kind="registered_instruction", source=str(uuid4()), entry="instruction"
+    )
+    src["procedure"]["max_model_turns"] = 1
+    leaf = frozen(src)
+
+    def fixed_doc(children):
+        doc = composite(*children)
+        graph = doc["procedure"]
+        graph.update(max_replans=0, max_steps=200)
+        for item in graph["steps"]:
+            item["on_failure"] = "fail"
+            item["inputs"]["value"]["slot"] = slot_str
+        return doc
+
+    big = frozen(fixed_doc([leaf] * 51))
+    doc = fixed_doc([leaf, leaf])
+    for index, node in enumerate(doc["procedure"]["steps"]):
+        alternatives = (leaf, big) if index == 0 else (big, leaf)
+        node["candidates"] = [f.reference.model_dump(mode="json") for f in alternatives]
+        node["candidate_choice"] = {
+            "input": "value",
+            "cases": [
+                {"equals": v, "candidate": r}
+                for v, r in zip("AB", node["candidates"], strict=True)
+            ],
+        }
+
+    def verify():
+        verify_selection_graph(
+            uuid4(),
+            FormalMethodDefinition.model_validate(doc),
+            resolved(leaf, big),
+            {"patterns": FLAGS},
+        )
+
+    # One label shared by both steps always calls 51 + 1 leaves.
+    verify()
+    # Independent labels can select both heavy branches: 102 leaves.
+    doc["procedure"]["steps"][1]["inputs"]["value"]["binding"]["name"] = "other"
+    with pytest.raises(ValueError, match="100 actual tool leaf calls"):
+        verify()
