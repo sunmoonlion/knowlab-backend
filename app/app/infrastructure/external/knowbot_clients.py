@@ -236,7 +236,8 @@ class RuntimeTestClients:
             "conditional",
         }
         if (
-            body.get("contract") != "knowbench/consumer-planning/v1"
+            body.get("contract")
+            not in ("knowbench/consumer-planning/v1", "knowbench/consumer-planning/v2")
             or body.get("digest") != fingerprint
             or not isinstance(body.get("patterns"), dict)
             or set(body["patterns"]) != required

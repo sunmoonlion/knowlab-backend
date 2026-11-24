@@ -35,7 +35,6 @@ from app.domain.knowbots.platform_grants import basis as grant_basis
 from app.domain.knowbots.platform_grants import state as grant_state
 from app.domain.knowbots.selection import (
     Selection,
-    graph_patterns,
     review_issue,
     routing_alternatives,
 )
@@ -595,8 +594,8 @@ def incubation_view(
                 )
                 view["selection_issue"] = review_issue(proposal, ctx["patterns"])
                 view["selection"] = {
+                    "patterns": [],  # Older web clients require this response field.
                     **view["selection"],
-                    "patterns": sorted(graph_patterns(proposal)),
                 }
     if gaps is None:
         return view

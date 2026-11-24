@@ -6,12 +6,14 @@ from uuid import uuid4
 import pytest
 
 from app.domain.knowbots.formal_method_compiler import compile_method
-from app.domain.knowbots.selection import FEATURES, Selection, expand, graph_patterns
+from app.domain.knowbots.selection import Selection, expand, required_features
 from app.domain.knowbots.workdraft import MethodTemplate
 from tests.test_formal_method import frozen, resolved, slot, tool
 from tests.test_formal_method_plan import comparison_graph
 
-FLAGS = dict.fromkeys(FEATURES.values(), True)
+FLAGS = dict.fromkeys(
+    ("sequence", "join", "independent_review", "object_batch", "conditional"), True
+)
 TEMPLATE = MethodTemplate(
     template="checked_delivery/v1",
     goal="复核",
@@ -50,6 +52,20 @@ def step(name, method, inputs, **extra):
 
 def output(name):
     return dict(source="step", step=name, output="result")
+
+
+def test_new_schema_and_legacy_handbacks_use_the_same_step_contract():
+    assert "patterns" not in Selection.model_json_schema()["properties"]
+    fields = dict(
+        status="ready",
+        reason="直接采用",
+        routing_required=False,
+        steps=[step("direct", "m1", {})],
+    )
+    fresh = Selection.model_validate(fields).model_dump(mode="json")
+    assert "patterns" not in fresh
+    legacy = Selection.model_validate({**fresh, "patterns": []})
+    assert legacy.model_dump(mode="json") == {**fresh, "patterns": []}
 
 
 def test_common_prefix_retains_mandatory_dispatch_and_requires_review_of_each_label():
@@ -97,7 +113,7 @@ def test_independent_review_includes_its_own_join():
     _, roles = build(steps, methods, ["P3"])
     assert set(roles["review"]["handoff_from"]) == {"left", "right"}
     assert build(steps, methods, ["P2", "P3"])[1] == roles
-    assert graph_patterns(
+    assert required_features(
         Selection.model_validate(
             dict(
                 status="ready",
@@ -107,7 +123,9 @@ def test_independent_review_includes_its_own_join():
                 routing_required=False,
             )
         )
-    ) == {"P3"}
+    ) == {"independent_review", "join"}
+    with pytest.raises(ValueError, match="selection_capability"):
+        build(steps, methods, [], flags={**FLAGS, "join": False})
     short = [
         steps[0],
         step("review", "two", {"value": output("left")}, reviews=["left"]),

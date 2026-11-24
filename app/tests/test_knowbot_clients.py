@@ -430,12 +430,15 @@ async def test_incubation_without_the_incubate_relation_is_unavailable() -> None
         {"material_read": 1},
     ],
 )
-async def test_author_runtime_inventory_requires_matching_structural_evidence(features):
+@pytest.mark.parametrize("version", ["v1", "v2"])
+async def test_author_runtime_inventory_requires_matching_structural_evidence(
+    features, version
+):
     import hashlib
 
     doc = {
         **features,
-        "contract": "knowbench/consumer-planning/v1",
+        "contract": f"knowbench/consumer-planning/{version}",
         "patterns": dict.fromkeys(
             ("sequence", "join", "independent_review", "object_batch", "conditional"),
             True,
