@@ -44,6 +44,7 @@ class SharedTool(Strict):
 
 
 class SharedToolsPage(Strict):
+    partial: bool = False
     items: tuple[SharedTool, ...] = Field(max_length=100)
     next: UUID | None
 

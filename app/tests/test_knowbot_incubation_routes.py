@@ -297,6 +297,20 @@ async def test_method_directory_uses_logged_in_owner_before_and_during_incubatio
                 f"/api/web/v1/knowbot-requests/{foreign.id}/formal-method-sources"
             )
         ).status_code == 404
+        browse = AsyncMock(
+            return_value={"items": [], "categories": [], "total": 0, "next": None}
+        )
+        monkeypatch.setattr(svc.runtimes, "browse_directory", browse, raising=False)
+        url = home + "/browse/owned?kind=tool&category=data.lookup&request_id="
+        assert (await c.get(url + str(foreign.id))).status_code == 404
+        browse.assert_not_awaited()
+        assert (await c.get(url + str(request.id))).status_code == 200
+        browse.assert_awaited_once_with(
+            "knowbench",
+            OWNER,
+            "owned",
+            {"kind": "tool", "offset": 0, "category": "data.lookup"},
+        )
         assert sources.await_count == 2
 
 

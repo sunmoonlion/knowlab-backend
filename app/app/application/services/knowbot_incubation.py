@@ -320,12 +320,27 @@ class KnowbotIncubationService:
                 raise BadRequestError(
                     "Invalid selection round", code="incubation_invalid"
                 )
+            idea = request.idea
+            answers = idea.get("answers") or {}
+            goal = " ".join(
+                filter(
+                    None,
+                    (
+                        request.title,
+                        idea.get("question"),
+                        answers.get("solves"),
+                        answers.get("outputs"),
+                        idea.get("skill"),
+                    ),
+                )
+            )[:2000]
             selection_context = await SelectionService(
                 self.repo, self.runtimes
             ).catalog(
                 owner_subject,
                 request_id,
                 preferred=node_edit.method if node_edit else None,
+                goal=goal,
             )
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)

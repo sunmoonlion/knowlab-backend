@@ -686,12 +686,17 @@ class FormalMethodService:
         return page
 
     async def _shared_tools(
-        self, runtime, owner, *, reference=None, after=None, declaration=None
+        self, runtime, owner, *, reference=None, after=None, declaration=None, goal=None
     ):
         from app.domain.knowbots.incubation_tools import SharedToolsPage
 
         raw = await self.runtimes.incubation_tool_versions(
-            runtime, owner, reference=reference, after=after, declaration=declaration
+            runtime,
+            owner,
+            reference=reference,
+            after=after,
+            declaration=declaration,
+            **({"goal": goal} if goal else {}),
         )
         try:
             page = SharedToolsPage.model_validate(raw)

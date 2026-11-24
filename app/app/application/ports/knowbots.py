@@ -930,6 +930,10 @@ class RuntimeTestClient(Protocol):
 
     async def capabilities(self, runtime: str, subject: str) -> dict[str, Any]: ...
 
+    async def browse_directory(
+        self, runtime: str, subject: str, scene: str, query: dict
+    ) -> dict: ...
+
     async def method_skill_center_incubation_methods(
         self,
         runtime: str,
@@ -940,6 +944,7 @@ class RuntimeTestClient(Protocol):
         all_versions: bool = False,
         declaration: dict[str, Any] | None = None,
         references: list[dict[str, Any]] | None = None,
+        goal: str | None = None,
     ) -> list[dict[str, Any]]: ...
 
     async def planning_capabilities(self, runtime: str) -> dict[str, Any]: ...
@@ -994,6 +999,7 @@ class RuntimeTestClient(Protocol):
         reference=None,
         after=None,
         declaration=None,
+        goal=None,
     ) -> dict[str, Any]: ...
 
     async def formal_self_review(

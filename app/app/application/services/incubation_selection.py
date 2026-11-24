@@ -1,6 +1,7 @@
 """Build and recheck the directory for an author-reviewed proposal."""
 
 import json
+from itertools import zip_longest
 from typing import Any
 
 from app.application.errors.exceptions import (
@@ -61,14 +62,20 @@ class SelectionService:
         self.runtimes = runtimes
 
     async def catalog(
-        self, owner, rid, preferred: MethodRef | None = None
+        self, owner, rid, preferred: MethodRef | None = None, goal: str | None = None
     ) -> dict[str, Any]:
         runtime, declaration = await self.methods._incubation_basis(owner, rid)
+        search = {"goal": goal} if goal else {}
         owned = await self.runtimes.method_skill_center_incubation_methods(
-            runtime, owner, limit=2 * PAGE + 1, offset=0, declaration=declaration
+            runtime,
+            owner,
+            limit=2 * PAGE + 1,
+            offset=0,
+            declaration=declaration,
+            **search,
         )
         shared = await self.methods._shared_tools(
-            runtime, owner, declaration=declaration
+            runtime, owner, declaration=declaration, **search
         )
         capabilities = await self.methods.planning_capabilities(owner, rid)
         flags = capabilities["patterns"]
@@ -111,6 +118,7 @@ class SelectionService:
                 continue
             if definition.digest() == ref.digest:
                 candidates.append(("owned", ref, definition, None))
+        shared_start = len(candidates)
         for ref in shared_refs:
             if any(c[1] == ref for c in candidates):
                 continue
@@ -126,6 +134,16 @@ class SelectionService:
                         installation(page["items"][0]),
                     )
                 )
+        # Reserve space for both owned and installed methods before the byte
+        # and alias limits, even when the owned list alone fills the snapshot.
+        candidates = [
+            candidate
+            for pair in zip_longest(
+                candidates[:shared_start], candidates[shared_start:]
+            )
+            for candidate in pair
+            if candidate
+        ]
         if preferred:
             candidates.sort(key=lambda candidate: candidate[1] != preferred)
         catalog = {}
@@ -169,6 +187,7 @@ class SelectionService:
                 truncated
                 or len(instructions) > PAGE
                 or len(owned) > 2 * PAGE
+                or shared.get("partial")
                 or shared["next"]
                 or len(installed) > PAGE
             ),

@@ -143,6 +143,7 @@ class Runtime(FakeRuntime):
         all_versions=False,
         declaration=None,
         references=None,
+        goal=None,
     ):
         rows = []
         seen = set()

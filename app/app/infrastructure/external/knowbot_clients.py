@@ -170,6 +170,14 @@ class RuntimeTestClients:
                 "Invalid capability catalog", code="runtime_capabilities_invalid"
             ) from exc
 
+    async def browse_directory(self, runtime, subject, scene, query):
+        _, body = await self._client(runtime).request(
+            "POST",
+            f"{USERS}/{quote(subject, safe='')}/method-skill-center/browse/{scene}",
+            json=query,
+        )
+        return body
+
     async def method_skill_center_incubation_methods(
         self,
         runtime,
@@ -180,6 +188,7 @@ class RuntimeTestClients:
         all_versions=False,
         declaration=None,
         references=None,
+        goal=None,
     ):
         params = urlencode(
             {
@@ -194,6 +203,7 @@ class RuntimeTestClients:
             f"incubation-methods?{params}",
             json={
                 "declaration": declaration,
+                **({"goal": goal} if goal else {}),
                 **({"references": references} if references is not None else {}),
             },
         )
@@ -354,7 +364,14 @@ class RuntimeTestClients:
         return body
 
     async def incubation_tool_versions(
-        self, runtime, subject, *, reference=None, after=None, declaration=None
+        self,
+        runtime,
+        subject,
+        *,
+        reference=None,
+        after=None,
+        declaration=None,
+        goal=None,
     ):
         _, body = await self._client(runtime).request(
             "POST",
@@ -364,6 +381,7 @@ class RuntimeTestClients:
                 "reference": reference.model_dump(mode="json") if reference else None,
                 "after": after,
                 "declaration": declaration,
+                **({"goal": goal} if goal else {}),
             },
         )
         return body

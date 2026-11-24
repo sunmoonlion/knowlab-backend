@@ -1779,6 +1779,29 @@ async def planning_capabilities(
     return _ok(await methods.planning_capabilities(principal.subject, request_id))
 
 
+@web_router.get("/method-directory/browse/{scene}")
+async def browse_directory(
+    principal: User,
+    methods: FormalMethods,
+    scene: Literal["owned", "shared"],
+    kind: Literal["expert", "tool"],
+    category: Annotated[str | None, Query(max_length=64, pattern=r"^[a-z_.]+$")] = None,
+    offset: Annotated[int, Query(ge=0, le=2147483647)] = 0,
+    request_id: UUID | None = None,
+):
+    runtime, declaration = await methods._incubation_basis(
+        principal.subject, str(request_id) if request_id else None
+    )
+    body = {"kind": kind, "offset": offset, "category": category}
+    if declaration:
+        body["question"] = " ".join([declaration["title"], declaration["purpose"]])[
+            :2000
+        ]
+    return _ok(
+        await methods.runtimes.browse_directory(runtime, principal.subject, scene, body)
+    )
+
+
 @web_router.get("/method-directory/sources")
 async def directory_sources(principal: User, methods: FormalMethods):
     return _ok(await methods.sources(principal.subject))
