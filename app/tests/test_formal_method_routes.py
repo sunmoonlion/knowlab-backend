@@ -204,6 +204,7 @@ async def test_formal_author_http_flow_checks_identity_csrf_and_trusted_receipt(
                 )
             ).status_code == 200
             submitted = market.formal_self_listing.await_args.args[0]
+            assert submitted["method_kind"] == "tool"
             assert submitted["review_findings"] == ["flagged_word", "outputs_missing"]
             assert "保证收益" not in str(submitted)
             review.return_value["owner_subject"] = "other"

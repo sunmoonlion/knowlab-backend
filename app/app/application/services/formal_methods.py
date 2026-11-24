@@ -46,6 +46,7 @@ from app.domain.knowbots.formal_method_compiler import (
     CandidateLimits,
     FrozenMethod,
     compile_method,
+    implementation_kind,
 )
 from app.domain.knowbots.formal_method_execution import (
     EXECUTION_CONTRACT,
@@ -173,6 +174,9 @@ class FormalMethodService:
                 "title": declaration["title"],
                 "purpose": declaration["purpose"],
                 "review_findings": sorted(findings),
+                "method_kind": implementation_kind(
+                    record.definition["procedure"]["kind"]
+                ),
             }
         )
         if (
