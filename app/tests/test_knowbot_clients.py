@@ -419,10 +419,22 @@ async def test_incubation_without_the_incubate_relation_is_unavailable() -> None
 
 
 @pytest.mark.asyncio
-async def test_author_runtime_inventory_requires_matching_structural_evidence():
+@pytest.mark.parametrize(
+    "features",
+    [
+        {},
+        {"script": True, "material_read": False},
+        {"script": False, "material_read": True},
+        {"script": True, "material_read": True},
+        {"script": "false"},
+        {"material_read": 1},
+    ],
+)
+async def test_author_runtime_inventory_requires_matching_structural_evidence(features):
     import hashlib
 
     doc = {
+        **features,
         "contract": "knowbench/consumer-planning/v1",
         "patterns": dict.fromkeys(
             ("sequence", "join", "independent_review", "object_batch", "conditional"),
@@ -446,9 +458,15 @@ async def test_author_runtime_inventory_requires_matching_structural_evidence():
     clients = RuntimeTestClients(
         KNOWBENCH, oidc_client=FakeOidc(), transport=httpx.MockTransport(handler)
     )
+    if any(type(value) is not bool for value in features.values()):
+        with pytest.raises(BadGatewayError):
+            await clients.planning_capabilities("knowbench")
+        return
     assert await clients.planning_capabilities("knowbench") == {
         "digest": body["digest"],
         "patterns": doc["patterns"],
+        "script": features.get("script", False),
+        "material_read": features.get("material_read", False),
     }
     body["patterns"]["independent_review"] = False
     with pytest.raises(BadGatewayError):

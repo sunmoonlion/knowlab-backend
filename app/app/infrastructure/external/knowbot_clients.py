@@ -233,7 +233,10 @@ class RuntimeTestClients:
             or any(type(v) is not bool for v in body["patterns"].values())
         ):
             raise BadGatewayError("Unverified runtime planning capabilities")
-        return {"digest": fingerprint, "patterns": body["patterns"]}
+        features = {key: body.get(key, False) for key in ("script", "material_read")}
+        if any(type(value) is not bool for value in features.values()):
+            raise BadGatewayError("Unverified runtime planning capabilities")
+        return {"digest": fingerprint, "patterns": body["patterns"], **features}
 
     async def formal_method_sources(self, runtime: str, subject: str) -> dict[str, Any]:
         from app.domain.knowbots.formal_method_admission import FormalMethodSource
