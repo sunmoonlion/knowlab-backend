@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.knowbot_fakes import OWNER, manifest, request_body
+from tests.knowbot_fakes import OWNER, manifest, request_body, single_method_planning
 from tests.test_knowbot_creation_routes import (  # noqa: F401
     ADMIN,
     ADMIN_SID,
@@ -126,6 +126,7 @@ async def test_hand_back_through_the_api(wired) -> None:  # noqa: F811
 
 
 STEP = {
+    "selection": {"applies_when": "交付结果时", "required": True, "max_calls": 1},
     "id": "overview",
     "title": "数据摸底",
     "does": "看清数据有哪些表、哪些报告期。",
@@ -157,6 +158,7 @@ async def test_operators_propose_and_publish_through_the_api(wired) -> None:  # 
                 "cells": [
                     {"path": "scope/does", "value": "A 股非金融公司的财务分析"},
                     {"path": "steps/overview", "value": STEP},
+                    {"path": "planning", "value": single_method_planning("overview")},
                 ],
             },
             headers=WEB,

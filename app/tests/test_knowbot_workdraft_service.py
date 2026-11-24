@@ -30,9 +30,11 @@ from tests.knowbot_fakes import (
     manifest,
     platform_draft,
     request_body,
+    single_method_planning,
 )
 
 STEP = {
+    "selection": {"applies_when": "交付该结果时", "required": True, "max_calls": 1},
     "id": "overview",
     "title": "数据摸底",
     "does": "看清数据有哪些表、哪些报告期。",
@@ -44,6 +46,7 @@ STEP = {
 CELLS: list[tuple[str, Any]] = [
     ("scope/does", "A 股非金融公司的财务分析"),
     ("steps/overview", STEP),
+    ("planning", single_method_planning("overview")),
 ]
 
 
@@ -218,7 +221,13 @@ async def test_not_mine_is_not_found(wired) -> None:
 @pytest.mark.asyncio
 async def test_publish_makes_a_self_draft_and_keeps_the_workdraft(wired) -> None:
     repo, works, svc, runtime = wired
-    request = await _request(svc)  # 自助不受理
+    case = request_body()["cases"][0]
+    case["expectations"] = [
+        {"artifact": "overview", "path": "periods", "kind": "contains", "value": "2025"}
+    ]
+    request = await svc.submit(
+        OWNER, KnowbotRequestIn.model_validate(request_body(cases=[case]))
+    )
     saved = await works.save(OWNER, str(request.id), revision=0, edits=CELLS)
     draft = await works.publish(OWNER, str(request.id))
     assert (draft.mode, draft.version, draft.revision) == ("self", "1", 1)
@@ -230,6 +239,12 @@ async def test_publish_makes_a_self_draft_and_keeps_the_workdraft(wired) -> None
     assert draft.manifest["pack"]["pack_id"] == f"knowlab-{request.id}"
     refs = {s["ref"] for s in draft.manifest["rule_sources"]}
     assert refs == {
+        *(
+            v["ref"]
+            for path, v in saved.sources.items()
+            if path == "planning"
+            or path.endswith(("/selection", "/advanced", "/on_fail", "/uses"))
+        ),
         saved.sources["steps/overview/rules/r1"]["ref"],
         saved.sources["steps/overview/checks/0"]["ref"],
     }
@@ -271,7 +286,10 @@ async def test_publish_refuses_cells_without_a_source_and_names_them(wired) -> N
     assert repo.drafts == {}
     # 预览照样回清单，问题按格子列出
     built, problems, version = await works.preview(OWNER, str(request.id))
-    assert version == "1" and built["pack"]["workflow"][0]["title"] == "数据摸底"
+    assert (
+        version == "1"
+        and built["pack"]["method_units"][0]["contract"]["title"] == "数据摸底"
+    )
     assert [(p.path, p.message) for p in problems] == [
         ("steps/overview/does", "this cell has no source")
     ]
@@ -346,7 +364,9 @@ async def test_import_replaces_the_workdraft_with_one_import_record(wired) -> No
     assert entry.text.startswith('{"cells":') and '"digest":"sha256:' in entry.text
     # 导入的一份可以直接出一版，编出来的方法层与原来的一样
     draft = await works.publish(OWNER, str(other.id))
-    assert draft.manifest["pack"]["workflow"] == first.manifest["pack"]["workflow"]
+    assert (
+        draft.manifest["pack"]["method_units"] == first.manifest["pack"]["method_units"]
+    )
     with pytest.raises(BadRequestError) as caught:
         await works.import_manifest(
             OWNER, str(other.id), revision=1, manifest={"schema": "knowbot-manifest/v1"}

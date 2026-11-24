@@ -22,6 +22,10 @@ def incorporated_texts(
     sources = manifest.get("rule_sources")
     pack = manifest.get("pack")
     workflow = pack.get("workflow") if isinstance(pack, dict) else None
+    if isinstance(pack, dict) and isinstance(pack.get("method_units"), list):
+        workflow = [
+            u.get("contract") for u in pack["method_units"] if isinstance(u, dict)
+        ]
     if not isinstance(sources, list) or not isinstance(workflow, list):
         return set()
     steps = {s.get("step_id"): s for s in workflow if isinstance(s, dict)}

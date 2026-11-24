@@ -14,7 +14,7 @@ from app.domain.knowbots.data_request import DataRequest, FactRequest
 from app.domain.knowbots.delivery import CATEGORY_CODES
 from app.domain.knowbots.drafts import draft_manifest_problems
 from app.domain.knowbots.supply_status import DemandStatusEventV1
-from tests.knowbot_fakes import manifest
+from tests.knowbot_fakes import historical_manifest
 
 PARENT = Path(__file__).resolve().parents[3]
 
@@ -76,10 +76,10 @@ def test_our_data_request_is_the_knowbase_data_request() -> None:
     ]
 
 
-def test_a_v2_draft_knowlab_accepts_satisfies_the_knowmart_v2_schema() -> None:
+def test_archived_v2_schema_is_readable_but_publication_is_refused() -> None:
     schema = _sibling("knowmart-app", _read_lock(LOCK_V2))
-    doc = manifest()
-    assert draft_manifest_problems(doc, runtime="knowbench", version="1") == []
+    doc = historical_manifest()
+    assert "已退役" in draft_manifest_problems(doc, runtime="knowbench", version="1")[0]
     jsonschema.validate(doc, json.loads(schema.read_text(encoding="utf-8")))
 
 

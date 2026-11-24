@@ -143,9 +143,7 @@ def test_v2_drafts_declare_no_data_needs() -> None:
     ]
     # v3 只接受显式动态目录；不能仅改标签把旧固定步骤变成动态方法。
     assert "v3 requires a dynamic catalog, without workflow" in problems(
-        schema="knowbot-manifest/v3"
+        pack={"pack_id": "old", "version": "1", "workflow": [{}]}
     )
     for other in ("knowbot-manifest/v1", "knowbot-manifest/v4", None):
-        assert problems(schema=other) == [
-            "schema must be knowbot-manifest/v2 or knowbot-manifest/v3"
-        ]
+        assert problems(schema=other) == ["schema must be knowbot-manifest/v3"]

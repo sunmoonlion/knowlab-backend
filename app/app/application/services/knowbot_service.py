@@ -65,6 +65,7 @@ from app.domain.knowbots.amendment_usage import incorporated_texts
 from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
+    MANIFEST_SCHEMA,
     OUTPUTS_KEEP_DAYS,
     Idea,
     KnowbotRequestIn,
@@ -116,10 +117,19 @@ def _conflict(message: str, code: str) -> ConcurrencyConflictError:
     return ConcurrencyConflictError(message, code=code)
 
 
+def _require_testable_manifest(manifest: dict[str, Any]) -> None:
+    if manifest.get("schema") == MANIFEST_SCHEMA:
+        raise BadRequestError(
+            "固定 v2 专家已退役，请在正式方法工作稿中孵化新版本",
+            code="fixed_expert_retired",
+        )
+
+
 def _test_request(payload: dict[str, Any]) -> AnyRunRequest:
     """Reject incompatible author expectations before creating/charging a test."""
     try:
-        pack = payload.get("manifest", {}).get("pack", {})
+        manifest = payload.get("manifest", {})
+        pack = manifest.get("pack", {})
         if pack.get("runtime_contract") == "knowbench/dynamic-methods/v3":
             return RunRequestV2.model_validate(
                 {**payload, "contract": "knowbot-test-run/v2"}
@@ -975,6 +985,7 @@ class KnowbotCreationService:
         )
         if found is None or request is None:
             raise NotFoundError("No such draft", code="draft_not_found")
+        _require_testable_manifest(found.manifest)
         await require_model_key(self.runtimes, request)
 
     async def _authors_computer(self, draft_id: str) -> dict[str, str]:
@@ -1370,6 +1381,7 @@ class KnowbotCreationService:
         draft = await self.repo.get_draft(expert.draft_id)
         request = await self.repo.get_request(delivery.request_id)
         assert reviewed is not None and draft is not None and request is not None
+        _require_testable_manifest(draft.manifest)
         if reviewed.environment_id is None or reviewed.workspace_root is None:
             raise _conflict(
                 "The reviewed test has no computer to run on", "author_has_no_computer"

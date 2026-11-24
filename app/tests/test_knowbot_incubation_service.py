@@ -577,6 +577,20 @@ async def test_answer_sources_cite_the_gap_and_publish_checks_new_refs(w) -> Non
         "kind": "user_confirmed",
         "ref": f"question:{gap.id}",
     }
+    from tests.knowbot_fakes import single_method_planning
+
+    await w.works.save(
+        OWNER,
+        rid,
+        revision=stored.revision,
+        edits=[
+            ("planning", single_method_planning("overview")),
+            (
+                "steps/overview/selection",
+                {"applies_when": "交付时", "required": True, "max_calls": 1},
+            ),
+        ],
+    )
     # 出一版：创意原句、答过的缺口、接受记录都核得上
     _, problems, _ = await w.works.preview(OWNER, rid)
     assert [p for p in problems if p.path.startswith(("scope", "steps"))] == []

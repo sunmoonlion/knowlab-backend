@@ -95,10 +95,9 @@ def request_body(**overrides: Any) -> dict[str, Any]:
 
 
 def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
-    """清单 v2 的草稿：逻辑；没有数据需求声明，不带绑定（作者挑选的数据
-    交付时才冻结）。"""
+    """使用动态方法目录的草稿。"""
     doc: dict[str, Any] = {
-        "schema": "knowbot-manifest/v2",
+        "schema": "knowbot-manifest/v3",
         "name": "财务分析与预测",
         "tagline": "按我的方法分析一家公司的财报",
         "version": version,
@@ -106,7 +105,9 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
         "pack": {
             "pack_id": "fin-forecast",
             "version": version,
-            "workflow": [{"step_id": "s1", "title": "读财报"}],
+            "runtime_contract": "knowbench/dynamic-methods/v1",
+            "planning": {"method_text": "按题目选择方法", "final_units": ["summary"]},
+            "method_units": [{"contract": {"step_id": "summary", "title": "读财报"}}],
         },
         "rule_sources": [
             {"rule": "毛利率口径", "source": "user_text", "ref": "想法原文第 4 问"}
@@ -114,6 +115,30 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
     }
     doc.update(overrides)
     return doc
+
+
+def historical_manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
+    return {
+        **manifest(version),
+        "schema": "knowbot-manifest/v2",
+        "pack": {
+            "pack_id": "fin-forecast",
+            "version": version,
+            "workflow": [{"step_id": "s1", "title": "读财报"}],
+        },
+        **overrides,
+    }
+
+
+def single_method_planning(method_id: str) -> dict[str, Any]:
+    return {
+        "method_text": "按作者选定的方法交付",
+        "final_units": [method_id],
+        "max_steps": 1,
+        "max_replans": 0,
+        "reserve": "0.05",
+        "input_max_chars": 8000,
+    }
 
 
 def result(run_id: str, status: str = "passed", **extra: Any) -> RunResultV1:

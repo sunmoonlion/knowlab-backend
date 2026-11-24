@@ -99,7 +99,9 @@ async def test_modern_usage_does_not_infer_unproven_adoption(fault):
         OWNER,
         str(request.id),
         revision=0,
-        edits=[CELLS[0], ("steps/overview", step)],
+        edits=[
+            (path, step if path == "steps/overview" else value) for path, value in CELLS
+        ],
     )
     draft = await works.publish(OWNER, str(request.id))
     eid = uuid.UUID(saved.sources["steps/overview/rules/r1"]["ref"][7:])
@@ -120,7 +122,7 @@ async def test_modern_usage_does_not_infer_unproven_adoption(fault):
         repo.entries[eid] = replace(entry, text="支持须引原文")
     elif fault == "method_removed":
         doc = copy.deepcopy(draft.manifest)
-        doc["pack"]["workflow"][0]["method_text"] = "别的方法"
+        doc["pack"]["method_units"][0]["contract"]["method_text"] = "别的方法"
         draft = replace(draft, manifest=doc)
     elif fault == "other_request":
         draft = replace(draft, request_id=uuid.uuid4())

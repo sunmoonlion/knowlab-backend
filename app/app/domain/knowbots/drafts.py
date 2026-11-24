@@ -199,9 +199,10 @@ def draft_manifest_problems(
     if _size(doc) > MAX_MANIFEST_BYTES:
         return [f"manifest is larger than {MAX_MANIFEST_BYTES} bytes"]
     problems: list[str] = []
-    if doc.get("schema") not in (MANIFEST_SCHEMA, DYNAMIC_MANIFEST_SCHEMA):
-        return ["schema must be knowbot-manifest/v2 or knowbot-manifest/v3"]
-    dynamic = doc["schema"] == DYNAMIC_MANIFEST_SCHEMA
+    if doc.get("schema") == MANIFEST_SCHEMA:
+        return ["固定 v2 专家已退役，请在正式方法工作稿中孵化新版本"]
+    if doc.get("schema") != DYNAMIC_MANIFEST_SCHEMA:
+        return ["schema must be knowbot-manifest/v3"]
     if doc.get("runtime") != runtime:
         problems.append(f"runtime must be {runtime}")
     if doc.get("version") != version:
@@ -213,7 +214,7 @@ def draft_manifest_problems(
     problems.extend(f"{path}: {MESSAGE}" for path in pack_paths(pack))
     if not isinstance(pack, dict) or not pack.get("pack_id"):
         problems.append("pack.pack_id is required")
-    elif dynamic:
+    else:
         if (
             pack.get("runtime_contract")
             not in (
@@ -228,10 +229,6 @@ def draft_manifest_problems(
             problems.append("pack.method_units must be a non-empty list")
         if str(pack.get("version")) != version:
             problems.append("pack.version must equal the version")
-    elif not isinstance(pack.get("workflow"), list) or not pack["workflow"]:
-        problems.append("pack.workflow must be a non-empty list")
-    elif str(pack.get("version")) != version:
-        problems.append("pack.version must equal the version")
     sources = doc.get("rule_sources")
     if not isinstance(sources, list) or not sources:
         problems.append("every rule needs a source (rule_sources is empty)")

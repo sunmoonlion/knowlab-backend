@@ -24,6 +24,7 @@ from tests.knowbot_fakes import (
     manifest,
     platform_draft,
     request_body,
+    single_method_planning,
 )
 from tests.test_auth_routes_security import FakeAuthService, session
 
@@ -31,12 +32,19 @@ CSRF = "csrf-token-with-at-least-thirty-two-characters"
 WEB = {"Origin": "http://localhost:3000", "X-CSRF-Token": CSRF}
 WEB_SID = "sunmoonai_knowlab_web_sid"
 ADMIN_SID = "sunmoonai_knowlab_admin_sid"
+
 CELLS = [
+    {"path": "planning", "value": single_method_planning("overview")},
     {"path": "scope/does", "value": "A 股非金融公司的财务分析"},
     {
         "path": "steps/overview",
         "value": {
             "title": "数据摸底",
+            "selection": {
+                "applies_when": "交付该结果时",
+                "required": True,
+                "max_calls": 1,
+            },
             "does": "看清数据有哪些表、哪些报告期。",
             "rules": [{"id": "r1", "text": "合并、母公司都有时问用户。"}],
             "outputs": [{"name": "periods", "type": "list"}],
@@ -161,7 +169,7 @@ async def test_save_preview_publish_and_a_stale_revision(wired) -> None:
         assert preview.status_code == 200
         assert preview.json()["problems"] == []
         assert preview.json()["version"] == "1"
-        assert preview.json()["manifest"]["schema"] == "knowbot-manifest/v2"
+        assert preview.json()["manifest"]["schema"] == "knowbot-manifest/v3"
         assert repo.drafts == {}
         made = await c.post(f"{base}/publish", headers=WEB)
         assert made.status_code == 201

@@ -33,7 +33,7 @@ from app.domain.knowbots.workdraft import (
     origins,
     source_problems,
 )
-from tests.knowbot_fakes import manifest as foreign_manifest
+from tests.knowbot_fakes import historical_manifest as foreign_manifest
 
 OWNER = "user-123"
 WD = uuid.UUID(int=7)
@@ -115,10 +115,13 @@ def with_check(template: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------- 编清单 ----------
-def test_the_compiled_manifest_passes_the_draft_check_and_the_pack_check() -> None:
+def test_historical_fixed_pack_can_be_read_but_cannot_be_published() -> None:
     manifest, problems = build()
     assert problems == []
-    assert draft_manifest_problems(manifest, runtime="knowbench", version="2") == []
+    assert (
+        "固定 v2 专家已退役"
+        in draft_manifest_problems(manifest, runtime="knowbench", version="2")[0]
+    )
     assert pack_problems(manifest["pack"]) == []
     assert manifest["pack"]["scope"]["does"] == "A 股非金融公司的财务分析"
     assert manifest["pack"]["title"] == manifest["name"] == "财务分析与预测"

@@ -29,9 +29,11 @@ from tests.knowbot_fakes import (
     all_clear,
     own_computer,
     request_body,
+    single_method_planning,
 )
 
 STEP = {
+    "selection": {"applies_when": "交付该结果时", "required": True, "max_calls": 1},
     "id": "overview",
     "title": "数据摸底",
     "does": "看清数据有哪些表、哪些报告期。",
@@ -43,6 +45,7 @@ STEP = {
 CELLS: list[tuple[str, Any]] = [
     ("scope/does", "A 股非金融公司的财务分析"),
     ("steps/overview", STEP),
+    ("planning", single_method_planning("overview")),
 ]
 RULE = "steps/overview/rules/r1"
 
