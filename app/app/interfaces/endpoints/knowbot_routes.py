@@ -127,6 +127,7 @@ from app.domain.knowbots.platform_grants import (
     PlatformIncubationIn,
     PlatformTestIn,
 )
+from app.domain.knowbots.selection import NodeEdit
 from app.domain.knowbots.workdraft import STEP_ID, MethodTemplate
 from app.domain.security import Principal
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
@@ -913,6 +914,7 @@ class IncubationIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     selection_revision: int | None = Field(default=None, ge=0)
+    node_edit: NodeEdit | None = None
     action: Literal["draft", "revise"]
     instruction: str | None = Field(default=None, min_length=1, max_length=4000)
     step_id: str | None = Field(default=None, pattern=STEP_ID)
@@ -984,6 +986,7 @@ async def start_incubation(
         workspace_root=body.workspace_root,
         with_test=body.with_test,
         selection_revision=body.selection_revision,
+        node_edit=body.node_edit,
     )
     return _ok(
         {"incubation": incubation_view(record, await incubations.gaps(record))},

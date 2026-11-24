@@ -357,3 +357,54 @@ def test_p5_leaf_limit_depends_on_reachable_combinations_of_caller_inputs():
     doc["procedure"]["steps"][1]["inputs"]["value"]["binding"]["name"] = "other"
     with pytest.raises(ValueError, match="100 actual tool leaf calls"):
         verify()
+
+
+def test_recursive_composite_uses_author_scope_and_root_promise():
+    from app.domain.knowbots.selection import PlanningNode, PlanningTree, SketchStep
+
+    first = SketchStep.model_validate(
+        step("n1_1", "read", {"value": {"source": "caller", "name": "facts"}})
+    )
+    final = SketchStep.model_validate(step("n1", "finish", {"value": output("n1_1")}))
+    tree = PlanningTree(
+        catalog_digest="1" * 64,
+        nodes=(
+            PlanningNode(
+                id="n1",
+                goal="交付核验",
+                status="split",
+                operator="sequence",
+                step=final,
+            ),
+            PlanningNode(
+                id="n1_1",
+                parent="n1",
+                goal="读取",
+                status="hit",
+                operator="leaf",
+                step=first,
+            ),
+        ),
+    )
+    proposal = Selection(
+        status="ready",
+        reason="按已定口径核验",
+        routing_required=False,
+        steps=(first, final),
+        patterns=("P1",),
+        tree=tree,
+    )
+    methods = {"read": frozen(), "finish": frozen()}
+    draft, _ = expand(
+        proposal,
+        methods,
+        TEMPLATE,
+        FLAGS,
+        required_cases={},
+        scope=("委托人给原始披露行", "排除预测"),
+    )
+    decl = draft.definition.capability_declaration
+    assert tuple(decl.applies_when) == ("委托人给原始披露行",)
+    assert tuple(decl.excludes) == ("排除预测",)
+    assert decl.promises == {"template_delivery": TEMPLATE.deliverable}
+    compile_method(uuid4(), draft.definition, resolved(*methods.values()))

@@ -570,6 +570,9 @@ def incubation_view(
         if gaps is not None:
             ctx = record.seed["selection_context"]
             view["catalog_partial"] = ctx["partial"]
+            view["method_pins"] = {
+                alias: entry["reference"] for alias, entry in ctx["methods"].items()
+            }
             view["method_titles"] = {
                 alias: entry["declaration"]["title"]
                 for alias, entry in ctx["methods"].items()

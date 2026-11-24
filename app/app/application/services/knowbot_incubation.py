@@ -75,6 +75,7 @@ from app.domain.knowbots.incubation_rounds import (
     source_of,
 )
 from app.domain.knowbots.lifecycle import draft_label
+from app.domain.knowbots.selection import NodeEdit
 from app.domain.knowbots.workdraft import (
     WorkdraftBody,
     cells,
@@ -269,12 +270,18 @@ class KnowbotIncubationService:
         mode: str = "self",
         with_test: bool = False,
         selection_revision: int | None = None,
+        node_edit: NodeEdit | None = None,
     ) -> IncubationRecord:
         """发起一轮：先记下（排队），再交运行方；交不出去的记失败，照样报错。
 
         with_test：带上最近一次有结论的测试的报告（只许「让 AI 改…」，第 8.4 节）；
         这个名称还没有测出结论的回 409 test_report_missing。"""
         request = await self._request(owner_subject, request_id)
+        if node_edit and (action != "revise" or selection_revision is None):
+            raise BadRequestError(
+                "A goal edit requires an existing planning round",
+                code="instruction_invalid",
+            )
         if action not in ("draft", "revise"):
             raise BadRequestError("Draft or revise", code="incubation_invalid")
         if (action == "revise") != bool(instruction and instruction.strip()):
@@ -343,18 +350,36 @@ class KnowbotIncubationService:
                             r.handback["selection"]
                             for r in sorted(rounds, key=lambda r: r.round, reverse=True)
                             if r.workdraft_revision == current.revision
-                            and all(
-                                r.seed.get("selection_context", {}).get(key, {})
-                                == selection_context.get(key, {})
-                                for key in ("methods", "instructions")
-                            )
                             and r.handback
                             and r.handback.get("selection")
+                            and (
+                                r.handback["selection"].get("tree")
+                                or all(
+                                    r.seed.get("selection_context", {}).get(key, {})
+                                    == selection_context.get(key, {})
+                                    for key in ("methods", "instructions")
+                                )
+                            )
                         ),
                         None,
                     )
                     if previous:
                         selection_context["previous"] = previous
+                    if node_edit:
+                        nodes = ((previous or {}).get("tree") or {}).get("nodes", [])
+                        if not any(n["id"] == node_edit.node for n in nodes):
+                            raise _conflict(
+                                "The planning goal changed", "workdraft_revision"
+                            )
+                        if node_edit.method and not any(
+                            e["reference"] == node_edit.method.model_dump(mode="json")
+                            for e in selection_context["methods"].values()
+                        ):
+                            raise _conflict(
+                                "The chosen version is no longer authorized",
+                                "selection_candidate",
+                            )
+                        selection_context["edit"] = node_edit.model_dump(mode="json")
             body = parse_body(current.body)
             if body.formal_method is not None:
                 raise BadRequestError(

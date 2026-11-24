@@ -1,6 +1,7 @@
 """Build and recheck the directory for an author-reviewed proposal."""
 
 import json
+from typing import Any
 
 from app.application.errors.exceptions import (
     BadRequestError,
@@ -59,10 +60,10 @@ class SelectionService:
         self.repo = repo
         self.runtimes = runtimes
 
-    async def catalog(self, owner, rid):
+    async def catalog(self, owner, rid) -> dict[str, Any]:
         runtime, declaration = await self.methods._incubation_basis(owner, rid)
         owned = await self.runtimes.method_skill_center_incubation_methods(
-            runtime, owner, limit=PAGE + 1, offset=0, declaration=declaration
+            runtime, owner, limit=2 * PAGE + 1, offset=0, declaration=declaration
         )
         shared = await self.methods._shared_tools(
             runtime, owner, declaration=declaration
@@ -70,7 +71,7 @@ class SelectionService:
         capabilities = await self.methods.planning_capabilities(owner, rid)
         flags = capabilities["patterns"]
         candidates = []
-        for row in owned[:PAGE]:
+        for row in owned[: 2 * PAGE]:
             ref = MethodRef(
                 method_id=row["method_id"],
                 version=row["latest_version"],
@@ -104,7 +105,7 @@ class SelectionService:
                     )
                 )
         catalog = {}
-        remaining_bytes = 128_000
+        remaining_bytes = 480_000
         truncated = False
         for index, (scope, ref, definition, binding) in enumerate(candidates, 1):
             if not available(definition, capabilities):
@@ -124,7 +125,7 @@ class SelectionService:
                 outputs={n: i["slot"] for n, i in view["outputs"].items()},
             )
             size = len(json.dumps(entry, ensure_ascii=False).encode())
-            if size > remaining_bytes:
+            if size > remaining_bytes or len(catalog) >= 2 * PAGE:
                 truncated = True
                 continue
             remaining_bytes -= size
@@ -143,7 +144,7 @@ class SelectionService:
             partial=bool(
                 truncated
                 or len(instructions) > PAGE
-                or len(owned) > PAGE
+                or len(owned) > 2 * PAGE
                 or shared["next"]
                 or len(installed) > PAGE
             ),
@@ -361,6 +362,7 @@ class SelectionService:
                 flags,
                 required_cases=required_cases,
                 title=request.title,
+                scope=(body.scope.does, body.scope.does_not),
             )
             # Resolve nested dependencies through the same gate as runtime admission.
             shared.update(
