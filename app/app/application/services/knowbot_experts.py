@@ -35,6 +35,7 @@ from app.application.ports.knowbots import (
     RequestRecord,
 )
 from app.application.services.knowbot_service import KnowbotCreationService, parse_id
+from app.domain.knowbots.drafts import MANIFEST_SCHEMA
 from app.domain.knowbots.lifecycle import ExpertGates, expert_stage
 
 log = logging.getLogger(__name__)
@@ -82,6 +83,9 @@ class KnowbotExpertService:
     async def expert(self, expert_id: str) -> tuple[ExpertRecord, RequestRecord]:
         found = await self.repo.get_expert(parse_id(expert_id, "expert"))
         if found is None:
+            raise NotFoundError("No such expert", code="expert_not_found")
+        draft = await self.repo.get_draft(found.draft_id)
+        if draft is None or draft.manifest.get("schema") == MANIFEST_SCHEMA:
             raise NotFoundError("No such expert", code="expert_not_found")
         request = await self.repo.get_request(found.request_id)
         assert request is not None

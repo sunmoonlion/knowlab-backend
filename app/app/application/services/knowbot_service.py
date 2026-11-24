@@ -508,7 +508,12 @@ class KnowbotCreationService:
         request = (
             None if draft is None else await self.repo.get_request(draft.request_id)
         )
-        if draft is None or request is None or request.owner_subject != owner_subject:
+        if (
+            draft is None
+            or draft.manifest.get("schema") == MANIFEST_SCHEMA
+            or request is None
+            or request.owner_subject != owner_subject
+        ):
             raise NotFoundError("No such draft", code="draft_not_found")
         return draft, request
 
@@ -550,13 +555,16 @@ class KnowbotCreationService:
 
     async def draft(self, draft_id: str) -> DraftRecord:
         found = await self.repo.get_draft(parse_id(draft_id))
-        if found is None:
+        if found is None or found.manifest.get("schema") == MANIFEST_SCHEMA:
             raise NotFoundError("No such draft", code="draft_not_found")
         return found
 
     async def test_with_request(self, test_id: str) -> tuple[TestRecord, RequestRecord]:
         test = await self.repo.get_test(parse_id(test_id, "test"))
         if test is None:
+            raise NotFoundError("No such test", code="test_not_found")
+        draft = await self.repo.get_draft(test.draft_id)
+        if draft is None or draft.manifest.get("schema") == MANIFEST_SCHEMA:
             raise NotFoundError("No such test", code="test_not_found")
         request = await self.repo.get_request(test.request_id)
         assert request is not None

@@ -39,6 +39,7 @@ from app.application.ports.knowbots import (
 )
 from app.domain.knowbots.data_plan import Plan, item_ref, plan
 from app.domain.knowbots.data_request import DataRequest
+from app.domain.knowbots.drafts import MANIFEST_SCHEMA
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.domain.knowbots.test_run import CaseData
 
@@ -460,6 +461,9 @@ class KnowbotTestData:
             found = None
         request = await self.repo.get_request(found.request_id) if found else None
         if found is None or request is None or request.owner_subject != owner_subject:
+            raise NotFoundError("No such test", code="test_not_found")
+        draft = await self.repo.get_draft(found.draft_id)
+        if draft is None or draft.manifest.get("schema") == MANIFEST_SCHEMA:
             raise NotFoundError("No such test", code="test_not_found")
         return found, request
 

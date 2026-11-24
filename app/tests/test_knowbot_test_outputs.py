@@ -257,3 +257,31 @@ async def test_outputs_are_cleared_90_days_after_listing_or_a_newer_draft(parts)
     assert await svc.expire_test_outputs() == 1
     [kept] = await shown(svc, repo, test)
     assert kept.outputs is None and kept.note == OUTPUTS_EXPIRED
+
+
+@pytest.mark.asyncio
+async def test_retired_draft_has_no_author_or_operator_receipt_or_board_link(parts):
+    from dataclasses import replace
+
+    from app.application.services.knowbot_board import KnowbotBoard
+    from app.domain.knowbots.drafts import MANIFEST_SCHEMA
+
+    svc, repo, runtime = parts
+    request, draft, test = await _testing(svc)
+    runtime.case_outputs[(test.run_id, "c1")] = outputs(test.run_id)
+    runtime.results[test.run_id] = result(test.run_id, "passed")
+    await svc.refresh(str(test.id))
+    assert await shown(svc, repo, test)
+    repo.drafts[draft.id] = replace(
+        draft, manifest={**draft.manifest, "schema": MANIFEST_SCHEMA}
+    )
+    with pytest.raises(NotFoundError):
+        await svc.my_test(OWNER, str(test.id))
+    with pytest.raises(NotFoundError):
+        await svc.operator_test(str(test.id))
+    with pytest.raises(NotFoundError):
+        await svc.my_test_execution(OWNER, str(test.id), "c1")
+    life = await KnowbotBoard(repo).life(str(request.id), OWNER)
+    assert (
+        not life.tests and not life.drafts and not life.experts and not life.deliveries
+    )

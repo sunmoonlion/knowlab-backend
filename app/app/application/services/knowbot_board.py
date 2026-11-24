@@ -42,6 +42,7 @@ from app.application.ports.knowbots import (
 from app.application.services.knowbot_experts import shown_to_author, stage_of
 from app.application.services.knowbot_grants import live_incubation, reviewing
 from app.application.services.knowbot_service import parse_id
+from app.domain.knowbots.drafts import MANIFEST_SCHEMA
 from app.domain.knowbots.lifecycle import (
     ACTIVE_TESTS,
     DELIVERY_CATEGORIES,
@@ -333,6 +334,14 @@ class KnowbotBoard:
         experts = await self.repo.list_experts(ids)
         grants = await self.repo.list_grants(ids)
         deliveries = await self.repo.list_deliveries(ids)
+        retired_drafts = {
+            d.id for d in drafts if d.manifest.get("schema") == MANIFEST_SCHEMA
+        }
+        drafts = [d for d in drafts if d.id not in retired_drafts]
+        tests = [t for t in tests if t.draft_id not in retired_drafts]
+        experts = [e for e in experts if e.draft_id not in retired_drafts]
+        visible_experts = {e.id for e in experts}
+        deliveries = [d for d in deliveries if d.expert_id in visible_experts]
         return [
             Life(
                 request=r,

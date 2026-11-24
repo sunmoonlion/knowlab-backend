@@ -40,7 +40,7 @@ from app.application.ports.knowbots import (
 from app.application.services.knowbot_grants import live_incubation, self_acceptance
 from app.application.services.knowbot_service import MAX_VERSIONS, parse_id
 from app.domain.knowbots.compile import compile_manifest, decompile, pack_problems
-from app.domain.knowbots.drafts import draft_manifest_problems
+from app.domain.knowbots.drafts import MANIFEST_SCHEMA, draft_manifest_problems
 from app.domain.knowbots.incubation_rounds import seed_of
 from app.domain.knowbots.managed_authoring import CODE, MESSAGE, workdraft_paths
 from app.domain.knowbots.workdraft import (
@@ -363,6 +363,8 @@ class KnowbotWorkdraftService:
         kind: str,
         origin: str,
     ) -> tuple[WorkdraftRecord, list[str]]:
+        if isinstance(manifest, dict) and manifest.get("schema") == MANIFEST_SCHEMA:
+            raise BadRequestError("固定 v2 专家已退役", code="fixed_expert_retired")
         try:
             body, notes = decompile(manifest)
         except ValueError as exc:
