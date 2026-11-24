@@ -8,8 +8,8 @@ from app.domain.knowbots.workdraft import WorkdraftBody, cells
 from tests.dynamic_method_fixtures import body
 
 
-def build(*, output_file=None):
-    raw = body()
+def build(*, output_file=None, raw=None):
+    raw = body() if raw is None else raw
     if output_file:
         raw["steps"][0]["advanced"] = {"output_file": output_file}
     definition = freeze(

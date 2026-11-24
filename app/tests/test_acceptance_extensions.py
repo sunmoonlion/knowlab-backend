@@ -4,10 +4,8 @@ import pytest
 
 from app.domain.knowbots.compile import _check_of, check_rule
 from app.domain.knowbots.workdraft import CheckCell, OutputCell, StepCell
-from tests.financial_author_method_fixtures import (
-    ALL_20_SPECS,
-    build_financial_expert_manifest,
-)
+from tests.dynamic_method_fixtures import body as sample_document
+from tests.referenced_method_fixtures import build
 
 
 @pytest.mark.parametrize(
@@ -65,16 +63,24 @@ def test_extensions_reject_malformed_authored_params(template, params):
 
 
 def test_method_boundaries_survive_freeze_bind_and_compile():
-    manifest, problems = build_financial_expert_manifest()
-    assert problems == []
-    units = {u["contract"]["step_id"]: u for u in manifest["pack"]["method_units"]}
-    for spec in ALL_20_SPECS:
-        unit = units[spec["id"]]
-        assert spec["does_not"] in unit["selection"]["applies_when"]
-        for key in ("does_not", "elsewhere"):
-            assert spec[key] in unit["contract"]["method_text"]
-            definition = manifest["pack"]["method_sources"][spec["id"]]["definition"]
-            assert any(r["text"] == spec[key] for r in definition["step"]["rules"])
+    raw = sample_document()
+    report = raw["steps"][0]
+    excluded = "不核对未提供的附件"
+    alternative = "缺页时请补原文"
+    report["selection"]["applies_when"] += "；" + excluded
+    report["rules"] = [
+        {"id": "scope", "text": excluded},
+        {"id": "missing", "text": alternative},
+    ]
+    manifest, problems = build(raw=raw)
+    assert not problems
+    pack = manifest["pack"]
+    unit = next(u for u in pack["method_units"] if u["contract"]["step_id"] == "report")
+    assert excluded in unit["selection"]["applies_when"]
+    rules = pack["method_sources"]["report"]["definition"]["step"]["rules"]
+    for text in (excluded, alternative):
+        assert text in unit["contract"]["method_text"]
+        assert any(rule["text"] == text for rule in rules)
 
 
 def test_report_sources_use_neutral_slots_when_bound_under_different_aliases():
@@ -83,12 +89,24 @@ def test_report_sources_use_neutral_slots_when_bound_under_different_aliases():
     from app.domain.knowbots.methods import BindMethod, MethodDefinition, bind
     from app.domain.knowbots.workdraft import WorkdraftBody
 
-    manifest, problems = build_financial_expert_manifest()
+    raw = sample_document()
+    report = raw["steps"][0]
+    report["outputs"][0]["items"].append({"name": "source", "type": "text"})
+    report["checks"].append(
+        {
+            "template": "each_has",
+            "params": {
+                "path": "rows",
+                "keys": ["source"],
+                "field": "source",
+                "values": ["records"],
+            },
+        }
+    )
+    manifest, problems = build(raw=raw)
     assert not problems
     definition = MethodDefinition.model_validate(
-        manifest["pack"]["method_sources"]["comprehensive_dossier_formatting"][
-            "definition"
-        ]
+        manifest["pack"]["method_sources"]["report"]["definition"]
     )
     inputs = {slot: f"source_{i}" for i, slot in enumerate(definition.input_schemas)}
     body = WorkdraftBody.model_validate(
