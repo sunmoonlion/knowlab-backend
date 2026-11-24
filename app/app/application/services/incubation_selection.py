@@ -60,7 +60,9 @@ class SelectionService:
         self.repo = repo
         self.runtimes = runtimes
 
-    async def catalog(self, owner, rid) -> dict[str, Any]:
+    async def catalog(
+        self, owner, rid, preferred: MethodRef | None = None
+    ) -> dict[str, Any]:
         runtime, declaration = await self.methods._incubation_basis(owner, rid)
         owned = await self.runtimes.method_skill_center_incubation_methods(
             runtime, owner, limit=2 * PAGE + 1, offset=0, declaration=declaration
@@ -70,13 +72,35 @@ class SelectionService:
         )
         capabilities = await self.methods.planning_capabilities(owner, rid)
         flags = capabilities["patterns"]
-        candidates = []
-        for row in owned[: 2 * PAGE]:
-            ref = MethodRef(
+
+        def owned_ref(row):
+            return MethodRef(
                 method_id=row["method_id"],
                 version=row["latest_version"],
                 digest=row["digest"],
             )
+
+        owned_refs = [owned_ref(row) for row in owned[: 2 * PAGE]]
+        installed = [row for row in shared["items"] if row.get("selected")]
+        shared_refs = [
+            MethodRef.model_validate(row["reference"]) for row in installed[:PAGE]
+        ]
+        # The version selected in the directory may be outside the ranked window.
+        if preferred and preferred not in owned_refs and preferred not in shared_refs:
+            exact = await self.runtimes.method_skill_center_incubation_methods(
+                runtime,
+                owner,
+                limit=1,
+                offset=0,
+                all_versions=True,
+                references=[preferred.model_dump(mode="json")],
+            )
+            if any(owned_ref(row) == preferred for row in exact):
+                owned_refs.insert(0, preferred)
+            else:
+                shared_refs.insert(0, preferred)
+        candidates = []
+        for ref in owned_refs:
             try:
                 async with self.repo.transaction():
                     definition = admitted_definition(
@@ -87,9 +111,7 @@ class SelectionService:
                 continue
             if definition.digest() == ref.digest:
                 candidates.append(("owned", ref, definition, None))
-        installed = [row for row in shared["items"] if row.get("selected")]
-        for row in installed[:PAGE]:
-            ref = MethodRef.model_validate(row["reference"])
+        for ref in shared_refs:
             if any(c[1] == ref for c in candidates):
                 continue
             page = await self.methods._shared_tools(runtime, owner, reference=ref)
@@ -104,6 +126,8 @@ class SelectionService:
                         installation(page["items"][0]),
                     )
                 )
+        if preferred:
+            candidates.sort(key=lambda candidate: candidate[1] != preferred)
         catalog = {}
         remaining_bytes = 480_000
         truncated = False

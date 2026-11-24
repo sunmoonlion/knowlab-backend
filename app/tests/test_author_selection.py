@@ -215,6 +215,29 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     assert pin["reference"]["digest"] == version.digest
     assert pin["inputs"]["value"]["schema"] == {"type": "number"}
     assert "definition" not in pin
+    # The published pin can still be chosen from a subsequent directory page.
+    from app.domain.knowbots.formal_method import MethodRef
+
+    picked = MethodRef.model_validate(pin["reference"])
+    lookup = runtime.method_skill_center_incubation_methods
+
+    async def later_page(*args, **kwargs):
+        if not kwargs.get("references"):
+            return []
+        return await lookup(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime, "method_skill_center_incubation_methods", later_page)
+        catalog = await SelectionService(repo, runtime).catalog(
+            OWNER, rid, preferred=picked
+        )
+        assert catalog["methods"]["m1"]["reference"] == pin["reference"]
+        wrong_digest = picked.model_copy(update={"digest": "sha256:" + "0" * 64})
+        denied = await SelectionService(repo, runtime).catalog(
+            OWNER, rid, preferred=wrong_digest
+        )
+        assert not denied["methods"]
+
     steps = [
         step("read", "m1", {"value": dict(source="caller", name="input")}),
         step("check", "m1", {"value": output("read")}),

@@ -322,7 +322,11 @@ class KnowbotIncubationService:
                 )
             selection_context = await SelectionService(
                 self.repo, self.runtimes
-            ).catalog(owner_subject, request_id)
+            ).catalog(
+                owner_subject,
+                request_id,
+                preferred=node_edit.method if node_edit else None,
+            )
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
             current = await self.repo.get_workdraft(request.id, for_update=True)

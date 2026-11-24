@@ -262,6 +262,45 @@ async def test_cancel_and_seed_a_skill(wired) -> None:
 
 
 @pytest.mark.asyncio
+async def test_method_directory_uses_logged_in_owner_before_and_during_incubation(
+    wired, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from app.application.services.formal_methods import FormalMethodService
+
+    svc, repo, _ = wired
+    request = await _mine(svc)
+    foreign = await _mine(svc, "another-owner")
+    sources = AsyncMock(return_value={"items": []})
+    tools = AsyncMock(return_value={"items": [], "next": None})
+    monkeypatch.setattr(svc.runtimes, "formal_method_sources", sources, raising=False)
+    monkeypatch.setattr(svc.runtimes, "incubation_tool_versions", tools, raising=False)
+    app.dependency_overrides[knowbot_routes.formal_service] = lambda: (
+        FormalMethodService(repo, svc.runtimes)
+    )
+    async with client() as c:
+        home = "/api/web/v1/method-directory"
+        assert (await c.get(home + "/sources")).status_code == 401
+        c.cookies.set(WEB_SID, "member")
+        draft = f"/api/web/v1/knowbot-requests/{request.id}"
+        for url in (home + "/sources", draft + "/formal-method-sources"):
+            assert (await c.get(url)).status_code == 200
+            sources.assert_awaited_with("knowbench", OWNER)
+        for url in (home + "/shared-tools", draft + "/incubation-tools"):
+            assert (await c.get(url)).status_code == 200
+            tools.assert_awaited_with(
+                "knowbench", OWNER, reference=None, after=None, declaration=None
+            )
+        assert (
+            await c.get(
+                f"/api/web/v1/knowbot-requests/{foreign.id}/formal-method-sources"
+            )
+        ).status_code == 404
+        assert sources.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_author_reviews_selection_before_saving_and_source_is_rechecked(
     wired, monkeypatch
 ):

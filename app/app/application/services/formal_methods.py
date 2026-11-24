@@ -200,10 +200,15 @@ class FormalMethodService:
             request = await self.workdrafts._request(owner, request_id)
         return await self.runtimes.planning_capabilities(request.runtime)
 
-    async def sources(self, owner: str, request_id: str) -> dict[str, Any]:
-        async with self.repo.transaction():
-            request = await self.workdrafts._request(owner, request_id)
-        return await self.runtimes.formal_method_sources(request.runtime, owner)
+    async def sources(
+        self, owner: str, request_id: str | None = None
+    ) -> dict[str, Any]:
+        runtime = "knowbench"
+        if request_id is not None:
+            async with self.repo.transaction():
+                request = await self.workdrafts._request(owner, request_id)
+                runtime = request.runtime
+        return await self.runtimes.formal_method_sources(runtime, owner)
 
     async def test_suite(
         self, owner: str, request_id: str, suite_id: str, version: int
@@ -472,6 +477,8 @@ class FormalMethodService:
         ).model_dump(mode="json")
 
     async def _incubation_basis(self, owner, request_id):
+        if request_id is None:
+            return "knowbench", None
         async with self.repo.transaction():
             request, saved = await self.workdrafts.get(owner, request_id)
             draft = parse_body(saved.body).formal_method if saved else None
@@ -485,10 +492,7 @@ class FormalMethodService:
     async def listing(self, owner: str, *, limit: int, offset: int, request_id=None):
         if not 1 <= limit <= 100 or offset < 0:
             raise BadRequestError("Invalid method page", code="method_page")
-        runtime = "knowbench"
-        declaration = None
-        if request_id is not None:
-            runtime, declaration = await self._incubation_basis(owner, request_id)
+        runtime, declaration = await self._incubation_basis(owner, request_id)
         return await self.runtimes.method_skill_center_incubation_methods(
             runtime, owner, limit=limit, offset=offset, declaration=declaration
         )

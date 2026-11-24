@@ -1779,6 +1779,22 @@ async def planning_capabilities(
     return _ok(await methods.planning_capabilities(principal.subject, request_id))
 
 
+@web_router.get("/method-directory/sources")
+async def directory_sources(principal: User, methods: FormalMethods):
+    return _ok(await methods.sources(principal.subject))
+
+
+@web_router.get("/method-directory/shared-tools")
+async def directory_shared_tools(
+    principal: User, methods: FormalMethods, after: UUID | None = None
+):
+    return _ok(
+        await methods.shared_tools(
+            principal.subject, None, after=str(after) if after else None
+        )
+    )
+
+
 @web_router.get("/knowbot-requests/{request_id}/formal-method-sources")
 async def formal_sources(
     principal: User, methods: FormalMethods, request_id: ItemId
