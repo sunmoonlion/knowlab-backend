@@ -945,3 +945,37 @@ async def test_0012_refuses_to_go_back_once_the_new_code_wrote() -> None:
             assert still.scalar() >= 1
     finally:
         await _drop(engine, schema)
+
+
+@pytest.mark.asyncio
+async def test_fixed_only_application_retires_from_detail_and_both_boards(db):
+    from app.domain.knowbots.drafts import MANIFEST_SCHEMA
+
+    old, draft = await _reviewed(db, OWNER)
+    async with db() as session:
+        current = await accepted_request(service(session), OWNER)
+        await session.execute(
+            text(
+                "update knowbot_draft set manifest="
+                "jsonb_set(manifest,'{schema}',to_jsonb(cast(:schema as text))) "
+                "where id=:id"
+            ),
+            {"schema": MANIFEST_SCHEMA, "id": draft.id},
+        )
+        repo = SqlKnowlabRepository(session)
+        assert await repo.get_request(old.id) is None
+        for rows in (
+            await repo.list_requests(),
+            await repo.list_requests_for_owner(OWNER),
+        ):
+            assert old.id not in {r.id for r in rows}
+            assert current.id in {r.id for r in rows}
+        # A newer idea revision belongs to the current application.
+        await session.execute(
+            text(
+                "update knowbot_request set latest_version=latest_version+1 "
+                "where id=:id"
+            ),
+            {"id": old.id},
+        )
+        assert await repo.get_request(old.id) is not None

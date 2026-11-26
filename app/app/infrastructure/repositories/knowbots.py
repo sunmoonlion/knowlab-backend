@@ -38,7 +38,7 @@ from app.application.ports.knowbots import (
     WorkdraftEntryRecord,
     WorkdraftRecord,
 )
-from app.domain.knowbots.drafts import OUTPUTS_EXPIRED
+from app.domain.knowbots.drafts import MANIFEST_SCHEMA, OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
     FormalTestSuite,
     KnowbotAcceptance,
@@ -439,6 +439,36 @@ def _question(row: KnowbotQuestion) -> QuestionRecord:
     )
 
 
+def _visible_requests():
+    """A fixed-only parent retires once it has no newer author work."""
+    draft = select(KnowbotDraft.id).where(KnowbotDraft.request_id == KnowbotRequest.id)
+    schema = KnowbotDraft.manifest["schema"].astext
+    fixed_latest = draft.where(
+        schema == MANIFEST_SCHEMA,
+        KnowbotDraft.request_version == KnowbotRequest.latest_version,
+    ).exists()
+    other_draft = draft.where(schema.is_distinct_from(MANIFEST_SCHEMA)).exists()
+    last_draft_at = (
+        select(func.max(KnowbotDraft.created_at))
+        .where(KnowbotDraft.request_id == KnowbotRequest.id)
+        .correlate(KnowbotRequest)
+        .scalar_subquery()
+    )
+    current_work = (
+        select(KnowbotWorkdraft.id)
+        .where(
+            KnowbotWorkdraft.request_id == KnowbotRequest.id,
+            or_(
+                KnowbotWorkdraft.updated_at > last_draft_at,
+                KnowbotWorkdraft.body["formal_method"].astext.is_not(None),
+                KnowbotWorkdraft.body["method_template"].astext.is_not(None),
+            ),
+        )
+        .exists()
+    )
+    return select(KnowbotRequest).where(or_(~fixed_latest, other_draft, current_work))
+
+
 class SqlKnowlabRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -592,7 +622,7 @@ class SqlKnowlabRepository:
         # 改版、记答案走 update，身份表里那份可能旧了：每次都读库
         row = (
             await self.session.execute(
-                select(KnowbotRequest)
+                _visible_requests()
                 .where(KnowbotRequest.id == request_id)
                 .execution_options(populate_existing=True)
             )
@@ -604,7 +634,7 @@ class SqlKnowlabRepository:
     ) -> Sequence[RequestRecord]:
         rows = (
             await self.session.execute(
-                select(KnowbotRequest)
+                _visible_requests()
                 .where(KnowbotRequest.owner_subject == owner_subject)
                 .order_by(KnowbotRequest.created_at.desc(), KnowbotRequest.id)
                 .execution_options(populate_existing=True)
@@ -615,7 +645,7 @@ class SqlKnowlabRepository:
     async def list_requests(self) -> Sequence[RequestRecord]:
         rows = (
             await self.session.execute(
-                select(KnowbotRequest)
+                _visible_requests()
                 .order_by(KnowbotRequest.created_at.desc(), KnowbotRequest.id)
                 .execution_options(populate_existing=True)
             )
