@@ -400,7 +400,8 @@ def test_p5_leaf_limit_depends_on_reachable_combinations_of_caller_inputs():
         verify()
 
 
-def test_recursive_composite_uses_author_scope_and_root_promise():
+@pytest.mark.parametrize("with_tree", [True, False])
+def test_composite_uses_author_scope_and_root_promise(with_tree):
     from app.domain.knowbots.selection import PlanningNode, PlanningTree, SketchStep
 
     first = SketchStep.model_validate(
@@ -433,7 +434,7 @@ def test_recursive_composite_uses_author_scope_and_root_promise():
         routing_required=False,
         steps=(first, final),
         patterns=("P1",),
-        tree=tree,
+        tree=tree if with_tree else None,
     )
     methods = {"read": frozen(), "finish": frozen()}
     draft, _ = expand(
@@ -449,3 +450,64 @@ def test_recursive_composite_uses_author_scope_and_root_promise():
     assert tuple(decl.excludes) == ("排除预测",)
     assert decl.promises == {"template_delivery": TEMPLATE.deliverable}
     compile_method(uuid4(), draft.definition, resolved(*methods.values()))
+
+
+def test_author_delivers_evidence_and_difference_without_exposing_internal_work():
+    from app.domain.knowbots.formal_method_plan import export_outputs
+
+    source = tool()
+    source["procedure"]["outputs"]["working"] = slot()
+    methods = {"extract": frozen(source), "calculate": frozen()}
+    steps = [
+        step(
+            "read",
+            "extract",
+            {"value": {"source": "caller", "name": "rows"}},
+            deliver_as={"result": "evidence"},
+        ),
+        step(
+            "compare",
+            "calculate",
+            {"value": output("read")},
+            deliver_as={"result": "difference"},
+        ),
+    ]
+    draft, _ = build(steps, methods, [])
+    definition = draft.definition
+    assert definition.how_to_validate[0].outputs == ("evidence", "difference")
+    assert export_outputs(
+        definition, {"read": {"working": 30, "result": 17}, "compare": {"result": 5}}
+    ) == {
+        "evidence": 17,
+        "difference": 5,
+    }
+    for mapping, error in [
+        ({"result": "evidence"}, "duplicate delivery"),
+        ({"absent": "difference"}, "missing compare.absent"),
+        ({}, "selection_disconnected"),
+    ]:
+        steps[1]["deliver_as"] = mapping
+        with pytest.raises(ValueError, match=error):
+            build(steps, methods, [])
+
+
+def test_separate_terminal_deliveries_require_join_support():
+    methods = {"read": frozen(), "calculate": frozen()}
+    steps = [
+        step(
+            "a",
+            "read",
+            {"value": {"source": "caller", "name": "opening"}},
+            deliver_as={"result": "evidence"},
+        ),
+        step(
+            "b",
+            "calculate",
+            {"value": {"source": "caller", "name": "closing"}},
+            deliver_as={"result": "difference"},
+        ),
+    ]
+    draft, _ = build(steps, methods, [])
+    assert set(draft.definition.interfaces()["inputs"]) == {"opening", "closing"}
+    with pytest.raises(ValueError, match="selection_capability"):
+        build(steps, methods, [], flags={**FLAGS, "join": False})

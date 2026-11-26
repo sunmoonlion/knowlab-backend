@@ -1,6 +1,6 @@
 """迁移 20261028_0018（AI 孵化的一轮与缺口）与孵化在真 PostgreSQL 上：已有的问题照旧挂
 在准专家上；孵化表与约束（一份工作稿同时只有一轮没结束、成了才有交回）；缺口挂在那一轮与
-名称上、同一轮同一个缺口只记一次；发起、取回、接受建议、出一版走真仓储；退回删掉缺口与
+名称上、同一轮同一个缺口只记一次；发起、取回、接受建议、拒绝已退役的固定包；退回删掉缺口与
 孵化表。一次性 schema。"""
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.errors.exceptions import BadRequestError, ConcurrencyConflictError
 from app.application.services.knowbot_incubation import KnowbotIncubationService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
@@ -208,8 +208,8 @@ async def test_incubations_migrate_round_trip_and_run_for_real() -> None:
                 OWNER, str(REQUEST), str(done.id), "s2", action="accept", revision=1
             )
             assert after.decisions["s2"]["state"] == "accepted"
-            draft = await works.publish(OWNER, str(REQUEST))
-            assert draft.mode == "self"
+            with pytest.raises(BadRequestError, match="固定 v2 专家已退役"):
+                await works.publish(OWNER, str(REQUEST))
         async with engine.begin() as c:
             kinds = await _all(
                 c,

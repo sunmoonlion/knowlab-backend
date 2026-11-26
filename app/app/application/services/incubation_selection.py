@@ -319,6 +319,7 @@ class SelectionService:
                 or step.method not in instructions
                 or proposal.patterns
                 or step.inputs
+                or step.deliver_as
                 or step.cases
                 or step.reviews
                 or step.route_input
