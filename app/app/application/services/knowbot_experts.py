@@ -8,7 +8,7 @@
   knowbot_deliveries；不要的在这里记下，不上架。
 - 运营审核门与交 knowmart：都在 knowbot_deliveries（自用轻审能自动查的自动查，公开
   完整审核，自助测的还要平台重跑）。
-- 停用（用户或管理端）：上架了的才停；先停 knowmart 那一版，停成了才记。
+- 停用（管理端）：上架了的才停；先停 knowmart 那一版，停成了才记。
 - 没上架的那几版（用户不要、审核不过）的结局交给 knowmart，详情页写明空号那一版
   （第三节）：有了这样的结局、或交付成功时把整份名单交过去；交不到只记一行，下一次
   再交整份。
@@ -240,18 +240,9 @@ class KnowbotExpertService:
         expert_id: str,
         reason: str,
         stopper: str,
-        *,
-        owner_subject: str | None = None,
     ) -> ExpertRecord:
-        """停用上架了的这一版：先停 knowmart 那一版，停成了才记；有在走的转公开交付一并
-        按撤回处理（停重跑、关授权、标 withdrawn）。
-
-        owner_subject 给了就是用户自己停（只认自己的、交回了的）。
-        """
-        if owner_subject is None:
-            found, request = await self.expert(expert_id)
-        else:
-            found, request = await self.my_expert(owner_subject, expert_id)
+        """运营停用已上架的版本，并撤回进行中的公开交付。"""
+        found, request = await self.expert(expert_id)
         if stage_of(found) != "listed":
             raise _conflict("Only a listed expert is stopped", "expert_state")
         if found.knowmart_knowbot_id:

@@ -664,22 +664,6 @@ class MemoryKnowlab:
 
     # ---------- 补充方法 ----------
 
-    async def listed_experts(
-        self, owner: str
-    ) -> list[tuple[ExpertRecord, str, str | None]]:
-        return [
-            (
-                expert,
-                self.requests[expert.request_id].title,
-                self.drafts[expert.draft_id].manifest.get("name"),
-            )
-            for expert in self.experts.values()
-            if self.requests[expert.request_id].owner_subject == owner
-            and expert.listed_at
-            and not expert.stopped_at
-            and (not expert.needs_return or expert.returned_at)
-        ]
-
     async def method_feedback(self, method_id: uuid.UUID) -> list[str]:
         return [
             r.origin["gap"]

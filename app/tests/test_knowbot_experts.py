@@ -449,19 +449,17 @@ async def test_the_user_may_decline_and_nothing_is_listed(p):
 
 
 @pytest.mark.asyncio
-async def test_stopping_stops_knowmart_first_by_the_user_or_by_us(p):
+async def test_operator_stops_knowmart_before_recording_the_stop(p):
     _, expert, _ = await p.self_expert()
     eid = str(expert.id)
     with pytest.raises(ConcurrencyConflictError):  # 没上架的停不了
         await p.experts.stop(eid, "不要了", "ops-1")
     await p.deliveries.submit(OWNER, eid, SELF, user_token)
-    with pytest.raises(NotFoundError):
-        await p.experts.stop(eid, "不要了", "x", owner_subject="someone-else")
     p.knowmart.fail = True
     with pytest.raises(AppException):  # knowmart 没停成，这边不记
-        await p.experts.stop(eid, "不要了", OWNER, owner_subject=OWNER)
+        await p.experts.stop(eid, "运营停用", "ops-1")
     p.knowmart.fail = False
-    stopped = await p.experts.stop(eid, "不要了", OWNER, owner_subject=OWNER)
+    stopped = await p.experts.stop(eid, "运营停用", "ops-1")
     assert stage_of(stopped) == "stopped"
     assert p.knowmart.stopped == [
         {"owner_subject": OWNER, "knowbot_id": "kb-1", "version": "1"}

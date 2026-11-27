@@ -1321,27 +1321,6 @@ class SqlKnowlabRepository:
 
     # ---------- 在售专家与工坊反馈 ----------
 
-    async def listed_experts(
-        self, owner: str
-    ) -> list[tuple[ExpertRecord, str, str | None]]:
-        rows = await self.session.execute(
-            select(
-                KnowbotExpert,
-                KnowbotRequest.title,
-                KnowbotDraft.manifest["name"].astext,
-            )
-            .join(KnowbotRequest, KnowbotRequest.id == KnowbotExpert.request_id)
-            .join(KnowbotDraft, KnowbotDraft.id == KnowbotExpert.draft_id)
-            .where(
-                KnowbotRequest.owner_subject == owner,
-                KnowbotExpert.listed_at.is_not(None),
-                KnowbotExpert.stopped_at.is_(None),
-                (~KnowbotExpert.needs_return) | KnowbotExpert.returned_at.is_not(None),
-            )
-            .order_by(KnowbotExpert.listed_at.desc(), KnowbotExpert.id)
-        )
-        return [(_expert(expert), title, name) for expert, title, name in rows]
-
     async def method_feedback(self, method_id: uuid.UUID) -> list[str]:
         origin = KnowbotRequest.origin
         return list(

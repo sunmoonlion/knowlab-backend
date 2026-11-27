@@ -232,9 +232,6 @@ async def test_the_whole_life_through_the_api(wired) -> None:
             1,
             1,
         )
-        assert (await c.get("/api/web/v1/method-directory/listed-experts")).json()[
-            "items"
-        ] == []
         ebase = f"/api/admin/v1/knowbot-experts/{expert['expert_id']}"
         assert (await c.post(f"{ebase}/return", headers=ADMIN)).status_code == 200
         await app.dependency_overrides[knowbot_routes.delivery_service]().submit(
@@ -260,18 +257,18 @@ async def test_the_whole_life_through_the_api(wired) -> None:
         assert reviewed.json()["status"] == "approved", reviewed.text
         assert reviewed.json()["delivered_at"] is not None
         assert knowmart.delivered[0]["manifest"] == manifest()
-        [mine] = (await c.get("/api/web/v1/method-directory/listed-experts")).json()[
-            "items"
-        ]
-        assert mine["knowbot_id"] == "kb-1"
+        listed = await c.get("/api/web/v1/method-directory/listed-experts")
+        assert listed.status_code == 404
+        owner_stop = f"/api/web/v1/knowbot-experts/{expert['expert_id']}/stop"
+        assert (
+            await c.post(owner_stop, json={"reason": "不用了"}, headers=WEB)
+        ).status_code == 404
+        assert knowmart.stopped == []
 
-        # 停用：用户自己停，knowmart 那一版跟着停
-        stop = f"/api/web/v1/knowbot-experts/{expert['expert_id']}/stop"
-        stopped = await c.post(stop, json={"reason": "不用了"}, headers=WEB)
+        stopped = await c.post(
+            f"{ebase}/stop", json={"reason": "运营停用"}, headers=ADMIN
+        )
         assert stopped.json()["stage"] == "stopped"
-        assert (await c.get("/api/web/v1/method-directory/listed-experts")).json()[
-            "items"
-        ] == []
         assert knowmart.stopped == [
             {"owner_subject": OWNER, "knowbot_id": "kb-1", "version": "1"}
         ]

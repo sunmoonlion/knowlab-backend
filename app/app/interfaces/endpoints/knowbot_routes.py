@@ -1,11 +1,6 @@
 """创意到专家的接口（SDD 0027、0037）。代码里仍叫 request、draft、knowbot。
 
-web端（用户会话），左边过程「申请 · 孵化 · 测试 · 交付 · 待办」、右边结果
-「专家 · 知识库」（SDD 0046 第六节）：申请（出创意 v1）、改创意（出新版本）、待办（转给
-自己的问题与孵化缺口、请自己审核的准专家、交回等自己定的专家）、专家（交回了的各版：
-要不要、停用）、知识库（凭本人令牌现取 knowbase 里展示给 knowlab 的资料）；名称的
-「孵化」栏里是工作稿（专家孵化方案：存格子、挑数据、导入专家包与 skill、复制自己的、
-预览、出一版、AI 起草与按指令改的每一轮与接受建议）。不是自己的与没有的一样，都是 404。
+用户可在工坊孵化方法，并查看本人展示给 KnowLab 的知识库资料。
 
 管理端（管理员会话，我们的运营；admin、operator 现在能做的一样），左边栏
 「受理 · 孵化 · 测试 · 交付」：每栏的大类列表与「等我们」的数；受理（写受理单）、孵化
@@ -297,40 +292,6 @@ async def _detail(
 
 
 # ---------- web端（用户） ----------
-
-
-@web_router.get("/method-directory/listed-experts")
-async def my_experts(principal: User, board: Board) -> JSONResponse:
-    return _ok(
-        {
-            "items": [
-                {
-                    "expert_id": str(expert.id),
-                    "version": expert.version,
-                    "title": title,
-                    "name": name,
-                    "knowbot_id": expert.knowmart_knowbot_id,
-                    "trial": expert.trial,
-                    "market_status": (expert.delivery or {}).get("version_status"),
-                    "held_reason": (expert.delivery or {}).get("held_reason"),
-                }
-                for expert, title, name in await board.repo.listed_experts(
-                    principal.subject
-                )
-            ]
-        }
-    )
-
-
-@web_router.post("/knowbot-experts/{expert_id}/stop")
-async def stop_mine(
-    principal: User, body: StopIn, experts: Experts, expert_id: ItemId
-) -> JSONResponse:
-    """停用自己上架了的这一版：之后请不了；已经请去在跑的不受影响。"""
-    found = await experts.stop(
-        expert_id, body.reason, principal.subject, owner_subject=principal.subject
-    )
-    return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
 
 
 class AnswerBody(BaseModel):

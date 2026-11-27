@@ -665,10 +665,6 @@ class KnowlabRepository(Protocol):
 
     # ---------- 在售专家与工坊反馈 ----------
 
-    async def listed_experts(
-        self, owner: str
-    ) -> list[tuple[ExpertRecord, str, str | None]]: ...
-
     async def method_feedback(self, method_id: uuid.UUID) -> list[str]: ...
 
     # ---------- 测试中的问题 ----------
