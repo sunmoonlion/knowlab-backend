@@ -92,7 +92,9 @@ async def test_delete_only_selected_draft_and_keep_evidence_and_children(
 
     async with db() as s:
         repo = SqlKnowlabRepository(s)
+        retired = await repo.get_method_workdraft(mid)
+        assert retired.body == retired.sources == retired.data_formats == {}
+        assert retired.htn_state is None and retired.parent_gap is None
         assert (await repo.method_version(mid, 1)).digest == "sha256:" + "a" * 64
-        assert (await repo.get_method_workdraft(mid)).sources
         with pytest.raises(NotFoundError):
             await KnowbotWorkdraftService(repo).get(OWNER, str(anchor.id))

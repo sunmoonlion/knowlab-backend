@@ -32,7 +32,7 @@ async def test_formal_handoff_v2_persists_htn_tree_and_draft_contract():
         gap="缺少原表列提取子工具",
         review_digest="sha256:" + "a" * 64,
         htn_tree={"catalog_digest": "b" * 64, "nodes": [{"id": "n1", "goal": "核对"}]},
-        draft_contract={"archetype": "S1", "title": "原表核对"},
+        draft_contract={"archetype_id": "S1", "title": "原表核对"},
     )
     created, is_new = await svc.submit_from_runtime(OWNER, v2_body, runtime="knowbench")
     assert is_new is True
@@ -40,7 +40,8 @@ async def test_formal_handoff_v2_persists_htn_tree_and_draft_contract():
     assert created.origin["htn_tree"]["catalog_digest"] == "b" * 64
     wd = await repo.get_workdraft(created.id)
     assert wd is not None
-    assert wd.draft_contract == {"archetype": "S1", "title": "原表核对"}
+    assert wd.draft_contract["title"] == "原表核对"
+    assert str(wd.method_id) == created.origin["studio_method_id"]
     assert wd.htn_state == {"tree": v2_body.htn_tree}
 
     # v1 rejects v2-only fields cleanly.
@@ -118,9 +119,7 @@ async def test_selection_catalog_annotates_reachability_from_method_draft_v2(
             method_kind="expert",
         ),
     )
-    anchored = await draft_svc.ensure_runtime_anchor(
-        OWNER, created_draft["method_id"]
-    )
+    anchored = await draft_svc.ensure_runtime_anchor(OWNER, created_draft["method_id"])
     rid = str(anchored.id)
     # Attach expected_domain_id on the V2 draft promise and verify catalog guidance.
     wd = await repo.get_method_workdraft(

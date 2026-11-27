@@ -13,7 +13,7 @@ def slot():
         "description": "A dimensionless value",
         "schema": {"type": "number"},
         "required": True,
-        "meaning": {"unit": "dimensionless"},
+        "meaning": {"unit": "dimensionless", "domain_id": "core.number.value"},
         "on_missing": "pause",
     }
 

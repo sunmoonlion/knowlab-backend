@@ -230,7 +230,23 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     rid = str(request.id)
     runner = FakeIncubator()
     rounds = KnowbotIncubationService(repo, runner, runtime)
-    record = await rounds.start(OWNER, rid, action="draft", selection_revision=0)
+    from app.application.services.method_drafts import HandoffSeedIn, MethodDraftService
+    from app.domain.knowbots.formal_method import MethodDraftV2
+
+    mid = uuid4()
+    await MethodDraftService(repo).create_from_handoff(
+        OWNER,
+        HandoffSeedIn(
+            title="核验",
+            goal="核验",
+            draft_contract=MethodDraftV2(
+                title="核验", purpose="核验", method_kind="expert"
+            ),
+        ),
+        method_id=mid,
+        request_id=request.id,
+    )
+    record = await rounds.start(OWNER, rid, action="draft", selection_revision=1)
     pin = record.seed["selection_context"]["methods"]["m1"]
     assert pin["reference"]["digest"] == version.digest
     assert pin["inputs"]["value"]["schema"] == {"type": "number"}
@@ -307,8 +323,8 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     from app.interfaces.endpoints.knowbot_routes import ConfirmSelection
 
     reviewed = ConfirmSelection(
-        revision=0,
-        method_id=uuid4(),
+        revision=1,
+        method_id=mid,
         cases={},
         template=TEMPLATE,
         step_text={"read": "读取", "check": "复查"},
@@ -317,16 +333,15 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     saved = await SelectionService(repo, runtime).confirm(
         OWNER, request, record, reviewed
     )
-    procedure = saved.body["formal_method"]["definition"]["procedure"]
+    procedure = saved.draft_contract["procedure"]
     assert procedure["steps"][-1]["depends_on"] == ([] if independent else ["read"])
     if independent:
         assert {k: v["step"] for k, v in procedure["exports"].items()} == {
             "evidence": "read",
             "difference": "check",
         }
-    assert (await methods.workdrafts.plan_receipt(saved))[
-        "saved_revision"
-    ] == saved.revision
+    receipt = (await repo.get_incubation(record.id)).decisions["selection"]
+    assert receipt["revision"] == saved.revision and receipt["method_id"] == str(mid)
 
 
 def test_p5_secondary_direct_candidate_must_be_executable_before_confirmation():

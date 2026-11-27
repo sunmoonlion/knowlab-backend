@@ -7,11 +7,9 @@
 from __future__ import annotations
 
 import httpx
-import pytest
 
-from app.application.errors.exceptions import ConcurrencyConflictError
-from app.application.services.knowbot_board import KnowbotBoard
-from app.domain.knowbots.drafts import RuntimeIncubationIn
+from app.application.services.knowbot_service import KnowbotCreationService
+from app.domain.knowbots.method_demand import FormalHandoff
 from app.infrastructure.security.relation_auth import (
     ServiceCaller,
     relation_bindings,
@@ -19,99 +17,10 @@ from app.infrastructure.security.relation_auth import (
 )
 from app.interfaces.http.internal import incubation_requests
 from app.main import app
-from tests.knowbot_fakes import OWNER, manifest, own_computer
-from tests.test_knowbot_incubation_service import Wired
+from tests.knowbot_fakes import OWNER
+from tests.test_formal_method_service import Repository, Runtime
 
 QUESTION = "每季度按固定口径对比几家电池公司的毛利率并预测下季"
-ANSWER = "（模型直接答的）宁德时代毛利率约 22%……"
-
-
-def body(**over) -> RuntimeIncubationIn:  # type: ignore[no-untyped-def]
-    return RuntimeIncubationIn.model_validate(
-        {
-            "owner_subject": OWNER,
-            "question": QUESTION,
-            "project_id": "p-1",
-            "task_id": "t-1",
-            "key": "knowbench:find:0001",
-            "reference_answer": ANSWER,
-        }
-        | over
-    )
-
-
-async def test_a_question_request_is_made_once_for_the_user_only() -> None:
-    w = Wired()
-    found, created = await w.svc.submit_from_runtime(OWNER, body(), runtime="knowbench")
-    assert created
-    assert (found.idea, found.cases, found.consent_version) == (
-        {"kind": "question", "question": QUESTION},
-        [],
-        0,
-    )
-    assert found.title == QUESTION[:80]
-    assert found.incubation_mode == "self"
-    assert w.repo.acceptances[(found.id, 1)].kind == "self"  # 自己来、不过平台
-    assert found.origin == {
-        "app": "knowbench",
-        "project_id": "p-1",
-        "task_id": "t-1",
-        "key": "knowbench:find:0001",
-    }
-    assert found.reference_answer == ANSWER
-    again, created = await w.svc.submit_from_runtime(OWNER, body(), runtime="knowbench")
-    assert (again.id, created) == (found.id, False)  # 同一个钥匙只建一份
-    from app.application.errors.exceptions import BadRequestError
-
-    with pytest.raises(BadRequestError) as empty:
-        await w.svc.submit_from_runtime(
-            OWNER, body(question="   "), runtime="knowbench"
-        )
-    assert empty.value.code == "question_empty"
-    # 运营看不到（自己来的名称）
-    assert await KnowbotBoard(w.repo).lives(operator=True) == []
-
-
-async def test_the_reference_goes_with_the_ai_round_and_tests_need_cases() -> None:
-    w = Wired()
-    own_computer(w.repo)
-    found, _ = await w.svc.submit_from_runtime(OWNER, body(), runtime="knowbench")
-    await w.inc.start(OWNER, str(found.id), action="draft")
-    sent = w.incubator.started[0]
-    assert sent.seed.kind == "question" and sent.reference == ANSWER
-    # 没补用例的那一版出的准专家不能测
-    draft = await w.repo.create_draft(
-        request_id=found.id,
-        request_version=1,
-        revision=1,
-        version="1",
-        manifest=manifest(),
-        mode="self",
-        rules_reviewed_by="system:workdraft",
-    )
-    with pytest.raises(ConcurrencyConflictError) as raised:
-        await w.svc.start_self_test(
-            OWNER,
-            str(draft.id),
-            environment_id="11111111-1111-4111-8111-111111111111",
-            workspace_root="D:/work",
-            budget_limit="5",
-            timeout_seconds=600,
-        )
-    assert raised.value.code == "cases_missing"
-
-
-async def test_without_a_reference_the_round_carries_none() -> None:
-    w = Wired()
-    own_computer(w.repo)
-    found, _ = await w.svc.submit_from_runtime(
-        OWNER,
-        body(reference_answer=None, key="knowbench:find:0002"),
-        runtime="knowbench",
-    )
-    await w.inc.start(OWNER, str(found.id), action="draft")
-    assert w.incubator.started[0].reference is None
-    assert "reference" not in w.incubator.started[0].model_dump(mode="json")
 
 
 def test_only_knowbench_counts_as_a_caller() -> None:
@@ -135,20 +44,37 @@ def test_only_knowbench_counts_as_a_caller() -> None:
 
 
 async def test_the_internal_route_makes_201_then_200() -> None:
-    w = Wired()
-    app.dependency_overrides[incubation_requests.service] = lambda: w.svc
+    service = KnowbotCreationService(Repository(), Runtime())
+    app.dependency_overrides[incubation_requests.service] = lambda: service
     app.dependency_overrides[require_incubation_request_service] = lambda: (
         ServiceCaller(caller="knowbench", principal=None)  # type: ignore[arg-type]
     )
     url = "/api/internal/v1/knowlab/incubation-requests"
-    payload = body().model_dump(mode="json")
+    from uuid import uuid4
+
+    payload = FormalHandoff(
+        contract="knowlab/formal-handoff/v2",
+        owner_subject=OWNER,
+        question=QUESTION,
+        project_id=str(uuid4()),
+        task_id=str(uuid4()),
+        key="knowbench:receipt:one",
+        gap="核对口径",
+        review_digest="sha256:" + "a" * 64,
+    ).model_dump(mode="json")
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
         ) as c:
+            old = await c.post(
+                url, json={**payload, "contract": "knowlab/formal-handoff/v1"}
+            )
+            assert old.status_code == 422
+            assert not service.repo.requests
             first = await c.post(url, json=payload)
             assert (first.status_code, first.json()["created"]) == (201, True)
             again = await c.post(url, json=payload)
+            assert again.json()["studio_method_id"] == first.json()["studio_method_id"]
             assert (again.status_code, again.json()["request_id"]) == (
                 200,
                 first.json()["request_id"],

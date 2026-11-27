@@ -54,19 +54,16 @@ async def test_manual_release_roles_csrf_owner_and_exact_package(db, monkeypatch
                 transport=httpx.ASGITransport(app=app), base_url="http://testserver"
             ) as client:
                 url = f"/api/web/v1/knowbot-drafts/{draft.id}/manual-release"
-                data = payload.model_dump(mode="json")
-                assert (
-                    await client.post(url, json=data, headers=WEB)
-                ).status_code == 401
+                from tests.knowbot_fakes import OWNER
+
                 client.cookies.set(WEB_SID, "member")
-                assert (await client.post(url, json=data)).status_code == 403
-                forged = data | {"approved_by": "admin"}
                 assert (
-                    await client.post(url, json=forged, headers=WEB)
-                ).status_code == 422
-                response = await client.post(url, json=data, headers=WEB)
-                assert response.status_code == 201, response.text
-                identifier = response.json()["id"]
+                    await client.post(
+                        url, json=payload.model_dump(mode="json"), headers=WEB
+                    )
+                ).status_code == 404
+                prepared = await manual(session).request(OWNER, str(draft.id), payload)
+                identifier = prepared.id
                 admin_url = f"/api/admin/v1/knowbot-manual-releases/{identifier}"
                 assert (await client.get(admin_url)).status_code == 401
                 client.cookies.set(ADMIN_SID, "admin")

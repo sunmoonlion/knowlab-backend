@@ -42,7 +42,10 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.knowbots.formal_method import CollaborationRoles, Orchestration
-from app.domain.knowbots.formal_method_admission import FormalMethodDraft
+from app.domain.knowbots.formal_method_admission import (
+    FormalMethodDraft,
+    FormalMethodSource,
+)
 from app.domain.knowbots.formal_method_plan import review_group
 from app.domain.knowbots.managed_capabilities_generated import MethodAccess
 
@@ -384,7 +387,16 @@ class MethodTemplate(Strict):
             )
 
 
+class StudioBinding(Strict):
+    source: FormalMethodSource | None
+    allowed_callers: tuple[Literal["host", "model"], ...]
+
+
 class WorkdraftBody(Strict):
+    studio_binding: StudioBinding | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+
     method_template: MethodTemplate | None = Field(
         default=None, exclude_if=lambda value: value is None
     )

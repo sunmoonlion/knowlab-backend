@@ -224,7 +224,7 @@ class SelectionService:
                         tuple(d["expected_domain_id"] for d in target_deliverables),
                     )
                     catalog = {
-                        alias: cand.model_dump(mode="json")
+                        alias: cand.model_dump(mode="json", by_alias=True)
                         for alias, cand in annotated.items()
                     }
             except ValueError:
@@ -282,6 +282,7 @@ class SelectionService:
             body.step_text,
         )
         async with self.repo.transaction():
+            await self.repo.lock_method(body.method_id)
             await self.repo.lock_request(request.id)
             latest = await self.repo.get_request(request.id)
             if latest is None or latest.latest_version != record.request_version:
@@ -289,26 +290,37 @@ class SelectionService:
                     "Idea revised", code="workdraft_revision"
                 )
             current = await workdrafts.locked(request, body.revision)
-            revision = body.revision
-            if not current.body.get("method_template"):
-                with_template = await workdrafts.save(
-                    owner,
-                    request_id,
-                    revision=revision,
-                    edits=[("method_template", body.template.model_dump(mode="json"))],
+            if current.draft_contract is None:
+                raise BadRequestError(
+                    "Select a studio draft", code="method_draft_not_found"
                 )
-                revision = with_template.revision
-            found = await workdrafts.save(
-                owner,
-                request_id,
-                revision=revision,
-                adopt_plan=draft.definition.procedure.kind == "orchestration",
-                confirm_brief=body.confirm_brief,
-                edits=[
-                    ("formal_method", draft.model_dump(mode="json", by_alias=True)),
-                    ("collaboration", roles),
-                ],
+            if current.method_id != body.method_id:
+                raise ConcurrencyConflictError(
+                    "Different studio method", code="workdraft_revision"
+                )
+            from app.application.services.method_drafts import (
+                MethodDraftService,
+                PatchMethodDraftIn,
             )
+
+            procedure = draft.definition.procedure.model_dump(
+                mode="json", by_alias=True
+            )
+            if roles and procedure["kind"] == "orchestration":
+                procedure["collaboration"] = roles
+            await MethodDraftService(self.repo).patch(
+                owner,
+                str(body.method_id),
+                PatchMethodDraftIn(
+                    revision=body.revision,
+                    elements={"procedure": procedure},
+                    source=draft.source,
+                    provenance_kind="accept",
+                    suggestion_ref=f"selection:{record.id}",
+                ),
+            )
+            found = await self.repo.get_workdraft(request.id)
+            assert found is not None
             await self.repo.update_incubation(
                 record.id,
                 decisions={

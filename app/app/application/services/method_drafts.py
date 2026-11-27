@@ -119,9 +119,7 @@ class BindGapResolutionIn(BaseModel):
 class HandoffSeedIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    contract: Literal["knowbench/formal-handoff/v1", "knowbench/formal-handoff/v2"] = (
-        "knowbench/formal-handoff/v2"
-    )
+    contract: Literal["knowbench/formal-handoff/v2"] = "knowbench/formal-handoff/v2"
     title: str = Field(min_length=1, max_length=200)
     goal: str = Field(min_length=1, max_length=4000)
     archetype: ArchetypeId = "S1"
@@ -232,7 +230,7 @@ class MethodDraftService:
                 raise ConcurrencyConflictError(
                     "Method draft already exists", code="workdraft_revision"
                 )
-            initial_body = self._sync_legacy_body(
+            initial_body = self._project_runtime_body(
                 empty_body(),
                 draft,
                 source=body.source,
@@ -265,9 +263,16 @@ class MethodDraftService:
         return await self._view(saved, draft)
 
     async def create_from_handoff(
-        self, owner: str, body: HandoffSeedIn
+        self,
+        owner: str,
+        body: HandoffSeedIn,
+        *,
+        method_id: uuid.UUID | None = None,
+        request_id: uuid.UUID | None = None,
+        source: FormalMethodSource | None = None,
+        allowed_callers: tuple[Literal["host", "model"], ...] = ("host",),
     ) -> dict[str, Any]:
-        mid = uuid.uuid4()
+        mid = method_id or uuid.uuid4()
         if body.draft_contract is not None:
             draft = body.draft_contract
         else:
@@ -283,13 +288,25 @@ class MethodDraftService:
         suggestion_ref = f"handoff:{digest_hex}"
         async with self.repo.transaction():
             await self.repo.lock_method(mid)
-            await self.repo.create_method(mid, owner)
-            initial_body = self._sync_legacy_body(
-                empty_body(), draft, source=None, allowed_callers=("host",)
+            prior_owner = await self.repo.method_owner(mid)
+            if prior_owner is None:
+                await self.repo.create_method(mid, owner)
+            elif prior_owner != owner:
+                raise NotFoundError("No such method", code="method_not_found")
+            else:
+                current = await self.repo.get_method_workdraft(mid, for_update=True)
+                if current and current.draft_contract is not None:
+                    # Feedback must never replace the author’s in-progress edits.
+                    return await self._view(
+                        current, MethodDraftV2.model_validate(current.draft_contract)
+                    )
+            initial_body = self._project_runtime_body(
+                empty_body(), draft, source=source, allowed_callers=allowed_callers
             )
             current = await self.repo.create_method_workdraft(
                 method_id=mid,
                 owner_subject=owner,
+                request_id=request_id,
                 body=initial_body,
                 draft_contract=draft.model_dump(mode="json", by_alias=True),
                 htn_state=body.htn_state,
@@ -298,8 +315,8 @@ class MethodDraftService:
                 current,
                 owner,
                 draft,
-                source=None,
-                allowed_callers=("host",),
+                source=source,
+                allowed_callers=allowed_callers,
                 kind="accept",
                 suggestion_ref=suggestion_ref,
             )
@@ -373,7 +390,11 @@ class MethodDraftService:
                     code="formal_method_invalid",
                 ) from exc
 
-            existing_fm = (current.body or {}).get("formal_method") or {}
+            existing_fm = (
+                current.body.get("formal_method")
+                or current.body.get("studio_binding")
+                or {}
+            )
             source_obj = (
                 body.source
                 if body.source is not None
@@ -388,7 +409,7 @@ class MethodDraftService:
                 if body.allowed_callers is not None
                 else tuple(existing_fm.get("allowed_callers") or ("host",))
             )
-            next_body = self._sync_legacy_body(
+            next_body = self._project_runtime_body(
                 current.body, draft, source=source_obj, allowed_callers=callers
             )
             sources = await self._record_provenance(
@@ -547,7 +568,7 @@ class MethodDraftService:
             }
             await self.repo.lock_method(child_mid)
             await self.repo.create_method(child_mid, owner)
-            initial_body = self._sync_legacy_body(
+            initial_body = self._project_runtime_body(
                 empty_body(), child_draft, source=None, allowed_callers=("host",)
             )
             child_row = await self.repo.create_method_workdraft(
@@ -630,14 +651,18 @@ class MethodDraftService:
             )
             next_draft = parent_draft.model_copy(update={"procedure": next_proc})
             project_contract_state(next_draft)
-            existing_fm = (parent.body or {}).get("formal_method") or {}
+            existing_fm = (
+                parent.body.get("formal_method")
+                or parent.body.get("studio_binding")
+                or {}
+            )
             source_obj = (
                 FormalMethodSource.model_validate(existing_fm["source"])
                 if existing_fm.get("source")
                 else None
             )
             callers = tuple(existing_fm.get("allowed_callers") or ("host",))
-            next_body = self._sync_legacy_body(
+            next_body = self._project_runtime_body(
                 parent.body, next_draft, source=source_obj, allowed_callers=callers
             )
             sources = await self._record_provenance(
@@ -693,7 +718,7 @@ class MethodDraftService:
         return problems
 
     def _element_cells(
-        self, legacy_body: dict[str, Any] | None, draft: MethodDraftV2
+        self, runtime_body: dict[str, Any] | None, draft: MethodDraftV2
     ) -> dict[str, str]:
         dumped = draft.model_dump(mode="json", by_alias=True)
         cells = {
@@ -711,9 +736,11 @@ class MethodDraftService:
             "element:validation_rules": _canonical_json(dumped["validation_rules"]),
             "element:approval_rules": _canonical_json(dumped["approval_rules"]),
         }
-        fm = (legacy_body or {}).get("formal_method")
+        fm = (runtime_body or {}).get("formal_method")
         if isinstance(fm, dict):
             cells["formal_method"] = _canonical_json(fm)
+        if binding := (runtime_body or {}).get("studio_binding"):
+            cells["studio_binding"] = _canonical_json(binding)
         return cells
 
     async def _record_provenance(
@@ -727,7 +754,7 @@ class MethodDraftService:
         kind: Literal["edit", "accept", "copy"],
         suggestion_ref: str | None,
     ) -> dict[str, Any]:
-        next_body = self._sync_legacy_body(
+        next_body = self._project_runtime_body(
             current.body, draft, source=source, allowed_callers=allowed_callers
         )
         after_cells = self._element_cells(next_body, draft)
@@ -780,7 +807,7 @@ class MethodDraftService:
         return sources
 
     @staticmethod
-    def _sync_legacy_body(
+    def _project_runtime_body(
         base_body: dict[str, Any] | None,
         draft: MethodDraftV2,
         *,
@@ -796,10 +823,14 @@ class MethodDraftService:
                 source=source,
                 allowed_callers=allowed_callers,
             )
+            doc.pop("studio_binding", None)
             doc["formal_method"] = fm.model_dump(mode="json", by_alias=True)
         except (ValidationError, ValueError):
-            # Incomplete draft (e.g. unresolved gap) stays in draft_contract.
-            pass
+            doc.pop("formal_method", None)
+            doc["studio_binding"] = {
+                "source": source.model_dump(mode="json") if source else None,
+                "allowed_callers": list(allowed_callers),
+            }
         return doc
 
     async def _view(self, row: WorkdraftRecord, draft: MethodDraftV2) -> dict[str, Any]:
@@ -816,6 +847,7 @@ class MethodDraftService:
         except (ValidationError, ValueError):
             pass
         fm = (row.body or {}).get("formal_method") or {}
+        binding = fm or row.body.get("studio_binding") or {}
         saved_draft = None
         if fm and definition_digest:
             try:
@@ -834,8 +866,9 @@ class MethodDraftService:
             "public_contract": public_view,
             "definition_digest": definition_digest,
             "formal_method": saved_draft,
-            "source": fm.get("source"),
-            "allowed_callers": fm.get("allowed_callers", ["host"]),
+            "source": binding.get("source"),
+            "allowed_callers": binding.get("allowed_callers", ["host"]),
+            "feedback": await self.repo.method_feedback(row.method_id),
             "htn_state": row.htn_state,
             "parent_gap": row.parent_gap,
             "sources": row.sources,

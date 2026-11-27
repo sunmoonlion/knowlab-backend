@@ -177,9 +177,7 @@ def operator_view(life: Life, now: datetime) -> Life | None:
     return replace(
         life,
         # 来源、参考回答只给孵化授权在效的平台孵化（纯自助的作者的内容运营看不到）
-        request=life.request
-        if incubating
-        else replace(life.request, origin=None, reference_answer=None),
+        request=life.request if incubating else replace(life.request, origin=None),
         versions=life.versions if incubating else (),
         acceptances=(
             {v: a for v, a in life.acceptances.items() if a.kind == "formal"}
@@ -347,35 +345,12 @@ class KnowbotBoard:
             if d.id in retired_drafts
             and d.request_version == versions_by_request[d.request_id]
         }
-        last_draft_at = {}
-        for draft in drafts:
-            if draft.created_at and draft.request_id in retired_request_ids:
-                last_draft_at[draft.request_id] = max(
-                    last_draft_at.get(draft.request_id, draft.created_at),
-                    draft.created_at,
-                )
         drafts = [d for d in drafts if d.id not in retired_drafts]
         surviving_draft_requests = {d.request_id for d in drafts}
         retired_only_requests: set[uuid.UUID] = set()
         for rid in retired_request_ids - surviving_draft_requests:
             wd = await self.repo.get_workdraft(rid)
-            body = (wd.body if wd else None) or {}
-            if not (
-                wd is not None
-                and (
-                    wd.draft_contract is not None
-                    or (
-                        wd.updated_at
-                        and rid in last_draft_at
-                        and wd.updated_at > last_draft_at[rid]
-                    )
-                    or body.get("formal_method")
-                    or body.get("planning")
-                    or body.get("steps")
-                    or body.get("method_template")
-                    or body.get("method_refs")
-                )
-            ):
+            if wd is None or wd.draft_contract is None:
                 retired_only_requests.add(rid)
         if retired_only_requests:
             requests = [r for r in requests if r.id not in retired_only_requests]

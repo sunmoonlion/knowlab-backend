@@ -954,7 +954,6 @@ async def test_operators_do_not_see_a_self_service_authors_origin(p):
     p.repo.requests[request.id] = replace(
         p.repo.requests[request.id],
         origin={"app": "knowbench", "task_id": "t-1"},
-        reference_answer="我的模型直接答的",
     )
     for g in list(p.repo.grants.values()):
         p.repo.grants[g.id] = replace(g, status="revoked")
@@ -966,7 +965,7 @@ async def test_operators_do_not_see_a_self_service_authors_origin(p):
     )
     board = KnowbotBoard(p.repo, now=lambda: NOW)
     [life] = await board.lives(operator=True)
-    assert (life.request.origin, life.request.reference_answer) == (None, None)
+    assert life.request.origin is None
 
 
 @pytest.mark.asyncio

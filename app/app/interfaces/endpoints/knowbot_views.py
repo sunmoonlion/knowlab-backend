@@ -11,7 +11,6 @@ from typing import Any
 
 from app.application.ports.knowbots import (
     AcceptanceRecord,
-    AmendmentRecord,
     DeliveryRecord,
     DraftRecord,
     ExpertRecord,
@@ -331,25 +330,6 @@ def life_view(life: Life, *, admin: bool) -> dict[str, Any]:
     }
     if admin:
         view["owner_subject"] = request.owner_subject
-    return view
-
-
-def amendment_view(
-    item: tuple[AmendmentRecord, str, int | None], *, admin: bool
-) -> dict[str, Any]:
-    """旧的补充方法（SDD 0035，已取消）：只读，留作出处可查。"""
-    amendment, status, revision = item
-    view: dict[str, Any] = {
-        "amendment_id": str(amendment.id),
-        "text": amendment.text,
-        "created_at": iso(amendment.created_at),
-        "status": status,
-        "used_in_revision": revision,
-        "declined_reason": amendment.declined_reason,
-        "declined_at": iso(amendment.declined_at),
-    }
-    if admin:
-        view["declined_by"] = amendment.declined_by
     return view
 
 

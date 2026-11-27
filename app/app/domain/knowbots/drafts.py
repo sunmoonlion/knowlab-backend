@@ -9,16 +9,13 @@ SDD 0027、0037。
 版本号「x.y」：x 在建稿时定为「已有专家的最大版本号 + 1」，测的是哪份清单，上架的就是
 哪份（摘要要对得上）；y 是修订号，在一个名称里递增。
 
-补充方法（SDD 0035）已取消（SDD 0037 第三节）：旧稿的规则出处里 `ref` 以
-`amendment:<补充 id>` 开头的照旧可查，新稿不许再引。
+
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import re
-from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -42,12 +39,6 @@ TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
 MANIFEST_SCHEMA = "knowbot-manifest/v2"
 DYNAMIC_MANIFEST_SCHEMA = "knowbot-manifest/v3"
 RULE_SOURCES = frozenset({"user_text", "user_confirmed"})
-
-
-AMENDMENT_PREFIX = "amendment:"
-_AMENDMENT_REF = re.compile(
-    r"^amendment:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f-])"
-)
 
 
 def case_question_digest(case: dict[str, Any]) -> str:
@@ -135,19 +126,6 @@ OUTPUTS_KEEP_DAYS = 90
 OUTPUTS_EXPIRED = (
     "已按期清除：这位准专家上架或被下一位取代 90 天后，成稿与交回物不再保留"
 )
-
-
-class RuntimeIncubationIn(Strict):
-    """knowbench 替用户提的孵化请求（请专家方案设计第 4.9 节第 6 条）：那句问题、
-    从哪个项目哪件
-    委托来、幂等钥匙；用户先让自己的模型直接答过的，附那份回答（只算提议）。"""
-
-    owner_subject: str = Field(min_length=1, max_length=512)
-    question: str = Field(min_length=1, max_length=2000)
-    project_id: str = Field(min_length=1, max_length=64)
-    task_id: str | None = Field(default=None, min_length=1, max_length=64)
-    key: str = Field(min_length=8, max_length=128)
-    reference_answer: str | None = Field(default=None, max_length=20000)
 
 
 class KnowbotRequestIn(Strict):
@@ -254,32 +232,3 @@ def draft_manifest_problems(
     if "bindings" in doc:
         problems.append("bindings are frozen at delivery, not written in a draft")
     return problems
-
-
-def amendment_refs(manifest: object) -> tuple[set[str], list[str]]:
-    """清单的规则出处引了哪几条补充（id），以及写坏了的 `amendment:` 引用。"""
-    found: set[str] = set()
-    broken: list[str] = []
-    sources = manifest.get("rule_sources") if isinstance(manifest, dict) else None
-    for source in sources if isinstance(sources, list) else []:
-        ref = source.get("ref") if isinstance(source, dict) else None
-        if not isinstance(ref, str) or not ref.startswith(AMENDMENT_PREFIX):
-            continue
-        match = _AMENDMENT_REF.match(ref)
-        if match and source.get("source") == "user_text":
-            found.add(match.group(1))
-        else:
-            broken.append(ref[:80])
-    return found, broken
-
-
-def amendment_status(
-    amendment_id: str, declined: bool, drafts: Iterable[tuple[int, object]]
-) -> tuple[str, int | None]:
-    """（open / used / declined，用进的最新一稿的修订号）。drafts：（修订号，清单）。"""
-    if declined:
-        return "declined", None
-    used = [
-        rev for rev, manifest in drafts if amendment_id in amendment_refs(manifest)[0]
-    ]
-    return ("used", max(used)) if used else ("open", None)

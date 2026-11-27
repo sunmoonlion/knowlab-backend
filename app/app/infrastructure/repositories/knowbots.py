@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.errors.exceptions import ConcurrencyConflictError, NotFoundError
 from app.application.ports.knowbots import (
     AcceptanceRecord,
-    AmendmentRecord,
     DeliveryRecord,
     DraftRecord,
     ExpertRecord,
@@ -41,7 +40,6 @@ from app.domain.knowbots.drafts import MANIFEST_SCHEMA, OUTPUTS_EXPIRED
 from app.infrastructure.models.knowbots import (
     FormalTestSuite,
     KnowbotAcceptance,
-    KnowbotAmendment,
     KnowbotDelivery,
     KnowbotDraft,
     KnowbotExpert,
@@ -208,7 +206,6 @@ def _request(row: KnowbotRequest) -> RequestRecord:
         case_answers=row.case_answers or {},
         incubation_mode=row.incubation_mode,
         origin=row.origin,
-        reference_answer=row.reference_answer,
         directory_sent=row.directory_sent,
     )
 
@@ -336,19 +333,6 @@ def _expert(row: KnowbotExpert) -> ExpertRecord:
     )
 
 
-def _amendment(row: KnowbotAmendment) -> AmendmentRecord:
-    return AmendmentRecord(
-        id=row.id,
-        request_id=row.request_id,
-        owner_subject=row.owner_subject,
-        text=row.text,
-        created_at=row.created_at,
-        declined_reason=row.declined_reason,
-        declined_by=row.declined_by,
-        declined_at=row.declined_at,
-    )
-
-
 QUESTION_FIELDS = frozenset(
     {
         "route",
@@ -451,25 +435,11 @@ def _visible_requests():
         KnowbotDraft.request_version == KnowbotRequest.latest_version,
     ).exists()
     other_draft = draft.where(schema.is_distinct_from(MANIFEST_SCHEMA)).exists()
-    last_draft_at = (
-        select(func.max(KnowbotDraft.created_at))
-        .where(KnowbotDraft.request_id == KnowbotRequest.id)
-        .correlate(KnowbotRequest)
-        .scalar_subquery()
-    )
     current_work = (
         select(KnowbotWorkdraft.id)
         .where(
             KnowbotWorkdraft.request_id == KnowbotRequest.id,
-            or_(
-                KnowbotWorkdraft.updated_at > last_draft_at,
-                func.jsonb_typeof(KnowbotWorkdraft.draft_contract) == "object",
-                KnowbotWorkdraft.body["formal_method"].astext.is_not(None),
-                KnowbotWorkdraft.body["method_template"].astext.is_not(None),
-                KnowbotWorkdraft.body["planning"].astext.is_not(None),
-                KnowbotWorkdraft.body["steps"].astext != "[]",
-                KnowbotWorkdraft.body["method_refs"].astext != "{}",
-            ),
+            func.jsonb_typeof(KnowbotWorkdraft.draft_contract) == "object",
         )
         .exists()
     )
@@ -506,7 +476,6 @@ class SqlKnowlabRepository:
         cases: list[dict[str, Any]],
         consent_version: int = 1,
         origin: dict[str, Any] | None = None,
-        reference_answer: str | None = None,
     ) -> RequestRecord:
         row = KnowbotRequest(
             id=uuid.uuid4(),
@@ -519,7 +488,6 @@ class SqlKnowlabRepository:
             latest_version=1,
             case_answers={},
             origin=origin,
-            reference_answer=reference_answer,
         )
         self.session.add(row)
         await self.session.flush()
@@ -1351,50 +1319,41 @@ class SqlKnowlabRepository:
             .values(case_answers=answers)
         )
 
-    # ---------- 补充方法 ----------
-    async def create_amendment(
-        self, *, request_id: uuid.UUID, owner_subject: str, text: str
-    ) -> AmendmentRecord:
-        row = KnowbotAmendment(
-            id=uuid.uuid4(),
-            request_id=request_id,
-            owner_subject=owner_subject,
-            text=text,
-        )
-        self.session.add(row)
-        await self.session.flush()
-        await self.session.refresh(row)
-        return _amendment(row)
+    # ---------- 在售专家与工坊反馈 ----------
 
-    async def list_amendments(self, request_id: uuid.UUID) -> Sequence[AmendmentRecord]:
-        rows = (
-            await self.session.execute(
-                select(KnowbotAmendment)
-                .where(KnowbotAmendment.request_id == request_id)
-                .order_by(KnowbotAmendment.created_at, KnowbotAmendment.id)
-                .execution_options(populate_existing=True)
+    async def listed_experts(
+        self, owner: str
+    ) -> list[tuple[ExpertRecord, str, str | None]]:
+        rows = await self.session.execute(
+            select(
+                KnowbotExpert,
+                KnowbotRequest.title,
+                KnowbotDraft.manifest["name"].astext,
             )
-        ).scalars()
-        return [_amendment(r) for r in rows]
+            .join(KnowbotRequest, KnowbotRequest.id == KnowbotExpert.request_id)
+            .join(KnowbotDraft, KnowbotDraft.id == KnowbotExpert.draft_id)
+            .where(
+                KnowbotRequest.owner_subject == owner,
+                KnowbotExpert.listed_at.is_not(None),
+                KnowbotExpert.stopped_at.is_(None),
+                (~KnowbotExpert.needs_return) | KnowbotExpert.returned_at.is_not(None),
+            )
+            .order_by(KnowbotExpert.listed_at.desc(), KnowbotExpert.id)
+        )
+        return [(_expert(expert), title, name) for expert, title, name in rows]
 
-    async def get_amendment(
-        self, amendment_id: uuid.UUID, *, for_update: bool = False
-    ) -> AmendmentRecord | None:
-        query = select(KnowbotAmendment).where(KnowbotAmendment.id == amendment_id)
-        if for_update:
-            query = query.with_for_update()
-        row = (
-            await self.session.execute(query.execution_options(populate_existing=True))
-        ).scalar_one_or_none()
-        return None if row is None else _amendment(row)
-
-    async def decline_amendment(
-        self, amendment_id: uuid.UUID, *, reason: str, by: str, at: Any
-    ) -> None:
-        await self.session.execute(
-            update(KnowbotAmendment)
-            .where(KnowbotAmendment.id == amendment_id)
-            .values(declined_reason=reason, declined_by=by, declined_at=at)
+    async def method_feedback(self, method_id: uuid.UUID) -> list[str]:
+        origin = KnowbotRequest.origin
+        return list(
+            await self.session.scalars(
+                select(origin["gap"].astext)
+                .where(
+                    origin["handoff_contract"].astext == "knowlab/formal-handoff/v2",
+                    origin["method_reference"]["method_id"].astext == str(method_id),
+                    origin["handoff"].astext.in_(("user_demand", "author_revision")),
+                )
+                .order_by(KnowbotRequest.created_at, KnowbotRequest.id)
+            )
         )
 
     # ---------- 测试中的问题 ----------
@@ -1694,11 +1653,19 @@ class SqlKnowlabRepository:
         return _workdraft(row)
 
     async def retire_method_workdraft(self, current: WorkdraftRecord) -> None:
-        # Retain the row referenced by provenance, trial receipts and frozen versions.
+        # Keep the identity referenced by frozen versions and trial receipts.
         await self.session.execute(
             update(KnowbotWorkdraft)
             .where(KnowbotWorkdraft.id == current.id)
-            .values(draft_contract=null(), revision=current.revision + 1)
+            .values(
+                body={},
+                sources={},
+                data_formats={},
+                htn_state=null(),
+                parent_gap=null(),
+                draft_contract=null(),
+                revision=current.revision + 1,
+            )
         )
         # The children remain editable; their gap no longer has a working parent.
         await self.session.execute(

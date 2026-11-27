@@ -15,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.bootstrap.knowbots import knowbot_service
-from app.domain.knowbots.drafts import RuntimeIncubationIn
-from app.domain.knowbots.method_demand import FormalHandoff, RuntimeIncubationV2
+from app.domain.knowbots.method_demand import FormalHandoff
 from app.infrastructure.security.relation_auth import (
     ServiceCaller,
     require_incubation_request_service,
@@ -41,7 +40,7 @@ def service(
 @router.post("/incubation-requests")
 async def incubation_request(
     caller: Annotated[ServiceCaller, Depends(require_incubation_request_service)],
-    body: FormalHandoff | RuntimeIncubationV2 | RuntimeIncubationIn,
+    body: FormalHandoff,
     svc: Annotated[KnowbotCreationService, Depends(service)],
 ) -> JSONResponse:
     """以这个用户的名义建一份「问题」申请（自己来，只有他看得到，建了不花钱）。"""
@@ -51,19 +50,16 @@ async def incubation_request(
     return JSONResponse(
         status_code=201 if created else 200,
         content={
-            "contract_version": (
-                2
-                if isinstance(body, RuntimeIncubationV2)
-                or getattr(body, "contract", None) == "knowlab/formal-handoff/v2"
-                else 1
-            ),
+            "contract_version": 2,
             "request_id": str(found.id),
             "title": found.title,
             "created": created,
             **(
-                {"handoff": (found.origin or {})["handoff"]}
-                if isinstance(body, FormalHandoff)
-                else {}
+                {
+                    k: found.origin[k]
+                    for k in ("handoff", "studio_method_id", "next_version")
+                    if k in found.origin
+                }
             ),
         },
         headers=NO_STORE,

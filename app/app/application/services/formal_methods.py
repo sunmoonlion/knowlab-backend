@@ -67,8 +67,6 @@ from app.domain.knowbots.formal_method_plan import (
 )
 from app.domain.knowbots.workdraft import (
     orchestration_gaps,
-    record_ids,
-    source_problems,
 )
 
 
@@ -336,15 +334,6 @@ class FormalMethodService:
                 raise BadRequestError(
                     str(exc), code="formal_execution_unsupported"
                 ) from exc
-            if current.body.get("method_template") and not any(
-                case.expected.outcome == "succeeded"
-                and "template_delivery" in case.covers_promises
-                for case in payload.execution.suite.cases
-            ):
-                raise BadRequestError(
-                    "Select a positive case that verifies the template delivery",
-                    code="method_template_examples",
-                )
             await self.repo.freeze_formal_test_suite(
                 owner, request.id, payload.execution.suite.model_dump(mode="json")
             )
@@ -742,51 +731,41 @@ class FormalMethodService:
         current = await self.workdrafts.locked(request, command.revision)
         body = parse_body(current.body)
         draft = body.formal_method
+        if current.draft_contract is None:
+            raise BadRequestError(
+                "A studio draft is required", code="formal_method_invalid"
+            )
+        from app.application.services.method_drafts import MethodDraftService
+        from app.domain.knowbots.formal_method import MethodDraftV2
+
+        try:
+            studio = MethodDraftV2.model_validate(current.draft_contract)
+            canonical = studio.to_definition()
+        except ValueError as exc:
+            raise BadRequestError(
+                "Confirm and complete the current draft",
+                code="formal_method_invalid",
+            ) from exc
         if draft is None:
             raise BadRequestError(
                 "Save a formal method definition first", code="formal_method_missing"
             )
-        if current.draft_contract is not None:
-            from app.domain.knowbots.formal_method import MethodDraftV2
-
-            try:
-                canonical = MethodDraftV2.model_validate(
-                    current.draft_contract
-                ).to_definition()
-            except ValueError as exc:
-                raise BadRequestError(
-                    "Confirm and complete the current draft",
-                    code="formal_method_invalid",
-                ) from exc
-            if (
-                current.method_id != method_id
-                or canonical.digest() != draft.definition.digest()
-            ):
-                raise BadRequestError(
-                    "The method does not match the current studio draft",
-                    code="formal_method_invalid",
-                )
-        entries = await self.repo.list_workdraft_entries(record_ids(current.sources))
-        problems = source_problems(
-            body,
-            current.sources,
-            workdraft_id=current.id,
-            owner_subject=owner,
-            entries={entry.id: entry for entry in entries},
-            answered=await self.workdrafts._answered(request),
-            ideas=await self.workdrafts._ideas(request),
+        if (
+            current.method_id != method_id
+            or canonical.digest() != draft.definition.digest()
+        ):
+            raise BadRequestError(
+                "The method does not match the current studio draft",
+                code="formal_method_invalid",
+            )
+        problems = await MethodDraftService(self.repo).verify_provenance(
+            current, owner, studio
         )
         if problems:
             raise BadRequestError(
                 "Confirm the author's definition and source first",
                 code="method_source_invalid",
             )
-        if body.collaboration and isinstance(draft.definition.procedure, Orchestration):
-            graph = draft.definition.procedure.model_copy(
-                update={"collaboration": body.collaboration}
-            )
-            definition = draft.definition.model_copy(update={"procedure": graph})
-            draft = draft.model_copy(update={"definition": definition})
         resolved, owned = await self._dependencies(
             owner, draft.definition, shared=shared, public=public
         )
@@ -1040,12 +1019,6 @@ class FormalMethodService:
             )
             receipt = self._receipt(payload, result)
             source = payload.draft.source
-            template = current.body.get("method_template")
-            if template and receipt.execution is None:
-                raise BadRequestError(
-                    "The delivery template requires a completed trial",
-                    code="formal_execution_required",
-                )
             if (
                 payload.draft.definition.capability_declaration.conditions
                 and receipt.execution is None
@@ -1097,7 +1070,11 @@ class FormalMethodService:
                     code="formal_execution_required",
                 )
             provenance = {
-                **({"method_template": template} if template else {}),
+                **(
+                    {"studio_draft": current.draft_contract}
+                    if current.draft_contract
+                    else {}
+                ),
                 "contract": CONTRACT,
                 "source": payload.draft.source.model_dump(mode="json")
                 if payload.draft.source

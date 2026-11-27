@@ -12,7 +12,6 @@ from app.application.errors.exceptions import (
     ConcurrencyConflictError,
     NotFoundError,
 )
-from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.formal_method_admission import FreezeFormalMethod
 from app.domain.knowbots.formal_method_execution import (
     ExecuteFormalMethod,
@@ -23,6 +22,7 @@ from app.domain.knowbots.formal_method_execution import (
     evaluate_assertions,
 )
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
+from tests.studio_fixtures import save_studio_method
 from tests.test_formal_method_service import (
     OWNER,
     Repository,
@@ -139,9 +139,7 @@ async def prepared(repo=None, runtime=None, *, caller="host", carrier="mcp"):
     if carrier == "skill_instruction":
         body["definition"]["procedure"]["max_model_turns"] = 1
     body["source"].update(kind=carrier, asset_id=str(uuid4()), asset_revision=1)
-    await KnowbotWorkdraftService(repo).save(
-        OWNER, str(intake.request_id), revision=1, edits=[("formal_method", body)]
-    )
+    await save_studio_method(repo, OWNER, str(intake.request_id), mid, 1, body)
     spec = execution()
     if caller == "model":
         spec["suite"]["cases"][0]["caller"] = "model"

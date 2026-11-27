@@ -14,6 +14,7 @@ from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.formal_method_admission import ValidateFormalMethod
 from app.domain.knowbots.formal_method_plan import unique_plan
 from tests.knowbot_fakes import OWNER, request_body
+from tests.studio_fixtures import save_studio_method
 from tests.test_formal_method import composite, frozen
 from tests.test_formal_method_service import draft, freeze_command, setup
 
@@ -24,11 +25,8 @@ async def test_expert_cannot_publish_a_private_dependency():
     child_draft = draft().model_dump(mode="json", by_alias=True)
     child_draft["definition"]["procedure"]["implementation"]["kind"] = "mcp"
     child_draft["source"].update(kind="mcp", asset_id=str(uuid4()), asset_revision=1)
-    await service.workdrafts.save(
-        OWNER,
-        str(child_command.request_id),
-        revision=1,
-        edits=[("formal_method", child_draft)],
+    await save_studio_method(
+        repo, OWNER, str(child_command.request_id), child_id, 1, child_draft
     )
     child_command = child_command.model_copy(update={"revision": 2})
     await service.validate(OWNER, str(child_id), child_command)
@@ -41,18 +39,15 @@ async def test_expert_cannot_publish_a_private_dependency():
     request = await KnowbotCreationService(repo, runtime).submit(
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
-    await service.workdrafts.save(
+    await save_studio_method(
+        repo,
         OWNER,
         str(request.id),
-        revision=0,
-        edits=[
-            (
-                "formal_method",
-                {"definition": definition, "source": None, "allowed_callers": ["host"]},
-            )
-        ],
+        request.id,
+        0,
+        {"definition": definition, "source": None, "allowed_callers": ["host"]},
     )
-    parent_id = uuid4()
+    parent_id = request.id
     command = ValidateFormalMethod(request_id=request.id, revision=1, run_id=uuid4())
     await service.validate(OWNER, str(parent_id), command)
     payload = runtime.validation_requests[command.run_id]
@@ -68,7 +63,6 @@ async def test_expert_cannot_publish_a_private_dependency():
         )
     assert rejected.value.code == "formal_delivery_denied"
     assert (parent_id, 1) not in repo.method_versions
-    assert parent_id not in repo.method_owners
     assert len(runtime.registration_calls) == registrations_before
 
     saved = await service.freeze(
@@ -111,22 +105,19 @@ async def test_reviewed_child_and_expert_freeze_as_public_versions():
     request = await KnowbotCreationService(repo, runtime).submit(
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
-    await service.workdrafts.save(
+    await save_studio_method(
+        repo,
         OWNER,
         str(request.id),
-        revision=0,
-        edits=[
-            (
-                "formal_method",
-                {"definition": definition, "source": None, "allowed_callers": ["host"]},
-            )
-        ],
+        request.id,
+        0,
+        {"definition": definition, "source": None, "allowed_callers": ["host"]},
     )
     trial_body = command.model_dump(mode="json")
     trial_body.update(request_id=str(request.id), revision=1, run_id=str(uuid4()))
     trial_body["execution"]["suite"]["suite_id"] = str(uuid4())
     trial = type(command).model_validate(trial_body)
-    parent_id = uuid4()
+    parent_id = request.id
     root = await freeze_reviewed(parent_id, trial)
     assert root.provenance["visibility"] == "public"
     assert runtime.registrations[(parent_id, 1)].visibility == "public"

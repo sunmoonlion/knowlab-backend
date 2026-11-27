@@ -17,6 +17,7 @@ from app.application.services.knowbot_methods import (
 )
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
+from tests.studio_fixtures import save_studio_method
 from tests.test_formal_method_service import (
     OWNER,
     Runtime,
@@ -113,11 +114,8 @@ async def test_changed_workdraft_cannot_freeze_using_earlier_runtime_receipt(db)
         service = KnowbotWorkdraftService(SqlKnowlabRepository(session))
         changed = draft().model_dump(mode="json", by_alias=True)
         changed["allowed_callers"] = ["host", "model"]
-        await service.save(
-            OWNER,
-            str(command.request_id),
-            revision=1,
-            edits=[("formal_method", changed)],
+        await save_studio_method(
+            service.repo, OWNER, str(command.request_id), mid, 1, changed
         )
     with pytest.raises(ConcurrencyConflictError):
         await freeze(db, runtime, mid, command)
@@ -125,7 +123,8 @@ async def test_changed_workdraft_cannot_freeze_using_earlier_runtime_receipt(db)
         await freeze(db, runtime, mid, command.model_copy(update={"revision": 2}))
     async with db() as session:
         repo = SqlKnowlabRepository(session)
-        assert await repo.method_owner(mid) is None
+        assert await repo.method_owner(mid) == OWNER
+        assert await repo.method_head(mid) == 0
         assert await repo.method_head(mid) == 0
 
 
@@ -167,11 +166,13 @@ async def test_registration_failure_retries_committed_version_without_transactio
     async with db() as session:
         changed = draft().model_dump(mode="json", by_alias=True)
         changed["allowed_callers"] = ["host", "model"]
-        await KnowbotWorkdraftService(SqlKnowlabRepository(session)).save(
+        await save_studio_method(
+            SqlKnowlabRepository(session),
             OWNER,
             str(command.request_id),
-            revision=1,
-            edits=[("formal_method", changed)],
+            mid,
+            1,
+            changed,
         )
     runtime.fail_register = False
     await freeze(db, runtime, mid, command)
@@ -268,9 +269,7 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         }
         proposal["definition"]["procedure"]["max_replans"] = 0
         proposal["definition"]["procedure"]["steps"][0]["on_failure"] = "fail"
-        await service.workdrafts.save(
-            consumer, rid, revision=0, edits=[("formal_method", proposal)]
-        )
+        await save_studio_method(repo, consumer, rid, parent, 0, proposal)
         validate = ValidateFormalMethod(
             request_id=request.id, revision=1, run_id=uuid4()
         )

@@ -17,7 +17,6 @@ from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.drafts import KnowbotRequestIn
-from app.domain.knowbots.incubation import IncubationResultV1
 from app.interfaces.endpoints import knowbot_routes
 from app.interfaces.http.middleware.auth import get_web_knowbase_token_provider
 from app.main import app
@@ -27,7 +26,6 @@ from tests.knowbot_fakes import (
     FakeIncubator,
     FakeLibrary,
     FakeRuntime,
-    MemoryKnowlab,
     own_computer,
     request_body,
 )
@@ -60,7 +58,9 @@ HANDBACK: dict[str, Any] = {
 
 @pytest.fixture
 def wired(monkeypatch: pytest.MonkeyPatch):
-    repo, runtime, incubator = MemoryKnowlab(), FakeRuntime(), FakeIncubator()
+    from tests.test_formal_method_service import Repository
+
+    repo, runtime, incubator = Repository(), FakeRuntime(), FakeIncubator()
     knowbase = FakeLibrary()
     own_computer(repo)
     svc = KnowbotCreationService(repo, runtime)
@@ -112,82 +112,27 @@ async def test_the_knowledge_column_needs_my_session(wired) -> None:
     assert knowbase.tokens == ["user-token"]
 
 
-async def test_pick_data_then_round_then_accept_a_step(wired) -> None:
-    svc, repo, _, incubator, _ = wired
-    request = await _mine(svc)
-    base = f"/api/web/v1/knowbot-requests/{request.id}/workdraft"
-    async with client() as c:
-        c.cookies.set(WEB_SID, "member")
-        assert (
-            await c.put(f"{base}/data-picks", json={"revision": 0, "picks": []})
-        ).status_code == 403  # 没带 CSRF
-        bad = await c.put(
-            f"{base}/data-picks",
-            json={"revision": 0, "picks": ["m-x"]},
-            headers=WEB,
-        )
-        assert (bad.status_code, bad.json()["code"]) == (400, "pick_not_shown")
-        picked = await c.put(
-            f"{base}/data-picks",
-            json={"revision": 0, "picks": [MATERIAL]},
-            headers=WEB,
-        )
-        assert picked.status_code == 200
-        view = picked.json()
-        assert view["body"]["data_picks"] == [MATERIAL]
-        assert view["data_formats"][MATERIAL]["name"] == "2024 年报.pdf"
-        assert (await c.get(base)).json()["data_formats"][MATERIAL]["readings"] == [
-            "pages",
-            "text",
-        ]
-        saved = await c.post(
-            f"{base}/cells",
-            json={
-                "revision": 1,
-                "cells": [{"path": "steps", "value": [{"id": "scan"}]}],
-            },
-            headers=WEB,
-        )
-        assert saved.status_code == 200
-        started = await c.post(
-            f"{base}/incubations", json={"action": "draft"}, headers=WEB
-        )
-        assert started.status_code == 201
-        round_id = started.json()["incubation"]["incubation_id"]
-        record = await repo.get_incubation(uuid.UUID(round_id))
-        assert record is not None
-        incubator.results[record.run_id] = IncubationResultV1.model_validate(
-            {
-                "contract": "knowbot-incubation/v1",
-                "incubation_id": record.run_id,
-                "status": "succeeded",
-                "handback": HANDBACK,
-            }
-        )
-        await c.post(f"{base}/incubations/{round_id}/refresh", headers=WEB)
-        accepted = await c.post(
-            f"{base}/incubations/{round_id}/steps/scan/accept-all",
-            json={"revision": 2},
-            headers=WEB,
-        )
-    assert accepted.status_code == 200
-    body = accepted.json()
-    assert body["accepted"] == ["s1", "s2"] and body["skipped"] == []
-    assert body["workdraft"]["body"]["steps"][0]["title"] == "数据摸底"
-    assert incubator.started[0].data_formats[0].name == "2024 年报.pdf"
-
-
 async def test_no_model_key_is_said_before_starting(wired) -> None:
     svc, _, runtime, incubator, _ = wired
     request = await _mine(svc)
     base = f"/api/web/v1/knowbot-requests/{request.id}/workdraft"
+    from app.application.services.method_drafts import HandoffSeedIn, MethodDraftService
+
+    await MethodDraftService(svc.repo).create_from_handoff(
+        OWNER,
+        HandoffSeedIn(title="核验", goal="核验"),
+        method_id=uuid.uuid4(),
+        request_id=request.id,
+    )
     runtime.key_ready = False
     async with client() as c:
         c.cookies.set(WEB_SID, "member")
         listed = await c.get(f"{base}/computers")
         assert listed.json()["model_key"] is False
         refused = await c.post(
-            f"{base}/incubations", json={"action": "draft"}, headers=WEB
+            f"{base}/incubations",
+            json={"action": "draft", "selection_revision": 1},
+            headers=WEB,
         )
         assert (refused.status_code, refused.json()["code"]) == (
             409,
@@ -198,15 +143,5 @@ async def test_no_model_key_is_said_before_starting(wired) -> None:
             json={"action": "revise", "instruction": "照报告改", "with_test": True},
             headers=WEB,
         )
-        assert no_report.status_code == 409
+        assert no_report.status_code == 422
     assert incubator.started == []
-
-
-async def test_the_name_page_says_what_the_platform_asked(wired) -> None:
-    svc, _, _, _, _ = wired
-    request = await _mine(svc)
-    async with client() as c:
-        c.cookies.set(WEB_SID, "member")
-        got = await c.get(f"/api/web/v1/knowbot-requests/{request.id}")
-    assert got.status_code == 200
-    assert got.json()["platform_asks"] == []

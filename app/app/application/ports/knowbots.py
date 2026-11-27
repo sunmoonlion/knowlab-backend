@@ -39,7 +39,6 @@ class RequestRecord:
     # 与用户的模型直接答过的回答（只算
     # 提议，请专家方案设计第 4.9 节第 6 条）
     origin: dict[str, Any] | None = field(default=None, repr=False)
-    reference_answer: str | None = field(default=None, repr=False)
     # 推给 knowbase 名录的最近一份 {name, latest_version}（0044 第三节）
     directory_sent: dict[str, Any] | None = field(default=None, repr=False)
 
@@ -417,20 +416,6 @@ class QuestionRecord:
     proposal: str | None = None
 
 
-@dataclass(frozen=True)
-class AmendmentRecord:
-    """用户给自己的想法写的一条补充方法（SDD 0035）。原话写下后不改、不删。"""
-
-    id: uuid.UUID
-    request_id: uuid.UUID
-    owner_subject: str
-    text: str = field(repr=False)
-    created_at: datetime | None = None
-    declined_reason: str | None = None
-    declined_by: str | None = None
-    declined_at: datetime | None = None
-
-
 class KnowlabRepository(Protocol):
     def transaction(self) -> AbstractAsyncContextManager[None]: ...
 
@@ -444,7 +429,6 @@ class KnowlabRepository(Protocol):
         cases: list[dict[str, Any]],
         consent_version: int = 1,
         origin: dict[str, Any] | None = None,
-        reference_answer: str | None = None,
     ) -> RequestRecord:
         """建创意的名称与它的 v1（同一个事务）。"""
         ...
@@ -679,24 +663,13 @@ class KnowlabRepository(Protocol):
         时候（evidence.retry_after）的；按测完的先后。"""
         ...
 
-    # ---------- 补充方法 ----------
-    async def create_amendment(
-        self, *, request_id: uuid.UUID, owner_subject: str, text: str
-    ) -> AmendmentRecord: ...
+    # ---------- 在售专家与工坊反馈 ----------
 
-    async def list_amendments(self, request_id: uuid.UUID) -> Sequence[AmendmentRecord]:
-        """这个想法的补充，先提交的在前。"""
-        ...
+    async def listed_experts(
+        self, owner: str
+    ) -> list[tuple[ExpertRecord, str, str | None]]: ...
 
-    async def get_amendment(
-        self, amendment_id: uuid.UUID, *, for_update: bool = False
-    ) -> AmendmentRecord | None: ...
-
-    async def decline_amendment(
-        self, amendment_id: uuid.UUID, *, reason: str, by: str, at: datetime
-    ) -> None:
-        """只记「不照做」的理由、谁、何时；原话不动。"""
-        ...
+    async def method_feedback(self, method_id: uuid.UUID) -> list[str]: ...
 
     # ---------- 测试中的问题 ----------
     async def add_questions(

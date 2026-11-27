@@ -400,7 +400,9 @@ class KnowbotIncubationService:
                             )
                         selection_context["edit"] = node_edit.model_dump(mode="json")
             body = parse_body(current.body)
-            if body.formal_method is not None:
+            if body.formal_method is not None and not (
+                current.draft_contract and selection_context
+            ):
                 raise BadRequestError(
                     "Formal definitions use formal method validation",
                     code="formal_method_requires_validation",
@@ -427,11 +429,6 @@ class KnowbotIncubationService:
                         "instruction": instruction,
                         "step_id": step_id,
                         "seed": {"kind": kind, "text": text},
-                        **(
-                            {"reference": fresh.reference_answer}
-                            if fresh.reference_answer
-                            else {}
-                        ),
                         "workdraft": {
                             "body": current.body,
                             "sources": {

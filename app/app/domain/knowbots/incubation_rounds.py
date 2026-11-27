@@ -41,6 +41,8 @@ ANSWER_NOT_FOUND = "answer_not_found"
 def seed_of(idea: Mapping[str, Any]) -> tuple[str, str]:
     """创意的一版 →（种类，交给运行方的原文）。"""
     kind = idea.get("kind")
+    if kind == "method_contract_v2":
+        return "question", str(idea.get("purpose") or "")
     if kind == "question":
         return "question", str(idea.get("question") or "")
     if kind == "skill":

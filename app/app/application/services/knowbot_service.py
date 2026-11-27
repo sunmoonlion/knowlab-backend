@@ -43,7 +43,6 @@ from app.application.errors.exceptions import (
 )
 from app.application.ports.knowbots import (
     AcceptanceRecord,
-    AmendmentRecord,
     DeliveryRecord,
     DraftRecord,
     ExpertRecord,
@@ -61,7 +60,6 @@ from app.application.services.knowbot_grants import (
     reviewing,
     self_acceptance,
 )
-from app.domain.knowbots.amendment_usage import incorporated_texts
 from app.domain.knowbots.delivery import basis as delivery_basis
 from app.domain.knowbots.drafts import (
     CONSENT_VERSION,
@@ -69,8 +67,6 @@ from app.domain.knowbots.drafts import (
     OUTPUTS_KEEP_DAYS,
     Idea,
     KnowbotRequestIn,
-    RuntimeIncubationIn,
-    amendment_status,
     can_move,
     case_question_digest,
 )
@@ -82,7 +78,7 @@ from app.domain.knowbots.lifecycle import (
     review_state,
     status_from_run,
 )
-from app.domain.knowbots.method_demand import FormalHandoff, RuntimeIncubationV2
+from app.domain.knowbots.method_demand import FormalHandoff
 from app.domain.knowbots.platform_grants import expiry as grant_expiry
 from app.domain.knowbots.test_run import (
     CONTRACT,
@@ -93,7 +89,6 @@ from app.domain.knowbots.test_run import (
     RunResultV1,
     first_route,
 )
-from app.domain.knowbots.workdraft import record_ids
 
 if TYPE_CHECKING:
     from app.application.services.knowbot_test_data import KnowbotTestData
@@ -266,15 +261,11 @@ class KnowbotCreationService:
     async def submit_from_runtime(
         self,
         owner_subject: str,
-        body: RuntimeIncubationIn | RuntimeIncubationV2 | FormalHandoff,
+        body: FormalHandoff,
         *,
         runtime: str,
     ) -> tuple[RequestRecord, bool]:
-        """knowbench 替用户提的孵化请求（请专家方案设计第 4.9 节第 6 条、
-        专家孵化方案第十三节）：
-        以这个用户的名义建一份种类为「问题」的申请，种子就是那句问题；模式自己来（只有他看得到、
-        建了不花钱），记来源，附他的模型直接答过的回答作参考（只算提议）。先不带用例、未同意测试
-        数据说明，他补用例、点同意才能测。同一个幂等钥匙只建一份：回（申请，是不是这次新建的）。"""
+        """Record the approved gap and open the owner’s studio draft atomically."""
         if not OWNER.fullmatch(owner_subject or ""):
             raise BadRequestError("The owner is invalid", code="owner_invalid")
         question = (body.question or "").strip()
@@ -282,10 +273,7 @@ class KnowbotCreationService:
             raise BadRequestError("The question is empty", code="question_empty")
 
         def existing(mine: RequestRecord) -> tuple[RequestRecord, bool]:
-            if (
-                isinstance(body, (RuntimeIncubationV2, FormalHandoff))
-                and (mine.origin or {}).get("request_digest") != body.digest()
-            ):
+            if (mine.origin or {}).get("request_digest") != body.digest():
                 raise ConcurrencyConflictError(
                     "The incubation request changed under the same key",
                     code="incubation_request_conflict",
@@ -298,69 +286,67 @@ class KnowbotCreationService:
         title = question.splitlines()[0].strip()[:80] or question[:80]
         try:
             async with self.repo.transaction():
-                handoff = {}
                 source = None
-                if isinstance(body, FormalHandoff):
-                    mode = "new"
-                    if body.reference:
-                        source = await self.repo.method_version(
-                            body.reference.method_id, body.reference.version
+                mode = "new"
+                if body.reference:
+                    source = await self.repo.method_version(
+                        body.reference.method_id, body.reference.version
+                    )
+                    if source is None or source.digest != body.reference.digest:
+                        raise BadRequestError(
+                            "Source method version changed", code="method_integrity"
                         )
-                        if source is None or source.digest != body.reference.digest:
-                            raise BadRequestError(
-                                "Source method version changed", code="method_integrity"
-                            )
-                        if (
-                            source.owner_subject != owner_subject
-                            and source.provenance.get("visibility") != "public"
-                        ):
-                            raise BadRequestError(
-                                "This version cannot accept external feedback",
-                                code="method_integrity",
-                            )
-                        mode = (
-                            "author_revision"
-                            if source.owner_subject == owner_subject
-                            else "user_demand"
+                    if (
+                        source.owner_subject != owner_subject
+                        and source.provenance.get("visibility") != "public"
+                    ):
+                        raise BadRequestError(
+                            "This version cannot accept external feedback",
+                            code="method_integrity",
                         )
-                    handoff = {
-                        "handoff": mode,
-                        "handoff_contract": body.contract,
-                        **(
-                            {
-                                "suggested_plan": body.suggested_plan.model_dump(
-                                    mode="json"
-                                )
-                            }
-                            if body.suggested_plan
-                            else {}
-                        ),
-                        **(
-                            {"htn_tree": body.htn_tree}
-                            if body.htn_tree is not None
-                            else {}
-                        ),
-                        **(
-                            {"draft_contract": body.draft_contract}
-                            if body.draft_contract is not None
-                            else {}
-                        ),
-                        **(
-                            {
-                                "next_version": await self.repo.method_head(
-                                    source.method_id
-                                )
-                                + 1
-                            }
-                            if source and mode == "author_revision"
-                            else {}
-                        ),
-                        "request_digest": body.digest(),
-                        "gap": body.gap,
-                        "method_reference": body.reference.model_dump(mode="json")
-                        if body.reference
-                        else None,
-                    }
+                    mode = (
+                        "author_revision"
+                        if source.owner_subject == owner_subject
+                        else "user_demand"
+                    )
+                studio_mid = source.method_id if source else uuid.uuid4()
+                handoff = {
+                    **(
+                        {"studio_method_id": str(studio_mid)}
+                        if mode != "user_demand"
+                        else {}
+                    ),
+                    "handoff": mode,
+                    "handoff_contract": body.contract,
+                    **(
+                        {"suggested_plan": body.suggested_plan.model_dump(mode="json")}
+                        if body.suggested_plan
+                        else {}
+                    ),
+                    **(
+                        {"htn_tree": body.htn_tree} if body.htn_tree is not None else {}
+                    ),
+                    **(
+                        {"draft_contract": body.draft_contract}
+                        if body.draft_contract is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "next_version": await self.repo.method_head(
+                                source.method_id
+                            )
+                            + 1
+                        }
+                        if source and mode == "author_revision"
+                        else {}
+                    ),
+                    "request_digest": body.digest(),
+                    "gap": body.gap,
+                    "method_reference": body.reference.model_dump(mode="json")
+                    if body.reference
+                    else None,
+                }
                 created = await self.repo.create_request(
                     owner_subject=owner_subject,
                     title=title,
@@ -374,101 +360,57 @@ class KnowbotCreationService:
                         "task_id": body.task_id,
                         "key": body.key,
                         **handoff,
-                        **(
-                            {
-                                "method_demand": body.method_demand.model_dump(
-                                    mode="json"
-                                ),
-                                "request_digest": body.digest(),
-                            }
-                            if isinstance(body, RuntimeIncubationV2)
-                            else {}
-                        ),
                     },
-                    reference_answer=body.reference()
-                    if isinstance(body, RuntimeIncubationV2)
-                    else (body.reference_answer or "").strip() or None,
                 )
-                if isinstance(body, FormalHandoff) and source:
-                    if handoff["handoff"] == "user_demand":
-                        # Attribute the suggestion in the original author's inbox.
-                        from uuid import UUID
-
-                        await self.repo.create_amendment(
-                            request_id=UUID(
-                                source.provenance["validation"]["request_id"]
-                            ),
-                            owner_subject=owner_subject,
-                            text=body.gap,
-                        )
-                    else:
-                        from app.domain.knowbots.workdraft import (
-                            WorkdraftBody,
-                            bundle_text,
-                            cells,
-                            empty_body,
-                        )
-
-                        draft = empty_body()
-                        definition = dict(source.definition)
-                        procedure = dict(definition["procedure"])
-                        if procedure.get("collaboration") is not None:
-                            draft["collaboration"] = procedure.pop("collaboration")
-                            definition["procedure"] = procedure
-                        draft["formal_method"] = {
-                            "definition": definition,
-                            "source": source.provenance["source"],
-                            "allowed_callers": source.provenance["allowed_callers"],
-                        }
-                        copied = await self.repo.create_workdraft(
-                            request_id=created.id,
-                            owner_subject=owner_subject,
-                            body=draft,
-                        )
-                        fields = cells(WorkdraftBody.model_validate(draft))
-                        entry = await self.repo.add_workdraft_entry(
-                            workdraft_id=copied.id,
-                            kind="copy",
-                            actor_subject=owner_subject,
-                            actor_role="author",
-                            text=bundle_text(
-                                str(source.method_id), fields, digest=source.digest
-                            ),
-                        )
-                        await self.repo.update_workdraft(
-                            copied.id,
-                            body=draft,
-                            revision=1,
-                            sources={
-                                name: {"kind": "user_text", "ref": f"record:{entry.id}"}
-                                for name in fields
-                            },
-                            draft_contract=body.draft_contract,
-                            htn_state={"tree": body.htn_tree}
-                            if body.htn_tree is not None
-                            else None,
-                        )
-                elif (
-                    isinstance(body, FormalHandoff)
-                    and not source
-                    and (body.htn_tree is not None or body.draft_contract is not None)
-                ):
-                    from app.domain.knowbots.workdraft import empty_body
-
-                    seeded = await self.repo.create_workdraft(
-                        request_id=created.id,
-                        owner_subject=owner_subject,
-                        body=empty_body(),
+                if mode != "user_demand":
+                    from app.application.services.method_drafts import (
+                        HandoffSeedIn,
+                        MethodDraftService,
                     )
-                    await self.repo.update_workdraft(
-                        seeded.id,
-                        body=seeded.body,
-                        sources=seeded.sources,
-                        revision=1,
-                        draft_contract=body.draft_contract,
+                    from app.domain.knowbots.formal_method_admission import (
+                        FormalMethodSource,
+                    )
+
+                    contract = body.draft_contract
+                    provenance = source.provenance if source else {}
+                    if source:
+                        from app.domain.knowbots.formal_method import MethodDraftV2
+
+                        contract = provenance.get("studio_draft")
+                        if contract is None:
+                            raise BadRequestError(
+                                "This version has no studio draft",
+                                code="method_draft_not_found",
+                            )
+                        try:
+                            restored = MethodDraftV2.model_validate(contract)
+                            if restored.to_definition().digest() != source.digest:
+                                raise ValueError("Mismatched studio snapshot")
+                        except ValueError as exc:
+                            raise BadRequestError(
+                                "Invalid frozen studio snapshot",
+                                code="method_integrity",
+                            ) from exc
+                    seed = HandoffSeedIn(
+                        title=title,
+                        goal=body.gap,
+                        draft_contract=contract,
                         htn_state={"tree": body.htn_tree}
                         if body.htn_tree is not None
                         else None,
+                        origin=handoff,
+                    )
+                    await MethodDraftService(self.repo).create_from_handoff(
+                        owner_subject,
+                        seed,
+                        method_id=studio_mid,
+                        request_id=created.id,
+                        source=FormalMethodSource.model_validate(provenance["source"])
+                        if provenance.get("source")
+                        else None,
+                        allowed_callers=tuple(
+                            provenance.get("allowed_callers", ("host",))
+                        ),
                     )
                 await self.repo.add_acceptance(
                     self_acceptance(created.id, 1, self.now())
@@ -683,56 +625,6 @@ class KnowbotCreationService:
             if found is not None:
                 return f"{found.budget_limit:.2f}"
         raise _conflict("The author has not authorised this test", "not_authorised")
-
-    async def amendments(
-        self, request_id: uuid.UUID, drafts: Sequence[DraftRecord]
-    ) -> list[tuple[AmendmentRecord, str, int | None]]:
-        """旧的补充方法（SDD 0035，已取消，只读）。
-
-        （补充，open / used / declined，用进的最新一稿的修订号）。
-        """
-        own_drafts = [d for d in drafts if d.request_id == request_id]
-        pairs = [(d.revision, d.manifest) for d in own_drafts]
-        amendments = await self.repo.list_amendments(request_id)
-        if not amendments:
-            return []
-        workdraft = await self.repo.get_workdraft(request_id)
-        used: dict[str, int] = {}
-        if workdraft is not None:
-            ids = set().union(
-                *(
-                    record_ids(
-                        {
-                            str(i): s
-                            for i, s in enumerate(d.manifest.get("rule_sources", []))
-                        }
-                    )
-                    for d in own_drafts
-                )
-            )
-            entries = {e.id: e for e in await self.repo.list_workdraft_entries(ids)}
-            for draft in own_drafts:
-                for text in incorporated_texts(
-                    draft.manifest,
-                    workdraft_id=workdraft.id,
-                    owner_subject=workdraft.owner_subject,
-                    entries=entries,
-                ):
-                    used[text] = max(used.get(text, 0), draft.revision)
-        result = []
-        for amendment in amendments:
-            status, revision = amendment_status(
-                str(amendment.id), amendment.declined_at is not None, pairs
-            )
-            if (
-                status != "declined"
-                and workdraft is not None
-                and amendment.owner_subject == workdraft.owner_subject
-                and amendment.text in used
-            ):
-                status, revision = "used", max(revision or 0, used[amendment.text])
-            result.append((amendment, status, revision))
-        return result
 
     # ---------- 管理端：受理 ----------
     async def accept(

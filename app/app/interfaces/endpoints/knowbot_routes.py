@@ -34,7 +34,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.errors.exceptions import (
     NotFoundError,
-    ServiceUnavailableError,
 )
 from app.application.ports.knowbots import DraftRecord
 from app.application.services.formal_methods import FormalMethodService
@@ -43,14 +42,11 @@ from app.application.services.knowbot_board import (
     Life,
     acceptance_items,
     admin_counts,
-    application_category,
     delivery_items,
-    inbox_items,
     incubation_items,
     lab_test_items,
     light_items,
     timeline,
-    user_expert_items,
 )
 from app.application.services.knowbot_deliveries import KnowbotDeliveryService
 from app.application.services.knowbot_experts import (
@@ -58,7 +54,6 @@ from app.application.services.knowbot_experts import (
     shown_to_author,
     stage_of,
 )
-from app.application.services.knowbot_grants import live_incubation
 from app.application.services.knowbot_incubation import (
     DEFAULT_BUDGET,
     KnowbotIncubationService,
@@ -69,14 +64,12 @@ from app.application.services.knowbot_manual_release import (
     release_view,
 )
 from app.application.services.knowbot_methods import (
-    KnowbotMethodService,
     method_version_view,
 )
 from app.application.services.knowbot_platform import KnowbotPlatformService
 from app.application.services.knowbot_proposals import KnowbotProposalService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService, parse_id
-from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.application.services.method_drafts import (
     BindGapResolutionIn,
@@ -93,22 +86,17 @@ from app.bootstrap.knowbots import (
     knowbot_expert_service,
     knowbot_incubation_service,
     knowbot_library_service,
-    knowbot_method_service,
     knowbot_platform_service,
     knowbot_proposal_service,
     knowbot_question_service,
     knowbot_service,
-    knowbot_test_data,
     knowbot_workdraft_service,
     method_draft_service,
-    runtime_clients,
 )
 from app.domain.knowbots.delivery import (
     CATEGORY_CODES,
     DeliveryReviewIn,
-    DeliverySubmitIn,
 )
-from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.formal_method_admission import (
     FreezeFormalMethod,
     ValidateFormalMethod,
@@ -122,16 +110,11 @@ from app.domain.knowbots.formal_method_execution import (
 )
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
-    RevisionIn,
     StopIn,
-    UserReviewIn,
 )
-from app.domain.knowbots.manual_release import ManualReleaseDecision, ManualReleaseIn
-from app.domain.knowbots.methods import BindMethod, FreezeAtomicMethod, FreezeMethod
+from app.domain.knowbots.manual_release import ManualReleaseDecision
 from app.domain.knowbots.platform_grants import (
     LightAcceptanceIn,
-    PlatformIncubationIn,
-    PlatformTestIn,
 )
 from app.domain.knowbots.selection import NodeEdit
 from app.domain.knowbots.workdraft import STEP_ID, MethodTemplate
@@ -139,7 +122,6 @@ from app.domain.security import Principal
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import get_db_session
 from app.interfaces.endpoints.knowbot_views import (
-    amendment_view,
     answered_view,
     delivery_view,
     draft_view,
@@ -211,12 +193,6 @@ def workdraft_service(
     return knowbot_workdraft_service(session)
 
 
-def method_service(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> KnowbotMethodService:
-    return knowbot_method_service(session)
-
-
 def formal_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> FormalMethodService:
@@ -260,7 +236,6 @@ Platform = Annotated[KnowbotPlatformService, Depends(platform_service)]
 Proposals = Annotated[KnowbotProposalService, Depends(proposal_service)]
 Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
-Methods = Annotated[KnowbotMethodService, Depends(method_service)]
 FormalMethods = Annotated[FormalMethodService, Depends(formal_service)]
 MethodDrafts = Annotated[MethodDraftService, Depends(draft_v2_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
@@ -308,7 +283,6 @@ async def _detail(
         # 从 knowbench 转来的：来源与用户的模型直接答过的回答（只算提议）。管理端只在
         # 孵化授权在效的平台孵化时给（operator_view 已清掉）；没有创意版本时不给后两项
         "origin": life.request.origin if life.versions else None,
-        "reference_answer": life.request.reference_answer if life.versions else None,
         "grants": [grant_view(g, now, admin=admin) for g in life.grants],
         "versions": [version_view(v, life, admin=admin) for v in life.versions],
         "drafts": [draft_view(d, life, admin=admin) for d in life.drafts],
@@ -319,265 +293,33 @@ async def _detail(
             if admin or shown_to_author(e)
         ],
         "timeline": timeline(life, for_user=not admin),
-        # 旧的补充方法（SDD 0035，已取消）：只读，出处照旧可查；管理端只在孵化授权
-        # 在效的平台孵化时给（纯自助作者写的运营看不到）
-        "amendments": [
-            amendment_view(a, admin=admin)
-            for a in await svc.amendments(life.request.id, life.drafts)
-        ]
-        if not admin or live_incubation(life.grants, now) is not None
-        else [],
     }
 
 
 # ---------- web端（用户） ----------
-class ReviewBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    ok: bool
-    note: str = Field(default="", max_length=2000)
 
 
-@web_router.get("/knowbot-runtimes")
-async def runtimes(_: User) -> JSONResponse:
-    """可选的运行方（knowlab 配置里登记了的）。"""
-    return _ok({"runtimes": sorted(runtime_clients().registered())})
-
-
-@web_router.get("/knowbot-requests/defaults")
-async def request_defaults(principal: User, svc: Service) -> JSONResponse:
-    """新申请默认的模式：上次选的；第一次是空，让他自己选（SDD 0046 第四节）。"""
-    return _ok({"mode": await svc.default_mode(principal.subject) or None})
-
-
-@web_router.post("/knowbot-requests")
-async def submit(principal: User, body: KnowbotRequestIn, svc: Service) -> JSONResponse:
-    """申请：出创意 v1。选自助的直接进工作稿；请平台的同时授权平台，等运营受理。"""
-    request = await svc.submit(principal.subject, body)
-    return _ok(
-        {
-            "request_id": str(request.id),
-            "version": 1,
-            "incubation_mode": request.incubation_mode,
-        },
-        status_code=201,
-    )
-
-
-@web_router.post("/knowbot-requests/{request_id}/platform")
-async def ask_platform(
-    principal: User,
-    body: PlatformIncubationIn,
-    platform: Platform,
-    request_id: ItemId,
-) -> JSONResponse:
-    """「请平台孵化」：确认框上点了同意就是本人授权（platform:knowlab:incubate:<编号>），
-    名称转平台，这一版创意受理后平台接着孵化（SDD 0046 第四节）。"""
-    grant = await platform.ask_platform(principal.subject, request_id, body)
-    return _ok({"grant": grant_view(grant, platform.now(), admin=False)}, 201)
-
-
-@web_router.post("/knowbot-requests/{request_id}/take-back", status_code=204)
-async def take_back(
-    principal: User, platform: Platform, request_id: ItemId
-) -> Response:
-    """「我自己来」：平台的授权立即撤销，运营立即看不到。"""
-    await platform.take_back(principal.subject, request_id)
-    return Response(status_code=204, headers=NO_STORE)
-
-
-@web_router.post("/knowbot-requests/{request_id}/platform/renew")
-async def renew_platform(
-    principal: User, platform: Platform, request_id: ItemId
-) -> JSONResponse:
-    """续期：孵化授权续到 30 天后（decisions 10-29）。"""
-    grant = await platform.renew(principal.subject, request_id)
-    return _ok({"grant": grant_view(grant, platform.now(), admin=False)})
-
-
-@web_router.post("/knowbot-drafts/{draft_id}/platform-test")
-async def ask_platform_test(
-    principal: User, body: PlatformTestIn, platform: Platform, draft_id: ItemId
-) -> JSONResponse:
-    """「交平台测」：自助孵化的准专家交平台测这一次（轻受理），上限作者设。"""
-    grant = await platform.ask_platform_test(principal.subject, draft_id, body)
-    return _ok({"grant": grant_view(grant, platform.now(), admin=False)}, 201)
-
-
-@web_router.post("/knowbot-grants/{grant_id}/withdraw", status_code=204)
-async def withdraw_platform_test(
-    principal: User, platform: Platform, grant_id: ItemId
-) -> Response:
-    """还没开测的平台测试，作者收回。"""
-    await platform.withdraw_test(principal.subject, grant_id)
-    return Response(status_code=204, headers=NO_STORE)
-
-
-@web_router.post("/knowbot-requests/{request_id}/versions")
-async def revise(
-    principal: User, body: RevisionIn, svc: Service, request_id: ItemId
-) -> JSONResponse:
-    """改创意：出一个新版本（名称不变，旧版本不变）。"""
-    found = await svc.revise(principal.subject, request_id, body)
-    return _ok(
-        {"request_id": str(found.request_id), "version": found.version},
-        status_code=201,
-    )
-
-
-@web_router.get("/knowbot-requests/{request_id}")
-async def my_request(
-    principal: User, svc: Service, board: Board, request_id: ItemId
-) -> JSONResponse:
-    """自己的一个名称的详情页：各版创意与受理、准专家、测试、交回了的专家、记录；平台在
-    问我什么（平台视图，SDD 0046 第四节）。"""
-    life = await board.life(request_id, principal.subject)
-    return _ok(
-        await _detail(life, svc, admin=False)
-        | {"platform_asks": await board.platform_asks(life)}
-    )
-
-
-@web_router.post("/knowbot-requests/{request_id}/consent", status_code=204)
-async def consent(principal: User, svc: Service, request_id: ItemId) -> Response:
-    """同意新一版测试数据说明：之后测试的成稿与各步结果才取、才显示（SDD 0037）。"""
-    await svc.consent(principal.subject, request_id)
-    return Response(status_code=204, headers=NO_STORE)
-
-
-@web_router.get("/knowbot-counts")
-async def my_counts(
-    principal: User, board: Board, questions: Questions
-) -> JSONResponse:
-    """左边栏旁的数：审核数「要你做的」，专家数「新交回」。"""
-    lives = await board.lives(principal.subject)
-    asked = [q for q, _, _ in await questions.user_queue(principal.subject)]
-    inbox = inbox_items(lives, asked)
-    return _ok(
-        {
-            "inbox": sum(state == "todo" for state, _, _, _ in inbox),
-            "experts_new": sum(c == "new" for c, _, _ in user_expert_items(lives)),
-        }
-    )
-
-
-@web_router.get("/knowbot-board/applications")
-async def my_applications(principal: User, board: Board) -> JSONResponse:
-    """申请栏：在做 / 已出专家 / 没受理。"""
-    lives = await board.lives(principal.subject)
-    return _ok(
-        {
-            "items": [
-                life_view(life, admin=False) | {"category": application_category(life)}
-                for life in lives
-            ]
-        }
-    )
-
-
-@web_router.get("/knowbot-board/inbox")
-async def my_inbox(principal: User, board: Board, questions: Questions) -> JSONResponse:
-    """审核栏（用户的待办箱）：要你做的（todo）与你答过、定过的（done）。"""
-    lives = await board.lives(principal.subject)
-    asked = [q for q, _, _ in await questions.user_queue(principal.subject)]
-    items = []
-    for state, kind, life, item in inbox_items(lives, asked):
-        if kind == "question":
-            # 孵化的缺口不挂准专家（draft 是空的）
-            draft = None if item.draft_id is None else life.draft(item.draft_id)
-            view = question_view(item, draft, life.request, admin=False)
-        elif kind == "draft":
-            view = draft_view(item, life, admin=False)
-        else:
-            view = expert_view(item, life, admin=False)
-        # type：问题 / 准专家 / 专家（问题自己的 kind 是审批、开步前提问、判断）
-        items.append(view | _brief(life, admin=False) | {"state": state, "type": kind})
-    answered = [
-        answered_view(q, admin=False)
-        for q in await questions.answered_by_user(principal.subject)
-    ]
-    return _ok({"items": items, "answered": answered})
-
-
-@web_router.get("/knowbot-board/experts")
+@web_router.get("/method-directory/listed-experts")
 async def my_experts(principal: User, board: Board) -> JSONResponse:
-    """专家栏：交回了的各版。新交回 / 你已同意等我们审核 / 能用 / 停用了 / 没上架。"""
-    lives = await board.lives(principal.subject)
     return _ok(
         {
             "items": [
-                _brief(life, admin=False)
-                | {"category": category}
-                | expert_view(expert, life, admin=False)
-                for category, life, expert in user_expert_items(lives)
+                {
+                    "expert_id": str(expert.id),
+                    "version": expert.version,
+                    "title": title,
+                    "name": name,
+                    "knowbot_id": expert.knowmart_knowbot_id,
+                    "trial": expert.trial,
+                    "market_status": (expert.delivery or {}).get("version_status"),
+                    "held_reason": (expert.delivery or {}).get("held_reason"),
+                }
+                for expert, title, name in await board.repo.listed_experts(
+                    principal.subject
+                )
             ]
         }
     )
-
-
-@web_router.post("/knowbot-drafts/{draft_id}/review")
-async def review_draft(
-    principal: User, body: ReviewBody, svc: Service, draft_id: ItemId
-) -> JSONResponse:
-    """审核一位准专家：行 / 不行（不行要说哪里不对）。"""
-    found = await svc.answer_user_review(
-        principal.subject, draft_id, UserReviewIn(ok=body.ok, note=body.note)
-    )
-    return _ok({"draft_id": str(found.id), "status": found.status})
-
-
-@web_router.get("/knowbot-tests/{test_id}/outputs")
-async def my_test_outputs(
-    principal: User, svc: Service, test_id: ItemId
-) -> JSONResponse:
-    """自己的一次测试每条用例的成稿与各步交回物（验收依据，C-L3）。"""
-    test, request = await svc.my_test(principal.subject, test_id)
-    return _ok(outputs_view(test, await svc.test_outputs(test, request), admin=False))
-
-
-@web_router.get("/knowbot-tests/{test_id}/execution")
-async def my_test_execution(
-    principal: User,
-    svc: Service,
-    test_id: ItemId,
-    case_id: Annotated[str | None, Query(pattern=r"^[A-Za-z0-9._-]{1,64}$")] = None,
-) -> JSONResponse:
-    return _ok(
-        {"execution": await svc.my_test_execution(principal.subject, test_id, case_id)}
-    )
-
-
-@web_router.post("/knowbot-experts/{expert_id}/deliveries")
-async def submit_delivery(
-    principal: User,
-    body: DeliverySubmitIn,
-    deliveries: Deliveries,
-    token: KnowbaseToken,
-    expert_id: ItemId,
-) -> JSONResponse:
-    """「提交交付」（SDD 0046 第五节）：选这一版、定自用或公开、授权审核员看这次交付。
-    这一下就是用户同意门；自用的能自动查的自动查，都过马上进 knowmart 小店。上架了的
-    自用版本再提交一次公开，就是自用转公开（重查许可）。"""
-    found = await deliveries.submit(principal.subject, expert_id, body, token)
-    return _ok({"delivery_id": str(found.id), "status": found.status}, 201)
-
-
-@web_router.post("/knowbot-experts/{expert_id}/deliveries/withdraw")
-async def withdraw_delivery(
-    principal: User, deliveries: Deliveries, expert_id: ItemId
-) -> JSONResponse:
-    """撤回没走完的交付（在审的，或审过还没交成的）：停在跑的平台重跑、撤给审核员的
-    授权；第一次交付的这一版回到「等你提交」。"""
-    found = await deliveries.withdraw(principal.subject, expert_id)
-    return _ok({"delivery_id": str(found.id), "status": found.status})
-
-
-@web_router.post("/knowbot-experts/{expert_id}/decline")
-async def decline_expert(
-    principal: User, experts: Experts, expert_id: ItemId
-) -> JSONResponse:
-    """作者不要这一版：不上架。"""
-    found = await experts.decline(principal.subject, expert_id)
-    return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
 
 
 @web_router.post("/knowbot-experts/{expert_id}/stop")
@@ -589,32 +331,6 @@ async def stop_mine(
         expert_id, body.reason, principal.subject, owner_subject=principal.subject
     )
     return _ok({"expert_id": str(found.id), "stage": stage_of(found)})
-
-
-@web_router.get("/knowbot-questions")
-async def my_questions(principal: User, questions: Questions) -> JSONResponse:
-    """测试中转给我回答的问题（投资判断只能我自己答，C-L1）。"""
-    items = await questions.user_queue(principal.subject)
-    return _ok(
-        {"questions": [question_view(q, d, r, admin=False) for q, d, r in items]}
-    )
-
-
-@web_router.get("/knowbot-tests/{test_id}/questions")
-async def my_test_questions(
-    principal: User, svc: Service, questions: Questions, test_id: ItemId
-) -> JSONResponse:
-    test, _ = await svc.my_test(principal.subject, test_id)
-    items = await questions.user_queue(principal.subject)
-    return _ok(
-        {
-            "questions": [
-                question_view(q, d, r, admin=False)
-                for q, d, r in items
-                if q.run_id == test.run_id
-            ]
-        }
-    )
 
 
 class AnswerBody(BaseModel):
@@ -629,64 +345,6 @@ class AnswerBody(BaseModel):
         )
 
 
-@web_router.post("/knowbot-questions/{question_id}/answer")
-async def answer_my_question(
-    principal: User, body: AnswerBody, questions: Questions, question_id: ItemId
-) -> JSONResponse:
-    found = await questions.answer_as_user(principal.subject, question_id, body.given())
-    return _ok({"question_id": str(found.id), "sent": found.sent_at is not None})
-
-
-class SelfTestIn(BaseModel):
-    """自助测试（SDD 0046 第三节）：在哪台电脑、哪个根目录下跑，费用上限多少。"""
-
-    model_config = ConfigDict(extra="forbid")
-    environment_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
-    workspace_root: str = Field(min_length=1, max_length=1024)
-    budget_limit: str = Field(pattern=r"^[0-9]{1,6}(\.[0-9]{1,2})?$")
-    timeout_seconds: int = Field(default=3600, ge=60, le=86400)
-
-
-@web_router.get("/knowbot-drafts/{draft_id}/computers")
-async def my_computers(principal: User, svc: Service, draft_id: ItemId) -> JSONResponse:
-    """自助测试选电脑：我接入过的电脑（在线与否、白名单根目录）与上次用的那台。"""
-    return _ok(await svc.my_computers(principal.subject, draft_id))
-
-
-@web_router.post("/knowbot-drafts/{draft_id}/self-tests")
-async def start_self_test(
-    principal: User, svc: Service, body: SelfTestIn, draft_id: ItemId
-) -> JSONResponse:
-    """自己拿这位准专家测一次：在我自己的电脑上、用我的模型 key，费用上限我自己设。"""
-    test = await svc.start_self_test(
-        principal.subject,
-        draft_id,
-        environment_id=body.environment_id,
-        workspace_root=body.workspace_root,
-        budget_limit=body.budget_limit,
-        timeout_seconds=body.timeout_seconds,
-    )
-    return _ok(
-        {"test_id": str(test.id), "status": test.status, "mode": test.mode},
-        status_code=201,
-    )
-
-
-@web_router.post("/knowbot-tests/{test_id}/stop")
-async def stop_my_test(principal: User, svc: Service, test_id: ItemId) -> JSONResponse:
-    test = await svc.stop_mine(principal.subject, test_id)
-    return _ok({"test_id": str(test.id), "status": test.status})
-
-
-@web_router.post("/knowbot-tests/{test_id}/refresh")
-async def refresh_my_test(
-    principal: User, svc: Service, test_id: ItemId
-) -> JSONResponse:
-    """自己的测试刷新一次：问运行方结果、查在取的数据。"""
-    test = await svc.refresh_mine(principal.subject, test_id)
-    return _ok({"test_id": str(test.id), "status": test.status})
-
-
 # ---------- web端：知识库栏（SDD 0046 第六节） ----------
 @web_router.get("/knowbot-library")
 async def my_library(
@@ -697,215 +355,7 @@ async def my_library(
     return _ok({"materials": await library.shown(user_token)})
 
 
-class DataPicksIn(BaseModel):
-    """工作稿里挑的数据：整份换成这几份（资料编号），空的就是都不要了。"""
-
-    model_config = ConfigDict(extra="forbid")
-    revision: int = Field(ge=0)
-    picks: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(
-        max_length=50
-    )
-
-
 # ---------- web端：工作稿（专家孵化方案第五至十一节） ----------
-class CellIn(BaseModel):
-    """存一格：path 是格子路径（domain/knowbots/workdraft.py），value 为 null 是删。"""
-
-    model_config = ConfigDict(extra="forbid")
-    path: str = Field(min_length=1, max_length=300)
-    value: Any
-
-
-class SaveCellsIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: int = Field(ge=0)  # 读到的那一版；对不上回 409
-    cells: list[CellIn] = Field(min_length=1, max_length=200)
-    adopt_plan: bool = Field(default=False, strict=True)
-    confirm_brief: bool = Field(default=False, strict=True)
-
-
-class ImportIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: int = Field(ge=0)
-    manifest: dict[str, Any]
-
-
-class CopyIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: int = Field(ge=0)
-    draft_id: str = Field(min_length=1, max_length=64)
-
-
-@web_router.get("/knowbot-requests/{request_id}/workdraft")
-async def my_workdraft(
-    principal: User, workdrafts: Workdrafts, props: Proposals, request_id: ItemId
-) -> JSONResponse:
-    """这个名称的工作稿：格子、每格的出处、revision（还没存过的是空的一份）；平台孵化时
-    运营的提议也带上（作者逐条处理）。"""
-    request, found = await workdrafts.get(principal.subject, request_id)
-    _, proposals = await props.mine(principal.subject, request_id)
-    return _ok(
-        workdraft_view(request, found, await workdrafts.origins(found))
-        | await workdrafts.template_seed(request)
-        | {"proposals": [proposal_view(p, admin=False) for p in proposals]}
-        | (
-            {"plan_adoption": receipt}
-            if (receipt := await workdrafts.plan_receipt(found))
-            else {}
-        )
-    )
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/proposals/{proposal_id}")
-async def decide_proposal(
-    principal: User,
-    body: DecisionIn,
-    props: Proposals,
-    workdrafts: Workdrafts,
-    request_id: ItemId,
-    proposal_id: ItemId,
-) -> JSONResponse:
-    """接受、改了再接受、不要运营的一条提议（专家孵化方案第十二节）；工作稿别处改过回
-    409 workdraft_revision。"""
-    _, found = await props.decide(
-        principal.subject,
-        request_id,
-        proposal_id,
-        action=body.action,
-        revision=body.revision,
-        value=body.value,
-    )
-    request, workdraft = await workdrafts.get(principal.subject, request_id)
-    return _ok(
-        {
-            "workdraft": workdraft_view(
-                request, workdraft, await workdrafts.origins(workdraft)
-            ),
-            "proposal": proposal_view(found, admin=False),
-        }
-    )
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/cells")
-async def save_cells(
-    principal: User, body: SaveCellsIn, workdrafts: Workdrafts, request_id: ItemId
-) -> JSONResponse:
-    """存几格（自动保存）：每格改了的记一条编辑记录，算我的原话。"""
-    found = await workdrafts.save(
-        principal.subject,
-        request_id,
-        revision=body.revision,
-        edits=[(c.path, c.value) for c in body.cells],
-        adopt_plan=body.adopt_plan,
-        confirm_brief=body.confirm_brief,
-    )
-    request, _ = await workdrafts.get(principal.subject, request_id)
-    return await _saved_workdraft(workdrafts, request, found)
-
-
-async def _saved_workdraft(workdrafts, request, found):
-    view = workdraft_view(request, found, await workdrafts.origins(found))
-    if receipt := await workdrafts.plan_receipt(found):
-        view["plan_adoption"] = receipt
-    return _ok(view)
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/import")
-async def import_pack(
-    principal: User, body: ImportIn, workdrafts: Workdrafts, request_id: ItemId
-) -> JSONResponse:
-    """导入专家包（清单 v2）：整份换掉；导入的内容算我的原话，工程层留进「高级」。"""
-    found, notes = await workdrafts.import_manifest(
-        principal.subject, request_id, revision=body.revision, manifest=body.manifest
-    )
-    request, _ = await workdrafts.get(principal.subject, request_id)
-    view = workdraft_view(request, found, await workdrafts.origins(found))
-    return _ok(view | {"notes": notes})
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/copy")
-async def copy_mine(
-    principal: User, body: CopyIn, workdrafts: Workdrafts, request_id: ItemId
-) -> JSONResponse:
-    """拿我自己的一位准专家作起点：整份换掉。别人的不行。"""
-    found, notes = await workdrafts.copy_from(
-        principal.subject, request_id, revision=body.revision, draft_id=body.draft_id
-    )
-    request, _ = await workdrafts.get(principal.subject, request_id)
-    view = workdraft_view(request, found, await workdrafts.origins(found))
-    return _ok(view | {"notes": notes})
-
-
-@web_router.put("/knowbot-requests/{request_id}/workdraft/data-picks")
-async def pick_data(
-    principal: User,
-    body: DataPicksIn,
-    library: Library,
-    workdrafts: Workdrafts,
-    user_token: KnowbaseToken,
-    request_id: ItemId,
-) -> JSONResponse:
-    """挑数据（专家孵化方案第 7.1 节）：只能从知识库栏里挑；挑的时候取下每份的格式
-    （描述、读法），AI 一轮交给模型的就是它，不给内容（第 8.2 节）。不在栏里的回 400
-    pick_not_shown；工作稿别处改过回 409 workdraft_revision。"""
-    found = await library.pick(
-        principal.subject,
-        request_id,
-        revision=body.revision,
-        picks=body.picks,
-        user_token=user_token,
-    )
-    request, _ = await workdrafts.get(principal.subject, request_id)
-    return _ok(workdraft_view(request, found, await workdrafts.origins(found)))
-
-
-@web_router.get("/knowbot-requests/{request_id}/workdraft/preview")
-async def preview_workdraft(
-    principal: User, workdrafts: Workdrafts, request_id: ItemId
-) -> JSONResponse:
-    """编出的清单与出不了版本的地方（按格子路径标红），不出版本。"""
-    manifest, problems, version = await workdrafts.preview(
-        principal.subject, request_id
-    )
-    return _ok(
-        {
-            "version": version,
-            "manifest": manifest,
-            "problems": [{"path": p.path, "message": p.message} for p in problems],
-        }
-    )
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/publish")
-async def publish_workdraft(
-    principal: User, workdrafts: Workdrafts, request_id: ItemId
-) -> JSONResponse:
-    """出一版：把关都过了就出准专家第 n 版（自助），拿去测。工作稿不变。"""
-    draft = await workdrafts.publish(principal.subject, request_id)
-    return _ok(
-        {
-            "draft_id": str(draft.id),
-            "version": draft.version,
-            "revision": draft.revision,
-            "request_version": draft.request_version,
-            "mode": draft.mode,
-        },
-        status_code=201,
-    )
-
-
-class SeedSkillIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    skill: str = Field(min_length=1, max_length=20000)
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/seed-skill")
-async def seed_skill(
-    principal: User, body: SeedSkillIn, workdrafts: Workdrafts, request_id: ItemId
-) -> JSONResponse:
-    """导入 skill 当种子：存成创意的新一版（种类 skill），再点「AI 起草」去拆。"""
-    version = await workdrafts.seed_skill(principal.subject, request_id, body.skill)
-    return _ok({"request_id": request_id, "version": version}, status_code=201)
 
 
 # ---------- web端：AI 孵化的一轮（专家孵化方案第八、九节） ----------
@@ -914,55 +364,45 @@ class IncubationIn(BaseModel):
     电脑与目录不给就用上次的。"""
 
     model_config = ConfigDict(extra="forbid")
-    selection_revision: int | None = Field(default=None, ge=0)
+    selection_revision: int = Field(ge=1)
     node_edit: NodeEdit | None = None
     action: Literal["draft", "revise"]
     instruction: str | None = Field(default=None, min_length=1, max_length=4000)
-    step_id: str | None = Field(default=None, pattern=STEP_ID)
     budget_limit: str = Field(
         default=DEFAULT_BUDGET, pattern=r"^[0-9]{1,6}(\.[0-9]{1,2})?$"
     )
     environment_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
     workspace_root: str | None = Field(default=None, min_length=1, max_length=1024)
-    # 带上最近一次测试的报告让 AI 改（只许 revise，专家孵化方案第 8.4 节）
-    with_test: bool = False
 
 
-class AcceptStepIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    revision: int = Field(ge=0)
+async def studio_request(
+    principal: User, incubations: Incubations, request_id: ItemId
+) -> str:
+    row = await incubations.repo.get_workdraft(parse_id(request_id, "request"))
+    if (
+        row is None
+        or row.owner_subject != principal.subject
+        or row.method_id is None
+        or row.draft_contract is None
+    ):
+        raise NotFoundError("No such studio draft", code="method_draft_not_found")
+    return request_id
 
 
-class DecisionIn(BaseModel):
-    """对一条建议：接受、改了再接受（value 是改后的）、不要。改工作稿的带读到的
-    revision，对不上回 409。"""
-
-    model_config = ConfigDict(extra="forbid")
-    action: Literal["accept", "accept_edited", "reject"]
-    revision: int | None = Field(default=None, ge=0)
-    value: Any = None
+StudioRequest = Annotated[str, Depends(studio_request)]
 
 
 @web_router.get("/knowbot-requests/{request_id}/workdraft/computers")
 async def incubation_computers(
-    principal: User, incubations: Incubations, request_id: ItemId
+    principal: User, incubations: Incubations, request_id: StudioRequest
 ) -> JSONResponse:
     """AI 孵化选电脑：我接入过的电脑与上次用的那台与目录。"""
     return _ok(await incubations.computers(principal.subject, request_id))
 
 
-@web_router.get("/knowbot-requests/{request_id}/workdraft/capabilities")
-async def incubation_capabilities(
-    principal: User,
-    incubations: Incubations,
-    request_id: ItemId,
-) -> JSONResponse:
-    return _ok(await incubations.capabilities(principal.subject, request_id))
-
-
 @web_router.get("/knowbot-requests/{request_id}/workdraft/incubations")
 async def my_incubations(
-    principal: User, incubations: Incubations, request_id: ItemId
+    principal: User, incubations: Incubations, request_id: StudioRequest
 ) -> JSONResponse:
     """这个名称的各轮（第几轮、状态、花费），第一轮在前。"""
     found = await incubations.rounds(principal.subject, request_id)
@@ -971,7 +411,10 @@ async def my_incubations(
 
 @web_router.post("/knowbot-requests/{request_id}/workdraft/incubations")
 async def start_incubation(
-    principal: User, body: IncubationIn, incubations: Incubations, request_id: ItemId
+    principal: User,
+    body: IncubationIn,
+    incubations: Incubations,
+    request_id: StudioRequest,
 ) -> JSONResponse:
     """发起一轮（「AI 起草」「让 AI 改…」）：在我的电脑上、用我的 key 跑，费用上限我设。
     这份工作稿已有一轮在跑回 409 incubation_running；没有可用的电脑回 409
@@ -981,11 +424,9 @@ async def start_incubation(
         request_id,
         action=body.action,
         instruction=body.instruction,
-        step_id=body.step_id,
         budget_limit=body.budget_limit,
         environment_id=body.environment_id,
         workspace_root=body.workspace_root,
-        with_test=body.with_test,
         selection_revision=body.selection_revision,
         node_edit=body.node_edit,
     )
@@ -1011,7 +452,7 @@ class ConfirmSelection(BaseModel):
 )
 async def confirm_selection(
     principal: User,
-    request_id: ItemId,
+    request_id: StudioRequest,
     incubation_id: ItemId,
     body: ConfirmSelection,
     incubations: Incubations,
@@ -1023,12 +464,15 @@ async def confirm_selection(
     )
     service = SelectionService(incubations.repo, incubations.runtimes)
     found = await service.confirm(principal.subject, request, record, body)
-    return await _saved_workdraft(service.methods.workdrafts, request, found)
+    return _ok({"revision": found.revision})
 
 
 @web_router.get("/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}")
 async def my_incubation(
-    principal: User, incubations: Incubations, request_id: ItemId, incubation_id: ItemId
+    principal: User,
+    incubations: Incubations,
+    request_id: StudioRequest,
+    incubation_id: ItemId,
 ) -> JSONResponse:
     """一轮：状态与交回的建议（每条的出处、核得上没有、我怎么处理的）、缺口、自查。"""
     _, record = await incubations.mine(principal.subject, request_id, incubation_id)
@@ -1039,7 +483,10 @@ async def my_incubation(
     "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}/refresh"
 )
 async def refresh_incubation(
-    principal: User, incubations: Incubations, request_id: ItemId, incubation_id: ItemId
+    principal: User,
+    incubations: Incubations,
+    request_id: StudioRequest,
+    incubation_id: ItemId,
 ) -> JSONResponse:
     """刷新一次（页面轮询）：没结束的问一次运行方，成了的存交回、核出处、缺口进待办。"""
     record = await incubations.refresh(principal.subject, request_id, incubation_id)
@@ -1050,145 +497,16 @@ async def refresh_incubation(
     "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}/cancel"
 )
 async def cancel_incubation(
-    principal: User, incubations: Incubations, request_id: ItemId, incubation_id: ItemId
+    principal: User,
+    incubations: Incubations,
+    request_id: StudioRequest,
+    incubation_id: ItemId,
 ) -> JSONResponse:
     """取消没结束的一轮。"""
     record = await incubations.cancel(principal.subject, request_id, incubation_id)
     return _ok({"incubation": incubation_view(record, await incubations.gaps(record))})
 
 
-@web_router.post(
-    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}"
-    "/suggestions/{suggestion_id}"
-)
-async def decide_suggestion(
-    principal: User,
-    body: DecisionIn,
-    incubations: Incubations,
-    workdrafts: Workdrafts,
-    request_id: ItemId,
-    incubation_id: ItemId,
-    suggestion_id: Annotated[str, Path(max_length=32)],
-) -> JSONResponse:
-    """接受、改了再接受、不要一条建议。出处核不上的只能改了再接受（409
-    suggestion_unverified）；工作稿别处改过回 409 workdraft_revision。"""
-    _, record = await incubations.decide(
-        principal.subject,
-        request_id,
-        incubation_id,
-        suggestion_id,
-        action=body.action,
-        revision=body.revision,
-        value=body.value,
-    )
-    request, found = await workdrafts.get(principal.subject, request_id)
-    return _ok(
-        {
-            "workdraft": workdraft_view(
-                request, found, await workdrafts.origins(found)
-            ),
-            "incubation": incubation_view(record, await incubations.gaps(record)),
-        }
-    )
-
-
-@web_router.post(
-    "/knowbot-requests/{request_id}/workdraft/incubations/{incubation_id}"
-    "/steps/{step_id}/accept-all"
-)
-async def accept_step(
-    principal: User,
-    body: AcceptStepIn,
-    incubations: Incubations,
-    workdrafts: Workdrafts,
-    request_id: ItemId,
-    incubation_id: ItemId,
-    step_id: Annotated[str, Path(pattern=STEP_ID)],
-) -> JSONResponse:
-    """一键接受这一步的全部建议（专家孵化方案第 8.3 节）：出处核不上的、放不上去的跳过，
-    照旧待处理（skipped 里写着为什么）。工作稿别处改过回 409 workdraft_revision。"""
-    _, record, accepted, skipped = await incubations.accept_step(
-        principal.subject,
-        request_id,
-        incubation_id,
-        step_id,
-        revision=body.revision,
-    )
-    request, found = await workdrafts.get(principal.subject, request_id)
-    return _ok(
-        {
-            "workdraft": workdraft_view(
-                request, found, await workdrafts.origins(found)
-            ),
-            "incubation": incubation_view(record, await incubations.gaps(record)),
-            "accepted": accepted,
-            "skipped": skipped,
-        }
-    )
-
-
-def test_data_service(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> KnowbotTestData:
-    found = knowbot_test_data(session)
-    if found is None:
-        raise ServiceUnavailableError(
-            "knowbase is not configured", code="knowbase_unconfigured"
-        )
-    return found
-
-
-TestData = Annotated[KnowbotTestData, Depends(test_data_service)]
-
-
-@web_router.get("/knowbot-tests/{test_id}/data")
-async def my_test_data(
-    principal: User, data: TestData, user_token: KnowbaseToken, test_id: ItemId
-) -> JSONResponse:
-    """这次测试里专家提出的数据（SDD 0046 第三节）：每一样解析到哪、候选有哪些、
-    在取的、没取到的。只有我自己的测试。"""
-    found = await data.pending(principal.subject, test_id, user_token)
-    return _ok({"requests": found})
-
-
-class TestDataBody(BaseModel):
-    """确认测试数据：可以先改（needs 是改过的整份），换一份、去掉几样；
-    都不给就照提出的。"""
-
-    model_config = ConfigDict(extra="forbid")
-    picks: dict[str, dict[str, Any]] = Field(default_factory=dict, max_length=200)
-    dropped: list[str] = Field(default_factory=list, max_length=200)
-    needs: list[dict[str, Any]] | None = Field(default=None, max_length=20)
-
-
-@web_router.post("/knowbot-test-data/{question_id}/confirm")
-async def confirm_my_test_data(
-    principal: User,
-    data: TestData,
-    user_token: KnowbaseToken,
-    question_id: ItemId,
-    body: TestDataBody,
-) -> JSONResponse:
-    done = await data.confirm(
-        principal.subject,
-        question_id,
-        user_token,
-        picks=body.picks,
-        dropped=body.dropped,
-        needs=body.needs,
-    )
-    return _ok(done)
-
-
-@web_router.post("/knowbot-test-data/{question_id}/decline")
-async def decline_my_test_data(
-    principal: User, data: TestData, question_id: ItemId
-) -> JSONResponse:
-    """不要这几样，或没取到的照现有的接着做：记「数据不全」。"""
-    return _ok(await data.decline(principal.subject, question_id))
-
-
-# ---------- 管理端（我们的运营） ----------
 class TakeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(min_length=1, max_length=200)
@@ -2108,103 +1426,19 @@ async def formal_version(
 @web_router.get("/method-units")
 async def my_methods(
     principal: User,
-    methods: Methods,
+    methods: FormalMethods,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
     offset: Annotated[int, Query(ge=0)] = 0,
-    formal: bool = False,
     request_id: UUID | None = None,
 ) -> JSONResponse:
-    if formal:
-        formal_methods = FormalMethodService(methods.repo, runtime_clients())
-        return _ok(
-            {
-                "items": await formal_methods.listing(
-                    principal.subject,
-                    limit=limit,
-                    offset=offset,
-                    request_id=str(request_id) if request_id else None,
-                )
-            }
-        )
-    return _ok(
-        {"items": await methods.listing(principal.subject, limit=limit, offset=offset)}
-    )
-
-
-@web_router.put("/method-units/{method_id}/versions/{version}")
-async def freeze_method_version(
-    principal: User,
-    methods: Methods,
-    method_id: ItemId,
-    version: Annotated[int, Path(ge=1, le=999999)],
-    body: FreezeAtomicMethod | FreezeMethod,
-) -> JSONResponse:
-    """作者确认来源版本和命名输入槽；同版本同请求重放，不覆盖旧内容。"""
-    return _ok(
-        method_version_view(
-            await methods.publish(principal.subject, method_id, version, body)
-        )
-    )
-
-
-@web_router.get("/method-units/{method_id}/versions/{version}")
-async def my_method_version(
-    principal: User,
-    methods: Methods,
-    method_id: ItemId,
-    version: Annotated[int, Path(ge=1, le=999999)],
-) -> JSONResponse:
-    return _ok(
-        method_version_view(await methods.get(principal.subject, method_id, version))
-    )
-
-
-@web_router.post("/method-units/{method_id}/versions/{version}/preview-binding")
-async def preview_method_binding(
-    principal: User,
-    methods: Methods,
-    method_id: ItemId,
-    version: Annotated[int, Path(ge=1, le=999999)],
-    body: BindMethod,
-) -> JSONResponse:
-    """只核对候选引用与输入连接，不保存、不发布、不启动执行。"""
-    return _ok(
-        await methods.preview_binding(principal.subject, method_id, version, body)
-    )
-
-
-@web_router.post("/method-units/{method_id}/versions/{version}/bind")
-async def bind_method_version(
-    principal: User,
-    methods: Methods,
-    method_id: ItemId,
-    version: Annotated[int, Path(ge=1, le=999999)],
-    body: BindMethod,
-) -> JSONResponse:
-    """作者明确选定精确版本；只改自己的工作稿，不发布、不运行。"""
-    found = await methods.bind_version(principal.subject, method_id, version, body)
-    request, _ = await methods.workdrafts.get(principal.subject, str(body.request_id))
-    return _ok(workdraft_view(request, found, await methods.workdrafts.origins(found)))
-
-
-@web_router.post("/knowbot-drafts/{draft_id}/manual-release")
-async def request_manual_release(
-    user: User, service: ManualReleases, draft_id: ItemId, body: ManualReleaseIn
-) -> JSONResponse:
-    identifier = str(parse_id(draft_id, "draft"))
-    return _ok(release_view(await service.request(user.subject, identifier, body)), 201)
-
-
-@web_router.get("/knowbot-manual-releases")
-async def my_manual_releases(user: User, service: ManualReleases) -> JSONResponse:
     return _ok(
         {
-            "items": [
-                release_view(r)
-                for r in await service.repo.list_manual_releases(
-                    owner_subject=user.subject
-                )
-            ]
+            "items": await methods.listing(
+                principal.subject,
+                limit=limit,
+                offset=offset,
+                request_id=str(request_id) if request_id else None,
+            )
         }
     )
 

@@ -2,39 +2,8 @@
 
 import pytest
 
-from app.application.errors.exceptions import ConcurrencyConflictError
-from app.domain.knowbots.method_demand import RuntimeIncubationV2
-from tests.knowbot_fakes import OWNER
 from tests.test_knowbot_repository_db import db as db
 from tests.test_knowbot_repository_db import service
-from tests.test_runtime_method_demand import request_doc
-
-
-async def test_method_demand_survives_storage_and_replay(db):
-    command = RuntimeIncubationV2.model_validate(request_doc())
-    async with db() as session:
-        first, created = await service(session).submit_from_runtime(
-            OWNER, command, runtime="knowbench"
-        )
-        assert created
-    async with db() as session:
-        again, created = await service(session).submit_from_runtime(
-            OWNER, command, runtime="knowbench"
-        )
-        assert not created and again.id == first.id
-        assert again.origin["method_demand"] == command.method_demand.model_dump(
-            mode="json"
-        )
-        assert again.reference_answer == command.reference()
-        assert again.idea == {"kind": "question", "question": command.question}
-        assert again.consent_version == 0
-    changed = request_doc()
-    changed["method_demand"]["gaps"][0]["reason"] = "不同的缺口"
-    async with db() as session:
-        with pytest.raises(ConcurrencyConflictError):
-            await service(session).submit_from_runtime(
-                OWNER, RuntimeIncubationV2.model_validate(changed), runtime="knowbench"
-            )
 
 
 async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
@@ -52,7 +21,7 @@ async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
     def body(owner, task_id, include_method):
         return FormalHandoff.model_validate(
             {
-                "contract": "knowlab/formal-handoff/v1",
+                "contract": "knowlab/formal-handoff/v2",
                 "question": "Which rows differ?",
                 "project_id": project,
                 "task_id": task_id,
@@ -85,7 +54,8 @@ async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
             author, cmd, runtime="knowbench"
         )
         assert created and revised.origin["handoff"] == "author_revision"
-        copy = await repo.get_workdraft(revised.id)
+        assert revised.origin["studio_method_id"] == str(mid)
+        copy = await repo.get_method_workdraft(mid)
         assert copy.body["formal_method"]["definition"] == original.definition
         again, created = await svc.submit_from_runtime(author, cmd, runtime="knowbench")
         assert again.id == revised.id and not created
@@ -98,7 +68,7 @@ async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
 
         validation = initial.model_copy(
             update={
-                "request_id": revised.id,
+                "request_id": copy.request_id,
                 "run_id": uuid4(),
                 "revision": copy.revision,
             }
@@ -108,7 +78,7 @@ async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
         runtime.complete(validation.run_id)
         newer = await methods.freeze(author, str(mid), 2, freeze_command(validation))
         assert newer.source_workdraft_id == copy.id and newer.version == 2
-        assert (await repo.method_version(mid, 1)).source_workdraft_id != copy.id
+        assert original.source_workdraft_id == copy.id
         # Seed a public version for consumer feedback.
         async with repo.transaction():
             await repo.insert_method_version(
@@ -131,11 +101,15 @@ async def test_formal_handoff_keeps_the_buyer_out_of_the_authors_draft(db):
         assert (await svc.submit_from_runtime("buyer", buyer, runtime="knowbench"))[
             0
         ].id == sent.id
-        messages = await repo.list_amendments(initial.request_id)
-        assert [(m.owner_subject, m.text) for m in messages] == [("buyer", buyer.gap)]
+        from app.application.services.method_drafts import MethodDraftService
+
+        assert (await MethodDraftService(repo).get(author, str(mid)))["feedback"] == [
+            cmd.gap,
+            buyer.gap,
+        ]
 
 
-async def test_author_handoff_reopens_collaboration_in_its_editable_cell(db):
+async def test_author_handoff_restores_frozen_studio_procedure_after_draft_deletion(db):
     from uuid import uuid4
 
     from app.domain.knowbots.formal_method import FormalMethodDefinition
@@ -166,6 +140,16 @@ async def test_author_handoff_reopens_collaboration_in_its_editable_cell(db):
     task = str(uuid4())
     async with db() as session:
         repo = SqlKnowlabRepository(session)
+        from app.application.services.method_drafts import MethodDraftService
+        from app.domain.knowbots.formal_method_admission import FormalMethodDraft
+        from tests.studio_fixtures import studio_contract
+
+        snapshot = studio_contract(
+            FormalMethodDraft(
+                definition=frozen_graph, source=None, allowed_callers=("host",)
+            )
+        )
+        await MethodDraftService(repo).delete(owner, str(mid), command.revision)
         async with repo.transaction():
             await repo.insert_method_version(
                 method_id=mid,
@@ -174,11 +158,15 @@ async def test_author_handoff_reopens_collaboration_in_its_editable_cell(db):
                 digest=frozen_graph.digest(),
                 command_digest=original.command_digest,
                 source_workdraft_id=original.source_workdraft_id,
-                provenance={**original.provenance, "source": None},
+                provenance={
+                    **original.provenance,
+                    "source": None,
+                    "studio_draft": snapshot.model_dump(mode="json", by_alias=True),
+                },
             )
         handoff = FormalHandoff.model_validate(
             {
-                "contract": "knowlab/formal-handoff/v1",
+                "contract": "knowlab/formal-handoff/v2",
                 "question": "Compare the evidence",
                 "project_id": str(uuid4()),
                 "task_id": task,
@@ -198,9 +186,9 @@ async def test_author_handoff_reopens_collaboration_in_its_editable_cell(db):
         )
         workdraft = await repo.get_workdraft(result.id)
         assert created and result.origin["handoff"] == "author_revision"
-        assert workdraft.body["collaboration"] == graph["collaboration"]
+        assert workdraft.method_id == mid
         assert (
-            "collaboration"
-            not in workdraft.body["formal_method"]["definition"]["procedure"]
+            workdraft.draft_contract["procedure"]["collaboration"]
+            == snapshot.model_dump(mode="json")["procedure"]["collaboration"]
         )
         assert (await repo.method_version(mid, 2)).definition == definition

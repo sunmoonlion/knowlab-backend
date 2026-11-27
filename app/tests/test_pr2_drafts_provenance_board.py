@@ -32,6 +32,7 @@ from tests.knowbot_fakes import (
     platform_draft,
     request_body,
 )
+from tests.studio_fixtures import save_studio_method
 from tests.test_formal_method import composite, frozen
 from tests.test_formal_method_service import Repository, Runtime, draft
 
@@ -105,12 +106,7 @@ async def test_method_draft_v2_c_l1_provenance_handoff_and_fractal_gap_roundtrip
         domain_id="core.check.receipt",
     ).model_dump(mode="json", by_alias=True)
     child_draft_doc["definition"]["procedure"]["outputs"]["result"] = receipt_slot
-    await methods.workdrafts.save(
-        OWNER,
-        str(req.id),
-        revision=0,
-        edits=[("formal_method", child_draft_doc)],
-    )
+    await save_studio_method(repo, OWNER, str(req.id), child_mid, 0, child_draft_doc)
     cmd = ValidateFormalMethod(request_id=req.id, revision=1, run_id=uuid4())
     await methods.validate(OWNER, str(child_mid), cmd)
     runtime.complete(cmd.run_id)
@@ -274,10 +270,8 @@ async def test_public_expert_allows_same_owner_verified_private_script_leaf():
         entry="run.py",
         license_basis="owner",
     )
-    await svc.workdrafts.save(
-        OWNER, str(leaf_req.id), revision=0, edits=[("formal_method", leaf_doc)]
-    )
-    leaf_mid = uuid4()
+    await save_studio_method(repo, OWNER, str(leaf_req.id), leaf_req.id, 0, leaf_doc)
+    leaf_mid = leaf_req.id
     leaf_cmd = ValidateFormalMethod(request_id=leaf_req.id, revision=1, run_id=uuid4())
     await svc.validate(OWNER, str(leaf_mid), leaf_cmd)
     leaf_receipt = runtime.complete(leaf_cmd.run_id, business=True)
@@ -358,22 +352,15 @@ async def test_public_expert_allows_same_owner_verified_private_script_leaf():
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
     parent_defn = composite(frozen(frozen_leaf.definition, mid=leaf_mid))
-    await svc.workdrafts.save(
+    await save_studio_method(
+        repo,
         OWNER,
         str(parent_req.id),
-        revision=0,
-        edits=[
-            (
-                "formal_method",
-                {
-                    "definition": parent_defn,
-                    "source": None,
-                    "allowed_callers": ["host"],
-                },
-            )
-        ],
+        parent_req.id,
+        0,
+        {"definition": parent_defn, "source": None, "allowed_callers": ["host"]},
     )
-    parent_mid = uuid4()
+    parent_mid = parent_req.id
     parent_cmd = ValidateFormalMethod(
         request_id=parent_req.id, revision=1, run_id=uuid4()
     )

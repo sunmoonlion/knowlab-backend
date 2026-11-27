@@ -604,50 +604,6 @@ async def test_the_route_migration_moves_rows_that_were_already_there(db) -> Non
 
 
 @pytest.mark.asyncio
-async def test_old_amendments_on_the_real_database(db) -> None:
-    """补充方法（SDD 0035，已取消）：旧的照旧可查；真约束；迁移能退能进。"""
-    async with db() as session:
-        request = await accepted_request(service(session))
-    async with db() as session, session.begin():
-        repo = SqlKnowlabRepository(session)
-        used = await repo.create_amendment(
-            request_id=request.id, owner_subject=OWNER, text="第 6 步改成对照"
-        )
-        await repo.create_amendment(
-            request_id=request.id, owner_subject=OWNER, text="第 7 步多一种"
-        )
-        await repo.decline_amendment(
-            used.id, reason="下一版再说", by="admin-1", at=datetime.now(UTC)
-        )
-    async with db() as session:
-        svc = service(session)
-        views = await svc.amendments(request.id, [])
-        # 同一个事务里写的两条，提交时间一样：不按先后比
-        assert {a.text: status for a, status, _ in views} == {
-            "第 6 步改成对照": "declined",
-            "第 7 步多一种": "open",
-        }
-    for bad in (
-        "UPDATE knowbot_amendment SET text = ''",
-        "UPDATE knowbot_amendment SET declined_reason = NULL"
-        " WHERE declined_at IS NOT NULL",
-        "UPDATE knowbot_amendment SET declined_at = now() WHERE declined_at IS NULL",
-    ):
-        with pytest.raises(DBAPIError):
-            async with db() as session, session.begin():
-                await session.execute(text(bad))
-
-    name = "20261019_0008_knowbot_amendments"
-    async with db() as session, session.begin():
-        connection = await session.connection()
-        await connection.run_sync(_step(name, "downgrade"))
-        await connection.run_sync(_step(name, "upgrade"))
-    async with db() as session:
-        count = await session.execute(text("SELECT count(*) FROM knowbot_amendment"))
-        assert count.scalar_one() == 0
-
-
-@pytest.mark.asyncio
 async def test_test_outputs_on_the_real_database(db) -> None:
     """每条用例的产出（SDD 0037）：刷新时取一次存下、只取一次；约束与迁移。"""
     from app.domain.knowbots.test_run import CONTRACT, CaseOutputsV1
@@ -970,7 +926,7 @@ async def test_fixed_only_application_retires_from_detail_and_both_boards(db):
         ):
             assert old.id not in {r.id for r in rows}
             assert current.id in {r.id for r in rows}
-        # A retained five-element or transitional workdraft can predate the fixed pack.
+        # Only a five-element draft can make this method visible.
         await session.execute(
             text(
                 "insert into knowbot_workdraft "
@@ -982,7 +938,7 @@ async def test_fixed_only_application_retires_from_detail_and_both_boards(db):
         for contract, body, visible in (
             ("null", '{"steps":[],"method_refs":{}}', False),
             ('{"archetype_id":"S1"}', "{}", True),
-            ("null", '{"steps":[{"id":"draft_step"}]}', True),
+            ("null", '{"steps":[{"id":"draft_step"}]}', False),
             ("null", "{}", False),
         ):
             await session.execute(

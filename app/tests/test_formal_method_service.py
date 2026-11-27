@@ -18,7 +18,6 @@ from app.application.errors.exceptions import (
 from app.application.ports.knowbots import MethodVersionRecord
 from app.application.services.formal_methods import FormalMethodService
 from app.application.services.knowbot_service import KnowbotCreationService
-from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.domain.knowbots.drafts import KnowbotRequestIn
 from app.domain.knowbots.formal_method_admission import (
     CONTRACT,
@@ -30,6 +29,7 @@ from app.domain.knowbots.formal_method_admission import (
     ValidateFormalMethod,
 )
 from tests.knowbot_fakes import OWNER, FakeRuntime, MemoryKnowlab, request_body
+from tests.studio_fixtures import save_studio_method
 from tests.test_formal_method import composite, frozen, tool
 
 
@@ -70,7 +70,10 @@ class Repository(MemoryKnowlab):
         for mid, have_owner in self.method_owners.items():
             if have_owner != owner:
                 continue
-            record = self.method_versions[(mid, await self.method_head(mid))]
+            head = await self.method_head(mid)
+            if not head:
+                continue
+            record = self.method_versions[(mid, head)]
             is_formal = record.definition.get("contract") == "knowlab/formal-method/v1"
             if is_formal != formal_only:
                 continue
@@ -249,14 +252,16 @@ async def setup(repo=None, runtime=None):
     request = await KnowbotCreationService(repo, runtime).submit(
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
-    await KnowbotWorkdraftService(repo).save(
+    await save_studio_method(
+        repo,
         OWNER,
         str(request.id),
-        revision=0,
-        edits=[("formal_method", draft().model_dump(mode="json", by_alias=True))],
+        request.id,
+        0,
+        draft().model_dump(mode="json", by_alias=True),
     )
     command = ValidateFormalMethod(request_id=request.id, revision=1, run_id=uuid4())
-    return repo, runtime, FormalMethodService(repo, runtime), uuid4(), command
+    return repo, runtime, FormalMethodService(repo, runtime), request.id, command
 
 
 def freeze_command(command, visibility="private"):
@@ -294,9 +299,7 @@ async def test_registration_reply_loss_replays_the_frozen_snapshot_after_draft_e
     assert len(repo.method_versions) == len(runtime.registrations) == 1
     changed = draft().model_dump(mode="json", by_alias=True)
     changed["allowed_callers"] = ["host", "model"]
-    await service.workdrafts.save(
-        OWNER, str(command.request_id), revision=1, edits=[("formal_method", changed)]
-    )
+    await save_studio_method(repo, OWNER, str(command.request_id), mid, 1, changed)
     runtime.fail_register = False
     assert await service.freeze(OWNER, str(mid), 1, freeze_command(command)) == record
     assert runtime.registration_calls[0] == runtime.registration_calls[1]
@@ -334,9 +337,7 @@ async def test_source_change_requires_new_validation_and_preserves_old_receipt()
     runtime.complete(command.run_id)
     changed = draft().model_dump(mode="json", by_alias=True)
     changed["source"]["license_basis"] = "Another statement must be checked"
-    await service.workdrafts.save(
-        OWNER, str(command.request_id), revision=1, edits=[("formal_method", changed)]
-    )
+    await save_studio_method(repo, OWNER, str(command.request_id), mid, 1, changed)
     with pytest.raises(ConcurrencyConflictError):
         await service.freeze(OWNER, str(mid), 1, freeze_command(command))
     with pytest.raises(ConcurrencyConflictError) as error:
@@ -406,11 +407,9 @@ async def test_all_candidates_must_resolve_to_exact_admitted_owned_versions():
     request = await KnowbotCreationService(repo, runtime).submit(
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
-    await service.workdrafts.save(
-        OWNER, str(request.id), revision=0, edits=[("formal_method", proposal)]
-    )
+    await save_studio_method(repo, OWNER, str(request.id), request.id, 0, proposal)
     validate = ValidateFormalMethod(request_id=request.id, revision=1, run_id=uuid4())
-    parent = uuid4()
+    parent = request.id
     await service.validate(OWNER, str(parent), validate)
     assert runtime.validation_requests[validate.run_id].dependencies[0].method_id == mid
     runtime.complete(validate.run_id)
@@ -436,21 +435,18 @@ async def test_unregistered_freeze_is_not_selectable_or_referenced():
     request = await KnowbotCreationService(repo, runtime).submit(
         OWNER, KnowbotRequestIn.model_validate(request_body())
     )
-    await service.workdrafts.save(
+    await save_studio_method(
+        repo,
         OWNER,
         str(request.id),
-        revision=0,
-        edits=[
-            (
-                "formal_method",
-                {"definition": definition, "source": None, "allowed_callers": ["host"]},
-            )
-        ],
+        request.id,
+        0,
+        {"definition": definition, "source": None, "allowed_callers": ["host"]},
     )
     parent_command = ValidateFormalMethod(
         request_id=request.id, revision=1, run_id=uuid4()
     )
-    parent = uuid4()
+    parent = request.id
     with pytest.raises(ConcurrencyConflictError) as error:
         await service.validate(OWNER, str(parent), parent_command)
     assert error.value.code == "formal_method_unregistered"
@@ -474,9 +470,7 @@ async def test_public_skill_without_redistribution_is_rejected_before_freezing()
     )
     changed["source"].update({k: v for k, v in impl.items() if k != "requirement_ids"})
     changed["source"].update(asset_id=str(uuid4()), asset_revision=1)
-    await svc.workdrafts.save(
-        OWNER, str(command.request_id), revision=1, edits=[("formal_method", changed)]
-    )
+    await save_studio_method(repo, OWNER, str(command.request_id), mid, 1, changed)
     command = command.model_copy(update={"revision": 2})
     await svc.validate(OWNER, str(mid), command)
     runtime.complete(command.run_id)
@@ -593,7 +587,17 @@ def test_review_policy_requires_an_independent_consumer_of_the_producer_output()
         )
         == []
     )
-    legacy = composite(frozen(mid=UUID(int=1)), frozen(mid=UUID(int=2)))
+    original_tool = tool()
+    for slots in ("inputs", "outputs"):
+        original_tool["procedure"][slots]["value" if slots == "inputs" else "result"][
+            "meaning"
+        ].pop("domain_id")
+    legacy = composite(
+        frozen(original_tool, mid=UUID(int=1)), frozen(original_tool, mid=UUID(int=2))
+    )
+    for step in legacy["procedure"]["steps"]:
+        step["inputs"]["value"]["slot"]["meaning"].pop("domain_id")
+        step["outputs"]["result"]["meaning"].pop("domain_id")
     assert FormalMethodDefinition.model_validate(legacy).digest() == (
         "sha256:fc041d5b4590352bbb535a2cd2915097c30724a0d2ac91f70ad271b410504bef"
     )
@@ -668,9 +672,7 @@ async def test_conditional_method_requires_executed_cases_before_freeze():
     body["definition"]["capability_declaration"]["conditions"] = {
         "value": {"when": "Observation available", "input_slots": ["value"]}
     }
-    await service.workdrafts.save(
-        OWNER, str(command.request_id), revision=1, edits=[("formal_method", body)]
-    )
+    await save_studio_method(repo, OWNER, str(command.request_id), mid, 1, body)
     command = command.model_copy(update={"revision": 2})
     await service.validate(OWNER, str(mid), command)
     runtime.complete(command.run_id)

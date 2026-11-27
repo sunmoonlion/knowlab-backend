@@ -18,7 +18,6 @@ from app.application.errors.exceptions import (
 )
 from app.application.ports.knowbots import (
     AcceptanceRecord,
-    AmendmentRecord,
     DeliveryRecord,
     DraftRecord,
     ExpertRecord,
@@ -220,7 +219,6 @@ class MemoryKnowlab:
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
         self.test_sets: list[TestSetRecord] = []
-        self.amendments: dict[uuid.UUID, AmendmentRecord] = {}
         self.outputs: dict[tuple[uuid.UUID, str, str], TestOutputRecord] = {}
         self.workdrafts: dict[uuid.UUID, WorkdraftRecord] = {}  # 按名称
         self.entries: dict[uuid.UUID, WorkdraftEntryRecord] = {}
@@ -245,7 +243,6 @@ class MemoryKnowlab:
             dict(self.requests),
             dict(self.drafts),
             dict(self.questions),
-            dict(self.amendments),
             dict(self.outputs),
             dict(self.versions),
             dict(self.acceptances),
@@ -266,7 +263,6 @@ class MemoryKnowlab:
                 self.requests,
                 self.drafts,
                 self.questions,
-                self.amendments,
                 self.outputs,
                 self.versions,
                 self.acceptances,
@@ -667,37 +663,33 @@ class MemoryKnowlab:
         return sorted(found, key=lambda e: (e.created_at, str(e.id)))[:limit]
 
     # ---------- 补充方法 ----------
-    async def create_amendment(
-        self, *, request_id: uuid.UUID, owner_subject: str, text: str
-    ) -> AmendmentRecord:
-        record = AmendmentRecord(
-            id=uuid.uuid4(),
-            request_id=request_id,
-            owner_subject=owner_subject,
-            text=text,
-            created_at=self._now(),
-        )
-        self.amendments[record.id] = record
-        return record
 
-    async def list_amendments(self, request_id: uuid.UUID) -> Sequence[AmendmentRecord]:
-        found = [a for a in self.amendments.values() if a.request_id == request_id]
-        return sorted(found, key=lambda a: a.created_at or 0)
+    async def listed_experts(
+        self, owner: str
+    ) -> list[tuple[ExpertRecord, str, str | None]]:
+        return [
+            (
+                expert,
+                self.requests[expert.request_id].title,
+                self.drafts[expert.draft_id].manifest.get("name"),
+            )
+            for expert in self.experts.values()
+            if self.requests[expert.request_id].owner_subject == owner
+            and expert.listed_at
+            and not expert.stopped_at
+            and (not expert.needs_return or expert.returned_at)
+        ]
 
-    async def get_amendment(
-        self, amendment_id: uuid.UUID, *, for_update: bool = False
-    ) -> AmendmentRecord | None:
-        return self.amendments.get(amendment_id)
-
-    async def decline_amendment(
-        self, amendment_id: uuid.UUID, *, reason: str, by: str, at: Any
-    ) -> None:
-        self.amendments[amendment_id] = replace(
-            self.amendments[amendment_id],
-            declined_reason=reason,
-            declined_by=by,
-            declined_at=at,
-        )
+    async def method_feedback(self, method_id: uuid.UUID) -> list[str]:
+        return [
+            r.origin["gap"]
+            for r in self.requests.values()
+            if r.origin
+            and r.origin.get("handoff_contract") == "knowlab/formal-handoff/v2"
+            and (r.origin.get("method_reference") or {}).get("method_id")
+            == str(method_id)
+            and r.origin.get("handoff") in ("user_demand", "author_revision")
+        ]
 
     # ---------- 测试中的问题 ----------
     async def add_questions(
@@ -924,7 +916,14 @@ class MemoryKnowlab:
         for key, draft in self.workdrafts.items():
             if draft.id == current.id:
                 self.workdrafts[key] = replace(
-                    draft, draft_contract=None, revision=draft.revision + 1
+                    draft,
+                    body={},
+                    sources={},
+                    data_formats={},
+                    htn_state=None,
+                    parent_gap=None,
+                    draft_contract=None,
+                    revision=draft.revision + 1,
                 )
             elif (
                 draft.owner_subject == current.owner_subject

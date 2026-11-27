@@ -72,7 +72,6 @@ class KnowbotRequest(TimestampMixin, Base):
     )
     # 从 knowbench 转来的来源与参考回答（迁移 20261029_0021）
     origin: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    reference_answer: Mapped[str | None] = mapped_column(Text)
     # 推给 knowbase 名录的最近一份 {name, latest_version}（迁移 20261030_0023）
     directory_sent: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
@@ -509,41 +508,6 @@ class KnowbotQuestion(TimestampMixin, Base):
             name="ck_knowbot_question_answered_by",
         ),
         Index("ix_knowbot_question_draft", "draft_id"),
-    )
-
-
-class KnowbotAmendment(TimestampMixin, Base):
-    """用户给自己的想法写的补充方法（SDD 0035）。
-
-    原话写下后不改、不删；只能记「不照做」。
-    """
-
-    __tablename__ = "knowbot_amendment"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    request_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
-    text: Mapped[str] = mapped_column(Text, nullable=False)
-    declined_reason: Mapped[str | None] = mapped_column(Text)
-    declined_by: Mapped[str | None] = mapped_column(String(512))
-    declined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-    __table_args__ = (
-        CheckConstraint(
-            "char_length(text) BETWEEN 1 AND 4000", name="ck_knowbot_amendment_text"
-        ),
-        CheckConstraint(
-            "(declined_at IS NULL AND declined_reason IS NULL AND declined_by IS NULL)"
-            " OR (declined_at IS NOT NULL AND declined_by IS NOT NULL"
-            " AND declined_reason IS NOT NULL"
-            " AND char_length(declined_reason) BETWEEN 1 AND 500)",
-            name="ck_knowbot_amendment_declined",
-        ),
-        Index("ix_knowbot_amendment_request", "request_id"),
     )
 
 

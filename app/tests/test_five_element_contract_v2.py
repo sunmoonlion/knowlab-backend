@@ -52,6 +52,9 @@ FLAGS = dict.fromkeys(
 
 def test_v1_digest_invariance_is_preserved_bit_for_bit():
     raw = tool()
+    for slots in ("inputs", "outputs"):
+        for slot_spec in raw["procedure"][slots].values():
+            slot_spec["meaning"].pop("domain_id", None)
     raw["procedure"]["implementation"]["kind"] = "mcp"
     definition = FormalMethodDefinition.model_validate(raw)
     assert (
