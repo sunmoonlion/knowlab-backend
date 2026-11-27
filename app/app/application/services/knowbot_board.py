@@ -340,7 +340,20 @@ class KnowbotBoard:
         retired_drafts = {
             d.id for d in drafts if d.manifest.get("schema") == MANIFEST_SCHEMA
         }
-        retired_request_ids = {d.request_id for d in drafts if d.id in retired_drafts}
+        versions_by_request = {r.id: r.latest_version for r in requests}
+        retired_request_ids = {
+            d.request_id
+            for d in drafts
+            if d.id in retired_drafts
+            and d.request_version == versions_by_request[d.request_id]
+        }
+        last_draft_at = {}
+        for draft in drafts:
+            if draft.created_at and draft.request_id in retired_request_ids:
+                last_draft_at[draft.request_id] = max(
+                    last_draft_at.get(draft.request_id, draft.created_at),
+                    draft.created_at,
+                )
         drafts = [d for d in drafts if d.id not in retired_drafts]
         surviving_draft_requests = {d.request_id for d in drafts}
         retired_only_requests: set[uuid.UUID] = set()
@@ -351,6 +364,11 @@ class KnowbotBoard:
                 wd is not None
                 and (
                     wd.draft_contract is not None
+                    or (
+                        wd.updated_at
+                        and rid in last_draft_at
+                        and wd.updated_at > last_draft_at[rid]
+                    )
                     or body.get("formal_method")
                     or body.get("planning")
                     or body.get("steps")

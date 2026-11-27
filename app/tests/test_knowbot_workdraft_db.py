@@ -1,5 +1,5 @@
 """迁移 20261028_0017（工作稿）与工作稿在真 PostgreSQL 上：已有准专家回填 platform；
-两张表与约束；存格子、出一版走真仓储；退回删掉两张表与 mode 列。一次性 schema。"""
+两张表与约束；存格子、拒绝已退役的固定包；退回删掉两张表与 mode 列。一次性 schema。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.errors.exceptions import BadRequestError, ConcurrencyConflictError
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
 from app.infrastructure.repositories.knowbots import SqlKnowlabRepository
 from app.infrastructure.storage.postgres import make_session_factory
@@ -58,28 +58,34 @@ STEP = {
 
 
 async def _rows(c) -> None:  # type: ignore[no-untyped-def]
-    await c.execute(
-        text(
-            "INSERT INTO knowbot_request (id, owner_subject, title, runtime, idea,"
-            " cases) VALUES (:r, :o, '财务分析与预测', 'knowbench',"
-            " '{\"kind\": \"skill\"}', '[]')"
-        ),
-        {"r": REQUEST, "o": OWNER},
-    )
-    await c.execute(
-        text(
-            "INSERT INTO knowbot_request_version (request_id, version, idea, cases,"
-            " consent_version, created_by) VALUES (:r, 1, '{}', '[]', 2, :o)"
-        ),
-        {"r": REQUEST, "o": OWNER},
-    )
+    retired_request = uuid.UUID(int=2)
+    for rid in (REQUEST, retired_request):
+        await c.execute(
+            text(
+                "INSERT INTO knowbot_request (id, owner_subject, title, runtime, idea,"
+                " cases) VALUES (:r, :o, '财务分析与预测', 'knowbench',"
+                " '{\"kind\": \"skill\"}', '[]')"
+            ),
+            {"r": rid, "o": OWNER},
+        )
+        await c.execute(
+            text(
+                "INSERT INTO knowbot_request_version (request_id, version, idea, cases,"
+                " consent_version, created_by) VALUES (:r, 1, '{}', '[]', 2, :o)"
+            ),
+            {"r": rid, "o": OWNER},
+        )
     await c.execute(
         text(
             "INSERT INTO knowbot_draft (id, request_id, revision, version, status,"
             " manifest, request_version) VALUES (:d, :r, 1, '1', 'pending_test',"
             " CAST(:m AS jsonb), 1)"
         ),
-        {"d": DRAFT, "r": REQUEST, "m": json.dumps({"schema": "knowbot-manifest/v2"})},
+        {
+            "d": DRAFT,
+            "r": retired_request,
+            "m": json.dumps({"schema": "knowbot-manifest/v2"}),
+        },
     )
 
 
@@ -88,7 +94,7 @@ async def _all(c, sql: str) -> list:  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.asyncio
-async def test_workdrafts_migrate_round_trip_and_publish_for_real() -> None:
+async def test_workdraft_migration_saves_edits_and_refuses_fixed_pack() -> None:
     engine, schema = await _schema("20261028_0016_drop_manifest_v1")
     try:
         async with engine.begin() as c:
@@ -125,12 +131,12 @@ async def test_workdrafts_migrate_round_trip_and_publish_for_real() -> None:
                 await works.save(OWNER, str(REQUEST), revision=0, edits=[("name", "x")])
         async with factory() as session:
             works = KnowbotWorkdraftService(SqlKnowlabRepository(session))
-            draft = await works.publish(OWNER, str(REQUEST))
-        assert (draft.mode, draft.version, draft.revision) == ("self", "1", 2)
+            with pytest.raises(BadRequestError, match="固定 v2 专家已退役"):
+                await works.publish(OWNER, str(REQUEST))
         async with engine.begin() as c:
             assert await _all(
                 c, "SELECT revision, mode FROM knowbot_draft ORDER BY revision"
-            ) == [(1, "platform"), (2, "self")]
+            ) == [(1, "platform")]
             kinds = await _all(
                 c, "SELECT DISTINCT kind, actor_role FROM knowbot_workdraft_record"
             )

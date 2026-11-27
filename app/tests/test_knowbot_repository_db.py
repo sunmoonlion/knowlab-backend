@@ -945,3 +945,64 @@ async def test_0012_refuses_to_go_back_once_the_new_code_wrote() -> None:
             assert still.scalar() >= 1
     finally:
         await _drop(engine, schema)
+
+
+@pytest.mark.asyncio
+async def test_fixed_only_application_retires_from_detail_and_both_boards(db):
+    from app.domain.knowbots.drafts import MANIFEST_SCHEMA
+
+    old, draft = await _reviewed(db, OWNER)
+    async with db() as session:
+        current = await accepted_request(service(session), OWNER)
+        await session.execute(
+            text(
+                "update knowbot_draft set manifest="
+                "jsonb_set(manifest,'{schema}',to_jsonb(cast(:schema as text))) "
+                "where id=:id"
+            ),
+            {"schema": MANIFEST_SCHEMA, "id": draft.id},
+        )
+        repo = SqlKnowlabRepository(session)
+        assert await repo.get_request(old.id) is None
+        for rows in (
+            await repo.list_requests(),
+            await repo.list_requests_for_owner(OWNER),
+        ):
+            assert old.id not in {r.id for r in rows}
+            assert current.id in {r.id for r in rows}
+        # A retained five-element or transitional workdraft can predate the fixed pack.
+        await session.execute(
+            text(
+                "insert into knowbot_workdraft "
+                "(id, request_id, owner_subject, body, updated_at) "
+                "values (:id, :request, :owner, '{}', '2000-01-01')"
+            ),
+            {"id": uuid.uuid4(), "request": old.id, "owner": OWNER},
+        )
+        for contract, body, visible in (
+            ("null", '{"steps":[],"method_refs":{}}', False),
+            ('{"archetype_id":"S1"}', "{}", True),
+            ("null", '{"steps":[{"id":"draft_step"}]}', True),
+            ("null", "{}", False),
+        ):
+            await session.execute(
+                text(
+                    "update knowbot_workdraft set "
+                    "draft_contract=cast(:contract as jsonb), "
+                    "body=cast(:body as jsonb) where request_id=:request"
+                ),
+                {"request": old.id, "contract": contract, "body": body},
+            )
+            assert (await repo.get_request(old.id) is not None) == visible
+            assert (
+                old.id in {r.id for r in await repo.list_requests_for_owner(OWNER)}
+            ) == visible
+        # A newer idea revision belongs to the current application.
+        await session.execute(
+            text(
+                "update knowbot_request set latest_version=latest_version+1 "
+                "where id=:id"
+            ),
+            {"id": old.id},
+        )
+        assert await repo.get_request(old.id) is not None
