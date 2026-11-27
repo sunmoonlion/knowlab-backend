@@ -245,6 +245,19 @@ def test_whole_governs_part_exports_permission_namespacing_and_clean_inputs():
             step_exports={"receipt_out": ("n1", "summary")},
             **kwargs,
         )
+    with pytest.raises(ValueError, match="outputs differ from the root contract"):
+        expand(
+            sel,
+            {"m1": m1, "m2": m2},
+            None,
+            FLAGS,
+            step_exports={
+                "receipt_out": ("n1_1", "result"),
+                "summary_out": ("n1", "summary"),
+                "extra": ("n1", "summary"),
+            },
+            **kwargs,
+        )
     defn = expanded_draft.definition
     # M02/R03: promises preserved, n1_1_ stripped, colliding req_id namespaced!
     assert set(defn.capability_declaration.promises) == {

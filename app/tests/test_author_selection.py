@@ -184,11 +184,9 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     from app.application.errors.exceptions import NotFoundError
     from app.application.services.incubation_selection import SelectionService
     from app.application.services.knowbot_incubation import KnowbotIncubationService
-    from app.application.services.knowbot_service import KnowbotCreationService
-    from app.domain.knowbots.drafts import KnowbotRequestIn
     from app.domain.knowbots.formal_method_admission import FreezeFormalMethod
     from app.domain.knowbots.incubation import IncubationResultV1
-    from tests.knowbot_fakes import OWNER, FakeIncubator, own_computer, request_body
+    from tests.knowbot_fakes import OWNER, FakeIncubator, own_computer
     from tests.test_formal_method_execution import complete_trial, prepared
 
     repo, runtime, methods, mid, command = await prepared()
@@ -224,13 +222,48 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
         raising=False,
     )
     own_computer(repo)
-    request = await KnowbotCreationService(repo, runtime).submit(
-        OWNER, KnowbotRequestIn.model_validate(request_body())
-    )
-    rid = str(request.id)
     runner = FakeIncubator()
     rounds = KnowbotIncubationService(repo, runner, runtime)
-    record = await rounds.start(OWNER, rid, action="draft", selection_revision=0)
+    from app.application.services.method_drafts import HandoffSeedIn, MethodDraftService
+    from app.domain.knowbots.formal_method import MethodDraftV2
+
+    studio = {"title": "核验", "purpose": "核验", "method_kind": "expert"}
+    if not independent:
+        studio.update(
+            applies_when=["输入原表"],
+            excludes=["预测"],
+            expected_deliverables=[
+                dict(
+                    promise_id="reconciled",
+                    summary="按原表核验",
+                    expected_domain_id="core.number.value",
+                    expected_schema={"type": "number"},
+                )
+            ],
+            validation_rules=[
+                dict(
+                    promise_id="reconciled",
+                    outputs=["result"],
+                    check="复算",
+                    evidence="原始值",
+                    on_failure="fail",
+                )
+            ],
+        )
+    service = MethodDraftService(repo)
+    created = await service.create_from_handoff(
+        OWNER,
+        HandoffSeedIn(
+            title="核验",
+            goal="核验",
+            draft_contract=MethodDraftV2.model_validate(studio),
+        ),
+    )
+    mid = created["method_id"]
+    request = await service.ensure_runtime_anchor(OWNER, mid)
+    rid = str(request.id)
+    revision = (await service.get(OWNER, mid))["revision"]
+    record = await rounds.start(OWNER, rid, action="draft", selection_revision=revision)
     pin = record.seed["selection_context"]["methods"]["m1"]
     assert pin["reference"]["digest"] == version.digest
     assert pin["inputs"]["value"]["schema"] == {"type": "number"}
@@ -296,6 +329,11 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
 
     draft, roles = await adopt()
     assert roles is None
+    if not independent:
+        assert draft.definition.capability_declaration.promises == {
+            "reconciled": "按原表核验"
+        }
+        assert draft.definition.capability_declaration.excludes == ("预测",)
     assert draft.definition.procedure.steps[-1].depends_on == (
         () if independent else ("read",)
     )
@@ -307,8 +345,8 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     from app.interfaces.endpoints.knowbot_routes import ConfirmSelection
 
     reviewed = ConfirmSelection(
-        revision=0,
-        method_id=uuid4(),
+        revision=revision,
+        method_id=mid,
         cases={},
         template=TEMPLATE,
         step_text={"read": "读取", "check": "复查"},
@@ -317,15 +355,15 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     saved = await SelectionService(repo, runtime).confirm(
         OWNER, request, record, reviewed
     )
-    procedure = saved.body["formal_method"]["definition"]["procedure"]
+    procedure = saved.draft_contract["procedure"]
     assert procedure["steps"][-1]["depends_on"] == ([] if independent else ["read"])
     if independent:
         assert {k: v["step"] for k, v in procedure["exports"].items()} == {
             "evidence": "read",
             "difference": "check",
         }
-    assert (await methods.workdrafts.plan_receipt(saved))[
-        "saved_revision"
+    assert (await repo.get_incubation(record.id)).decisions["selection"][
+        "revision"
     ] == saved.revision
 
 
@@ -532,3 +570,29 @@ def test_separate_terminal_deliveries_require_join_support():
     assert set(draft.definition.interfaces()["inputs"]) == {"opening", "closing"}
     with pytest.raises(ValueError, match="selection_capability"):
         build(steps, methods, [], flags={**FLAGS, "join": False})
+
+
+def test_single_step_tree_requires_explicit_public_output_if_tool_has_several():
+    from app.domain.knowbots.selection import PlanningNode, PlanningTree, SketchStep
+
+    call = SketchStep.model_validate(
+        step("n1", "m1", {"value": {"source": "literal", "value": 1}})
+    )
+    leaf = PlanningNode(id="n1", goal="核验", status="hit", operator="leaf", step=call)
+    plan = Selection(
+        status="ready",
+        reason="核验",
+        routing_required=False,
+        tree=PlanningTree(catalog_digest="1" * 64, nodes=(leaf,)),
+        steps=(call,),
+    )
+    draft, _ = expand(
+        plan, {"m1": frozen()}, None, FLAGS, required_cases={}, question="核验"
+    )
+    assert set(draft.definition.capability_declaration.promises) == {"request_delivery"}
+    doc = tool()
+    doc["procedure"]["outputs"]["raw_debug"] = slot()
+    with pytest.raises(ValueError, match="selection_export"):
+        expand(
+            plan, {"m1": frozen(doc)}, None, FLAGS, required_cases={}, question="核验"
+        )
