@@ -180,6 +180,23 @@ class MethodDraftService:
         draft = MethodDraftV2.model_validate(row.draft_contract)
         return await self._view(row, draft)
 
+    async def delete(self, owner: str, method_id: str, revision: int) -> None:
+        mid = parse_id(method_id, "method")
+        async with self.repo.transaction():
+            await self.repo.lock_method(mid)
+            current = await self.repo.get_method_workdraft(mid, for_update=True)
+            if current is None or current.owner_subject != owner:
+                raise NotFoundError(
+                    "No such method draft", code="method_draft_not_found"
+                )
+            if current.draft_contract is None:
+                return
+            if current.revision != revision:
+                raise ConcurrencyConflictError(
+                    "Draft changed since it was displayed", code="workdraft_revision"
+                )
+            await self.repo.retire_method_workdraft(current)
+
     async def create(self, owner: str, body: CreateMethodDraftIn) -> dict[str, Any]:
         mid = body.method_id or uuid.uuid4()
         starter = build_engineering_archetype(

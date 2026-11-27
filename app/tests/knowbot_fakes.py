@@ -13,6 +13,7 @@ from typing import Any
 from app.application.errors.exceptions import (
     BadGatewayError,
     ConcurrencyConflictError,
+    NotFoundError,
     ServiceUnavailableError,
 )
 from app.application.ports.knowbots import (
@@ -876,6 +877,8 @@ class MemoryKnowlab:
         self, request_id: uuid.UUID, *, for_update: bool = False
     ) -> WorkdraftRecord | None:
         found = self.workdrafts.get(request_id)
+        if found and for_update and found.retired_studio_draft:
+            raise NotFoundError("No such method draft", code="method_draft_not_found")
         return None if found is None else copy.deepcopy(found)
 
     async def get_method_workdraft(
@@ -916,6 +919,22 @@ class MemoryKnowlab:
         )
         self.workdrafts[request_id] = record
         return record
+
+    async def retire_method_workdraft(self, current: WorkdraftRecord) -> None:
+        for key, draft in self.workdrafts.items():
+            if draft.id == current.id:
+                self.workdrafts[key] = replace(
+                    draft, draft_contract=None, revision=draft.revision + 1
+                )
+            elif (
+                draft.owner_subject == current.owner_subject
+                and draft.draft_contract is not None
+                and (draft.parent_gap or {}).get("parent_method_id")
+                == str(current.method_id)
+            ):
+                self.workdrafts[key] = replace(
+                    draft, parent_gap=None, revision=draft.revision + 1
+                )
 
     async def create_method_workdraft(
         self,

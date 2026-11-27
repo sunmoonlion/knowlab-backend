@@ -11,12 +11,12 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import case, func, or_, select, text, update
+from sqlalchemy import case, func, null, or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.errors.exceptions import ConcurrencyConflictError, NotFoundError
 from app.application.ports.knowbots import (
     AcceptanceRecord,
     AmendmentRecord,
@@ -1631,7 +1631,12 @@ class SqlKnowlabRepository:
         row = (
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalar_one_or_none()
-        return None if row is None else _workdraft(row)
+        if row is None:
+            return None
+        record = _workdraft(row)
+        if for_update and record.retired_studio_draft:
+            raise NotFoundError("No such method draft", code="method_draft_not_found")
+        return record
 
     async def get_method_workdraft(
         self, method_id: uuid.UUID, *, for_update: bool = False
@@ -1658,6 +1663,7 @@ class SqlKnowlabRepository:
                 .where(
                     KnowbotWorkdraft.owner_subject == owner_subject,
                     KnowbotWorkdraft.method_id.is_not(None),
+                    KnowbotWorkdraft.draft_contract.is_not(None),
                 )
                 .order_by(KnowbotWorkdraft.updated_at.desc(), KnowbotWorkdraft.id)
                 .execution_options(populate_existing=True)
@@ -1686,6 +1692,25 @@ class SqlKnowlabRepository:
             ) from exc
         await self.session.refresh(row)
         return _workdraft(row)
+
+    async def retire_method_workdraft(self, current: WorkdraftRecord) -> None:
+        # Retain the row referenced by provenance, trial receipts and frozen versions.
+        await self.session.execute(
+            update(KnowbotWorkdraft)
+            .where(KnowbotWorkdraft.id == current.id)
+            .values(draft_contract=null(), revision=current.revision + 1)
+        )
+        # The children remain editable; their gap no longer has a working parent.
+        await self.session.execute(
+            update(KnowbotWorkdraft)
+            .where(
+                KnowbotWorkdraft.owner_subject == current.owner_subject,
+                KnowbotWorkdraft.parent_gap["parent_method_id"].astext
+                == str(current.method_id),
+                KnowbotWorkdraft.draft_contract.is_not(None),
+            )
+            .values(parent_gap=null(), revision=KnowbotWorkdraft.revision + 1)
+        )
 
     async def create_method_workdraft(
         self,
@@ -1752,11 +1777,21 @@ class SqlKnowlabRepository:
             values["request_id"] = request_id
         if method_id is not None:
             values["method_id"] = method_id
-        await self.session.execute(
+        updated = await self.session.execute(
             update(KnowbotWorkdraft)
-            .where(KnowbotWorkdraft.id == workdraft_id)
+            .where(
+                KnowbotWorkdraft.id == workdraft_id,
+                or_(
+                    KnowbotWorkdraft.method_id.is_(None),
+                    KnowbotWorkdraft.draft_contract.is_not(None),
+                ),
+            )
             .values(**values)
         )
+        if cast(CursorResult[Any], updated).rowcount != 1:
+            raise ConcurrencyConflictError(
+                "Draft no longer editable", code="workdraft_revision"
+            )
 
     async def add_workdraft_entry(
         self,

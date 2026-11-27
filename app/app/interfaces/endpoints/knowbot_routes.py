@@ -1895,6 +1895,17 @@ async def get_method_draft(
     return _ok(await drafts.get(principal.subject, method_id))
 
 
+@web_router.delete("/method-drafts/{method_id}", status_code=204)
+async def delete_method_draft(
+    principal: User,
+    method_id: ItemId,
+    revision: Annotated[int, Query(ge=0)],
+    drafts: MethodDrafts,
+) -> Response:
+    await drafts.delete(principal.subject, method_id, revision)
+    return Response(status_code=204, headers=NO_STORE)
+
+
 @web_router.patch("/method-drafts/{method_id}")
 async def patch_method_draft(
     principal: User,
