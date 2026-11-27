@@ -214,6 +214,27 @@ async def test_formal_author_http_flow_checks_identity_csrf_and_trusted_receipt(
                 )
             ).status_code == 502
             assert market.formal_self_listing.await_count == 2
+            review.return_value["owner_subject"] = OWNER
+            for corrupted in (
+                {k: v for k, v in ref.items() if k != "version"},
+                {**ref, "version": True},
+                {**ref, "digest": "sha256:" + "0" * 64},
+            ):
+                market.formal_self_listing.return_value["reference"] = corrupted
+                assert (
+                    await client.put(
+                        listing_url, headers=WEB, json={"digest": ref["digest"]}
+                    )
+                ).status_code == 502
+            market.formal_self_listing.return_value["reference"] = ref
+            retried = await client.put(
+                listing_url, headers=WEB, json={"digest": ref["digest"]}
+            )
+            assert (
+                retried.status_code == 200
+                and retried.json()["listing_id"] == listing_id
+            )
+
     finally:
         app.dependency_overrides.pop(knowbot_routes.formal_service, None)
 

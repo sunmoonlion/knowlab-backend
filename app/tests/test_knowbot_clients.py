@@ -252,6 +252,9 @@ async def test_unreachable_runtime_is_unavailable() -> None:
 
 @pytest.mark.asyncio
 async def test_knowmart_delivery() -> None:
+    from app.domain.knowbots.manual_release import manifest_digest
+
+    expected = "sha256:" + manifest_digest({"bindings": [], **manifest()})
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -262,7 +265,7 @@ async def test_knowmart_delivery() -> None:
                 "contract_version": 1,
                 "knowbot_id": "kb-1",
                 "version": "1",
-                "digest": "sha256:" + "b" * 64,
+                "digest": expected,
                 "replayed": False,
             },
         )
@@ -279,7 +282,7 @@ async def test_knowmart_delivery() -> None:
     assert delivered == {
         "knowbot_id": "kb-1",
         "version": "1",
-        "digest": "sha256:" + "b" * 64,
+        "digest": expected,
     }
     assert str(seen[0].url).endswith("/api/internal/v1/knowmart/deliveries")
     assert json.loads(seen[0].content)["owner_subject"] == "user-123"
@@ -293,18 +296,24 @@ async def test_knowmart_delivery() -> None:
 @pytest.mark.asyncio
 async def test_knowmart_public_request_and_stop() -> None:
     """交付可带申请公开、回上架状态；停用某一版走内部接口（SDD 0037）。"""
+    from app.domain.knowbots.manual_release import manifest_digest
+
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         if request.url.path.endswith("/stop") or "/unlisted/" in request.url.path:
             return httpx.Response(204)
+        sent_manifest = json.loads(request.content)["manifest"]
         return httpx.Response(
             201,
             json={
                 "knowbot_id": "kb-1",
-                "version": "2",
-                "digest": "sha256:" + "b" * 64,
+                "version": sent_manifest["version"],
+                "digest": "sha256:"
+                + manifest_digest(
+                    {"bindings": [], **json.loads(request.content)["manifest"]}
+                ),
                 "listing_status": "pending",
             },
         )

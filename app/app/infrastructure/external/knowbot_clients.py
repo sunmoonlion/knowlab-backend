@@ -23,6 +23,7 @@ from app.application.errors.exceptions import (
     ServiceUnavailableError,
 )
 from app.domain.knowbots.incubation import IncubationRequestV1, IncubationResultV1
+from app.domain.knowbots.manual_release import manifest_digest
 from app.domain.knowbots.test_execution import TestExecutionV1
 from app.domain.knowbots.test_run import (
     AnswersV1,
@@ -540,6 +541,21 @@ class KnowbenchIncubationClient:
         return _incubation(body, incubation_id)
 
 
+def _market_manifest_digest(manifest: dict[str, Any]) -> str:
+    # KnowMart hashes the validated envelope, including defaults for omitted fields.
+    document = {"tagline": "", "bindings": [], **manifest}
+    document["bindings"] = [
+        {
+            key: value
+            for key, value in binding.items()
+            if value is not None
+            or key not in ("rendition_kind", "rendition_no", "rendition_sha256")
+        }
+        for binding in document["bindings"]
+    ]
+    return "sha256:" + manifest_digest(document)
+
+
 class KnowmartDeliveryClient:
     """交 knowmart、停用 knowmart 里的某一版（服务关系 knowmart:deliver）。"""
 
@@ -588,15 +604,19 @@ class KnowmartDeliveryClient:
         if category is not None:
             body_out["category"] = category
         _, body = await self._service().request("POST", "/deliveries", json=body_out)
-        if not isinstance(body, dict) or not body.get("knowbot_id"):
+        if (
+            not isinstance(body, dict)
+            or not isinstance(body.get("knowbot_id"), str)
+            or not body["knowbot_id"].strip()
+            or not isinstance(body.get("version"), str)
+            or body["version"] != manifest.get("version")
+            or body.get("digest") != _market_manifest_digest(manifest)
+        ):
             raise BadGatewayError(
-                "knowmart answered without a knowbot", code="knowmart_contract_invalid"
+                "KnowMart receipt does not match the delivered manifest",
+                code="knowmart_contract_invalid",
             )
-        found = {
-            "knowbot_id": body["knowbot_id"],
-            "version": body.get("version"),
-            "digest": body.get("digest"),
-        }
+        found = {key: body[key] for key in ("knowbot_id", "version", "digest")}
         if isinstance(body.get("listing_status"), str):
             found["listing_status"] = body["listing_status"]
         return found

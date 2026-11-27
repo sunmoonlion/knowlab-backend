@@ -165,6 +165,7 @@ class FormalMethodService:
             not isinstance(review, dict)
             or review.get("owner_subject") != owner
             or review.get("reference") != ref
+            or type(review["reference"]["version"]) is not int
             or review.get("run_id") != str(receipt.run_id)
             or not isinstance(review.get("samples"), list)
             or not all(
@@ -207,6 +208,7 @@ class FormalMethodService:
         if (
             not isinstance(result, dict)
             or result.get("reference") != ref
+            or type(result["reference"]["version"]) is not int
             or result.get("scope") != "self"
             or result.get("status")
             not in ("listed", "pending", "rejected", "withdrawn")

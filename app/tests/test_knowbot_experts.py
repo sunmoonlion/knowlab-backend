@@ -1419,3 +1419,51 @@ async def test_the_author_cannot_review_their_own_public_delivery(p):
             "ops-1",
         )
     assert caught.value.code == "rerun_not_passed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", ["no_version", "other_version", "wrong_digest"])
+async def test_market_receipt_must_match_before_recording_delivery(p, monkeypatch, bad):
+    import json
+
+    import httpx
+
+    from app.domain.knowbots.manual_release import manifest_digest
+    from app.infrastructure.external.knowbot_clients import KnowmartDeliveryClient
+    from tests.test_knowbot_clients import KNOWMART, FakeOidc
+
+    ids = []
+
+    def reply(request):
+        payload = json.loads(request.content)
+        ids.append(payload["delivery_id"])
+        doc = {"tagline": "", "bindings": [], **payload["manifest"]}
+        body = {
+            "knowbot_id": "kb-1",
+            "version": doc["version"],
+            "digest": "sha256:" + manifest_digest(doc),
+        }
+        if len(ids) == 1:
+            if bad == "no_version":
+                del body["version"]
+            elif bad == "other_version":
+                body["version"] = "99"
+            else:
+                body["digest"] = "sha256:" + "0" * 64
+        return httpx.Response(200, json={"contract_version": 1, **body})
+
+    client = KnowmartDeliveryClient(
+        KNOWMART, oidc_client=FakeOidc(), transport=httpx.MockTransport(reply)
+    )
+    monkeypatch.setattr(p.knowmart, "deliver", client.deliver)
+    _, expert, _ = await p.self_expert()
+    pending = await p.deliveries.submit(OWNER, str(expert.id), SELF, user_token)
+    assert pending.delivered_at is None and not pending.receipt
+    assert "knowmart_contract_invalid" in pending.delivery_error
+    assert (await p.repo.get_expert(expert.id)).knowmart_knowbot_id is None
+    done = await p.deliveries.retry(str(pending.id))
+    assert done.delivered_at is not None and done.receipt["version"] == str(
+        expert.version
+    )
+    assert ids == [f"knowlab-delivery-{pending.id}"] * 2
+    assert len(await p.deliveries.my_deliveries(OWNER, str(expert.id))) == 1
