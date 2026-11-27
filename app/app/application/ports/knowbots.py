@@ -164,6 +164,10 @@ class WorkdraftRecord:
     htn_state: dict[str, Any] | None = field(default=None, repr=False)
     parent_gap: dict[str, Any] | None = field(default=None, repr=False)
 
+    @property
+    def retired_studio_draft(self) -> bool:
+        return self.method_id is not None and self.draft_contract is None
+
 
 @dataclass(frozen=True)
 class WorkdraftEntryRecord:
@@ -800,6 +804,8 @@ class KnowlabRepository(Protocol):
     ) -> WorkdraftRecord:
         """建一份空的（revision 0）；这个名称已有就抛 ConcurrencyConflictError。"""
         ...
+
+    async def retire_method_workdraft(self, current: WorkdraftRecord) -> None: ...
 
     async def create_method_workdraft(
         self,

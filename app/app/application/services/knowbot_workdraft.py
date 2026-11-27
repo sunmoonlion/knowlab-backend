@@ -104,7 +104,10 @@ class KnowbotWorkdraftService:
     ) -> tuple[RequestRecord, WorkdraftRecord | None]:
         """自己的名称的工作稿；还没存过的回 None（页面当空的一份，revision 0）。"""
         request = await self._request(owner_subject, request_id)
-        return request, await self.repo.get_workdraft(request.id)
+        current = await self.repo.get_workdraft(request.id)
+        if current is not None and current.retired_studio_draft:
+            raise NotFoundError("No such method draft", code="method_draft_not_found")
+        return request, current
 
     async def template_seed(self, request: RequestRecord) -> dict[str, str]:
         version = await self.repo.get_version(request.id, request.latest_version)
