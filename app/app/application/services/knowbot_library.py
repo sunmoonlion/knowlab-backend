@@ -29,7 +29,6 @@ from app.application.services.knowbot_workdraft import (
     parse_body,
 )
 from app.domain.knowbots.incubation import DataFormat
-from app.domain.knowbots.incubation_tools import SampleColumn, SampleColumnResult
 from app.domain.knowbots.workdraft import apply
 
 UserToken = Callable[[], Awaitable[str]]
@@ -124,31 +123,6 @@ class KnowbotLibraryService:
             for e in await self.knowbase.column(await user_token())
             if (e.get("material") or {}).get("material_id")
         ]
-
-    async def check_column(
-        self, owner: str, request_id: str, sample: SampleColumn, user_token: UserToken
-    ) -> SampleColumnResult:
-        # End the request ownership lookup before taking the author's token to KnowBase.
-        async with self.repo.transaction():
-            await self.workdrafts._request(owner, request_id)
-        reply = await self.knowbase.check_column(
-            await user_token(),
-            sample.material_id,
-            sample.version_no,
-            sample.sheet,
-            sample.column,
-        )
-        try:
-            result = SampleColumnResult.model_validate(reply)
-        except ValueError:
-            raise BadGatewayError(
-                "Invalid column check", code="knowbase_contract_invalid"
-            ) from None
-        if result.model_dump(exclude={"status"}) != sample.model_dump():
-            raise BadGatewayError(
-                "Different sample or column", code="knowbase_contract_invalid"
-            )
-        return result
 
     async def pick(
         self,

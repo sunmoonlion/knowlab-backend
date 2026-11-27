@@ -26,20 +26,6 @@ def test_format_sample_validates_against_pinned_provider_contract():
     assert hashlib.sha256(path.read_bytes()).hexdigest() == lock["sha256"]
     schema = json.loads(path.read_text())
     jsonschema.validate(BODY, schema | {"$ref": "#/$defs/MaterialFormatRead"})
-    from app.domain.knowbots.incubation_tools import SampleColumnResult
-
-    pin = {
-        "material_id": "m1",
-        "version_no": 2,
-        "sha256": BODY["sha256"],
-        "column": "metric",
-        "sheet": "",
-    }
-    for status in ("present", "missing", "unknown"):
-        reply = SampleColumnResult.model_validate({**pin, "status": status})
-        jsonschema.validate(
-            reply.model_dump(), schema | {"$ref": "#/$defs/ColumnCheckRead"}
-        )
 
 
 async def test_format_client_uses_exact_version_user_token_and_allows_new_fields():

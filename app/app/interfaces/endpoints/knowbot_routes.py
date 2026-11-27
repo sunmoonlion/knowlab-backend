@@ -86,7 +86,6 @@ from app.application.services.method_drafts import (
     PatchMethodDraftIn,
     SpawnGapChildIn,
 )
-from app.application.services.method_search import scan_outputs
 from app.bootstrap.knowbots import (
     formal_method_service,
     knowbot_board,
@@ -110,7 +109,6 @@ from app.domain.knowbots.delivery import (
     DeliverySubmitIn,
 )
 from app.domain.knowbots.drafts import KnowbotRequestIn
-from app.domain.knowbots.formal_method import FormalMethodDefinition, ValueSlot
 from app.domain.knowbots.formal_method_admission import (
     FreezeFormalMethod,
     ValidateFormalMethod,
@@ -122,7 +120,6 @@ from app.domain.knowbots.formal_method_execution import (
     PrepareBranchReview,
     ReceiveBranch,
 )
-from app.domain.knowbots.incubation_tools import AutomaticOutputSearch, SampleColumn
 from app.domain.knowbots.lifecycle import (
     AcceptanceIn,
     RevisionIn,
@@ -837,18 +834,6 @@ async def copy_mine(
     request, _ = await workdrafts.get(principal.subject, request_id)
     view = workdraft_view(request, found, await workdrafts.origins(found))
     return _ok(view | {"notes": notes})
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/column-check")
-async def check_sample_column(
-    principal: User,
-    body: SampleColumn,
-    library: Library,
-    user_token: KnowbaseToken,
-    request_id: ItemId,
-) -> JSONResponse:
-    result = await library.check_column(principal.subject, request_id, body, user_token)
-    return _ok(result.model_dump())
 
 
 @web_router.put("/knowbot-requests/{request_id}/workdraft/data-picks")
@@ -1861,7 +1846,8 @@ async def slot_vocabulary(_: User) -> JSONResponse:
         {
             "vocab_version": "1",
             "domains": [
-                {"domain_id": k, "label": v} for k, v in SLOT_MEANING_CATALOG.items()
+                {"domain_id": key, "label": domain["label"]}
+                for key, domain in SLOT_MEANING_CATALOG.items()
             ],
             "presets": [
                 "plain_question",
@@ -1966,75 +1952,6 @@ async def formal_sources(
     principal: User, methods: FormalMethods, request_id: ItemId
 ) -> JSONResponse:
     return _ok(await methods.sources(principal.subject, request_id))
-
-
-class CandidatePreview(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    method_id: UUID
-    revision: int = Field(ge=0, strict=True)
-    definition: FormalMethodDefinition
-
-
-@web_router.post("/knowbot-requests/{request_id}/workdraft/candidate-preview")
-async def preview_candidate_choice(
-    principal: User, methods: FormalMethods, request_id: ItemId, body: CandidatePreview
-):
-    return _ok(
-        await methods.preview_candidate_choice(
-            principal.subject,
-            request_id,
-            body.method_id,
-            body.revision,
-            body.definition,
-        )
-    )
-
-
-class OutputSlotQuery(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    slot: ValueSlot
-    exclude_method_id: UUID
-    offset: int = Field(default=0, ge=0)
-
-
-class SharedOutputSlotQuery(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    slot: ValueSlot
-    exclude_method_id: UUID
-    directory: Literal["shared"]
-    after: UUID | None = None
-
-
-@web_router.post("/knowbot-requests/{request_id}/incubation-tools/matching-outputs")
-async def matching_outputs(
-    principal: User,
-    methods: FormalMethods,
-    request_id: ItemId,
-    body: OutputSlotQuery | SharedOutputSlotQuery,
-):
-    return _ok(
-        await methods.matching_outputs(
-            principal.subject,
-            request_id,
-            body.slot,
-            body.exclude_method_id,
-            body.offset if isinstance(body, OutputSlotQuery) else 0,
-            shared=isinstance(body, SharedOutputSlotQuery),
-            after=str(body.after)
-            if isinstance(body, SharedOutputSlotQuery) and body.after
-            else None,
-        )
-    )
-
-
-@web_router.post("/knowbot-requests/{request_id}/incubation-tools/scan-outputs")
-async def scan_output_page(
-    principal: User,
-    methods: FormalMethods,
-    request_id: ItemId,
-    body: AutomaticOutputSearch,
-):
-    return _ok(await scan_outputs(methods, principal.subject, request_id, body))
 
 
 class IncubationAssetSelection(BaseModel):

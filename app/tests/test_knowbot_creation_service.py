@@ -402,8 +402,10 @@ async def test_retired_fixed_author_manifest_cannot_create_a_new_trial(parts):
     svc, repo, _, _ = parts
     request = await _accepted(svc)
     draft = await platform_draft(svc, str(request.id), historical_manifest())
-    await svc.review_rules(str(draft.id), "admin-1")
-    with pytest.raises(BadRequestError) as caught:
+    with pytest.raises(NotFoundError):
+        await svc.request_user_review(str(draft.id), "admin-1")
+    with pytest.raises(NotFoundError):
+        await svc.review_rules(str(draft.id), "admin-1")
+    with pytest.raises(NotFoundError):
         await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
-    assert caught.value.code == "fixed_expert_retired"
     assert not repo.tests

@@ -420,3 +420,24 @@ async def test_author_reviews_selection_before_saving_and_source_is_rechecked(
                 json={**command, "step_text": {"check": "覆盖"}},
             )
         ).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_archived_workdraft_cannot_invoke_retired_manual_tools(wired):
+    request = await _mine(wired[0])
+    async with client() as c:
+        c.cookies.set(WEB_SID, "member")
+        vocab = await c.get("/api/web/v1/slot-vocabulary")
+        assert vocab.status_code == 200 and all(
+            isinstance(domain["label"], str) for domain in vocab.json()["domains"]
+        )
+        base = f"/api/web/v1/knowbot-requests/{request.id}"
+        for path in (
+            "workdraft/column-check",
+            "workdraft/candidate-preview",
+            "incubation-tools/matching-outputs",
+            "incubation-tools/scan-outputs",
+        ):
+            assert (
+                await c.post(f"{base}/{path}", json={}, headers=WEB)
+            ).status_code == 404

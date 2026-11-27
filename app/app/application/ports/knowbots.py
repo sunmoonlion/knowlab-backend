@@ -749,36 +749,6 @@ class KnowlabRepository(Protocol):
         source_workdraft_id: uuid.UUID,
     ) -> None: ...
 
-    async def lock_search_history(
-        self, request_id: uuid.UUID
-    ) -> list[dict[str, Any]]: ...
-
-    async def reserve_search_page(
-        self,
-        request_id: uuid.UUID,
-        ordinal: int,
-        action_id: uuid.UUID,
-        search_key: str,
-        cursor: str,
-    ) -> None: ...
-
-    async def seen_search_outputs(
-        self, request_id: uuid.UUID, search_key: str, fingerprints: list[str]
-    ) -> set[str]: ...
-
-    async def finish_search_page(
-        self,
-        request_id: uuid.UUID,
-        action_id: uuid.UUID,
-        state: str,
-        cursor: str | None = None,
-        candidates: Sequence[str] = (),
-    ) -> bool: ...
-
-    async def method_output_slots(
-        self, slot, exclude_method_id, offset, limit, *, granted=None, owner=None
-    ) -> list[dict[str, Any]]: ...
-
     async def list_methods(
         self, owner_subject: str, *, limit: int, offset: int, formal_only: bool = False
     ) -> Sequence[dict[str, Any]]: ...
@@ -1070,15 +1040,6 @@ class KnowbaseLibraryClient(Protocol):
     ) -> list[dict[str, Any]]:
         """一份资料某一版的各种读法与就绪与否（RenditionRead）。"""
         ...
-
-    async def check_column(
-        self,
-        user_token: str,
-        material_id: str,
-        version_no: int,
-        sheet: str,
-        column: str,
-    ) -> dict[str, Any]: ...
 
     async def read_format(
         self, user_token: str, material_id: str, version_no: int

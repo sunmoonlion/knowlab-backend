@@ -170,6 +170,10 @@ async def test_method_draft_v2_c_l1_provenance_handoff_and_fractal_gap_roundtrip
     )
     assert patched["projection"]["ready_to_freeze"] is True
     assert patched["public_contract"]["method_kind"] == "expert"
+    assert (
+        patched["formal_method"]["definition"]["how_to_validate"]
+        == patched["draft_contract"]["validation_rules"]
+    )
 
     # Spawn a fractal child tool draft from parent step `analyze`.
     child_view = await drafts.spawn_gap_child(
@@ -207,6 +211,23 @@ async def test_method_draft_v2_c_l1_provenance_handoff_and_fractal_gap_roundtrip
     ] == str(child_mid)
     anchor = await drafts.ensure_runtime_anchor(OWNER, parent_mid)
     assert anchor.incubation_mode == "self"
+    pending = await drafts.patch(
+        OWNER,
+        parent_mid,
+        PatchMethodDraftIn(
+            revision=bound["revision"],
+            elements={"unconfirmed_paths": ["element:procedure"]},
+        ),
+    )
+    assert pending["formal_method"] is None
+    with pytest.raises(BadRequestError, match="Confirm and complete"):
+        await methods.validate(
+            OWNER,
+            parent_mid,
+            ValidateFormalMethod(
+                request_id=anchor.id, revision=pending["revision"], run_id=uuid4()
+            ),
+        )
 
     # Handoff v2 seed creates a verified draft with C-L1 accept record.
     seeded = await drafts.create_from_handoff(

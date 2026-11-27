@@ -44,7 +44,6 @@ from app.domain.knowbots.formal_method_admission import (
     ValidateFormalMethod,
 )
 from app.domain.knowbots.formal_method_compiler import (
-    CandidateLimits,
     FrozenMethod,
     compile_method,
     implementation_kind,
@@ -580,136 +579,6 @@ class FormalMethodService:
             raise BadGatewayError("Different incubation binding receipt")
         return expected
 
-    async def preview_candidate_choice(
-        self,
-        owner: str,
-        request_id: str,
-        method_id: UUID,
-        revision: int,
-        definition: FormalMethodDefinition,
-    ):
-        graph = definition.procedure
-        if not isinstance(graph, Orchestration) or not graph.has_candidate_choice:
-            raise BadRequestError(
-                "Expected a candidate choice", code="formal_method_invalid"
-            )
-        shared = await self._shared_dependencies(
-            owner, request_id, revision, definition
-        )
-        async with self.repo.transaction():
-            request, current = await self.workdrafts.get(owner, request_id)
-            if revision != (current.revision if current else 0):
-                raise ConcurrencyConflictError(
-                    "Draft revision changed", code="workdraft_revision"
-                )
-            if (await self.repo.method_owner(method_id)) not in (None, owner):
-                raise NotFoundError("No such method", code="method_not_found")
-            resolved, owned = await self._dependencies(owner, definition, shared=shared)
-        for reference in owned:
-            if not await self._registered(request.runtime, owner, reference):
-                raise ConcurrencyConflictError(
-                    "Candidate registration changed", code="formal_method_unregistered"
-                )
-        try:
-            compiled = compile_method(method_id, definition, resolved)
-        except CandidateLimits as exc:
-            return {
-                "fits": False,
-                "depth": exc.depth,
-                "steps": exc.steps,
-                "expansions": exc.expansions,
-                "revision": revision,
-            }
-        except ValueError as exc:
-            raise BadRequestError(str(exc), code="formal_method_invalid") from exc
-        return {
-            "fits": True,
-            "depth": compiled.required_depth,
-            "steps": compiled.required_steps,
-            "expansions": compiled.required_expansions,
-            "revision": revision,
-        }
-
-    async def matching_outputs(
-        self,
-        owner,
-        request_id,
-        slot,
-        exclude_method_id,
-        offset,
-        *,
-        shared=False,
-        after=None,
-    ):
-        limit = 20
-        runtime, declaration = await self._incubation_basis(owner, request_id)
-        # A shared page is bounded by the market cursor. Match only the exact
-        # versions authorized on this page, including their immutable digests.
-        next_page = None
-        granted = None
-        if shared:
-            page = await self._shared_tools(
-                runtime, owner, after=after, declaration=declaration
-            )
-            granted = [item["reference"] for item in page["items"]]
-            next_page = page["next"]
-            if not granted:
-                return {"items": [], "next": next_page}
-        async with self.repo.transaction():
-            rows = await self.repo.method_output_slots(
-                slot,
-                exclude_method_id,
-                offset,
-                None if shared else limit + 1,
-                granted=granted,
-                owner=None if shared else owner,
-            )
-        if not shared:
-            next_page = offset + limit if len(rows) > limit else None
-            rows = rows[:limit]
-            if rows:
-                pins = [
-                    dict(
-                        method_id=str(r["method_id"]),
-                        version=r["version"],
-                        digest=r["digest"],
-                    )
-                    for r in rows
-                ]
-                authorized = await self.runtimes.method_skill_center_incubation_methods(
-                    runtime,
-                    owner,
-                    limit=limit,
-                    offset=0,
-                    all_versions=True,
-                    declaration=declaration,
-                    references=pins,
-                )
-                rank = {
-                    (str(r["method_id"]), r["latest_version"], r["digest"]): n
-                    for n, r in enumerate(authorized)
-                }
-
-                def key(row):
-                    return (str(row["method_id"]), row["version"], row["digest"])
-
-                rows = sorted(
-                    (r for r in rows if key(r) in rank), key=lambda r: rank[key(r)]
-                )
-        items = [
-            {
-                "reference": {
-                    "method_id": str(row["method_id"]),
-                    "version": row["version"],
-                    "digest": row["digest"],
-                },
-                "output": row["output"],
-                "title": row["title"],
-            }
-            for row in rows
-        ]
-        return {"items": items, "next": next_page}
-
     async def shared_tools(self, owner, request_id, *, reference=None, after=None):
         runtime, declaration = await self._incubation_basis(owner, request_id)
         page = await self._shared_tools(
@@ -875,6 +744,26 @@ class FormalMethodService:
             raise BadRequestError(
                 "Save a formal method definition first", code="formal_method_missing"
             )
+        if current.draft_contract is not None:
+            from app.domain.knowbots.formal_method import MethodDraftV2
+
+            try:
+                canonical = MethodDraftV2.model_validate(
+                    current.draft_contract
+                ).to_definition()
+            except ValueError as exc:
+                raise BadRequestError(
+                    "Confirm and complete the current draft",
+                    code="formal_method_invalid",
+                ) from exc
+            if (
+                current.method_id != method_id
+                or canonical.digest() != draft.definition.digest()
+            ):
+                raise BadRequestError(
+                    "The method does not match the current studio draft",
+                    code="formal_method_invalid",
+                )
         entries = await self.repo.list_workdraft_entries(record_ids(current.sources))
         problems = source_problems(
             body,

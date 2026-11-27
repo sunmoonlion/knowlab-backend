@@ -811,6 +811,8 @@ class KnowbotCreationService:
         """请用户审核这位准专家（web端「审核」里一条待办）。只在待测、还没请过时。"""
         async with self.repo.transaction():
             draft = await self._locked(draft_id)
+            if draft.manifest.get("schema") == MANIFEST_SCHEMA:
+                raise NotFoundError("No such draft", code="draft_not_found")
             if draft.status != "pending_test":
                 raise _conflict("Only a pending draft is reviewed", "draft_state")
             if draft.user_review:
@@ -849,6 +851,8 @@ class KnowbotCreationService:
         """发起测试前逐条核过规则出处（C-L1）。只在待测时做。"""
         async with self.repo.transaction():
             draft = await self._locked(draft_id)
+            if draft.manifest.get("schema") == MANIFEST_SCHEMA:
+                raise NotFoundError("No such draft", code="draft_not_found")
             if draft.status != "pending_test":
                 raise _conflict("Only a pending draft is reviewed", "draft_state")
             await self.repo.update_draft(

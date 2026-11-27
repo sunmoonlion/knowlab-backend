@@ -184,7 +184,6 @@ async def test_registration_failure_retries_committed_version_without_transactio
 async def test_author_matches_and_validates_only_granted_shared_outputs(
     db, monkeypatch, scope
 ):
-    from app.application.errors.exceptions import BadGatewayError
     from app.application.services.knowbot_service import KnowbotCreationService
     from app.domain.knowbots.drafts import KnowbotRequestIn
     from app.domain.knowbots.formal_method_admission import ValidateFormalMethod
@@ -260,35 +259,8 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
             consumer, KnowbotRequestIn.model_validate(request_body())
         )
         rid = str(request.id)
-        slot = draft().definition.procedure.inputs["value"]
-
-        async def match(*, shared=True, after=None, exclude=parent, wanted=slot):
-            return await service.matching_outputs(
-                consumer, rid, wanted, exclude, 0, shared=shared, after=after
-            )
-
-        owned = await service.matching_outputs(
-            OWNER, str(command.request_id), slot, parent, 0
-        )
-        assert owned == {
-            "items": [{"reference": ref, "output": "result", "title": "Echo"}],
-            "next": None,
-        }
-        assert await match(shared=False) == {"items": [], "next": None}
-        assert await match() == {"items": [], "next": cursor}
-        assert await match(after=cursor) == {
-            "items": [{"reference": ref, "output": "result", "title": "Echo"}],
-            "next": None,
-        }
-        assert not (await match(after=cursor, exclude=mid))["items"]
-        assert not (
-            await match(
-                after=cursor,
-                wanted=slot.model_copy(update={"meaning": {"unit": "other"}}),
-            )
-        )["items"]
-        with pytest.raises(BadGatewayError):
-            await match(after="ffffffff-ffff-ffff-ffff-ffffffffffff")
+        page = await service.shared_tools(consumer, rid, after=cursor)
+        assert [item["reference"] for item in page["items"]] == [ref]
         proposal = {
             "definition": composite(child),
             "source": None,
@@ -329,7 +301,7 @@ async def test_author_matches_and_validates_only_granted_shared_outputs(
         runtime.complete(validate.run_id)
         await service.freeze(consumer, str(parent), 1, freeze_command(validate))
         available = False
-        assert await match(after=cursor) == {"items": [], "next": None}
+        assert (await service.shared_tools(consumer, rid, after=cursor))["items"] == []
         retry = validate.model_copy(update={"run_id": uuid4()})
         with pytest.raises(NotFoundError):
             await service.validate(consumer, str(parent), retry)
@@ -386,68 +358,3 @@ async def test_plan_adoption_replays_only_the_same_confirmed_revision(db):
     assert newer.revision == 3 and later["digest"] != proof["digest"]
     with pytest.raises(ConcurrencyConflictError):
         await save(1, plan)
-
-
-async def test_candidate_preview_resolves_shared_choices_after_database_transaction(
-    db, monkeypatch
-):
-    from app.domain.knowbots.formal_method import FormalMethodDefinition, ToolProcedure
-    from tests.test_formal_method import frozen
-    from tests.test_formal_method_candidate_choice import choice_definition
-
-    runtime, _, command = await prepared(db)
-    graph, definitions = choice_definition()
-    leaf = next(
-        item
-        for item in definitions.values()
-        if isinstance(item.definition.procedure, ToolProcedure)
-    )
-    alternatives = [leaf, frozen(leaf.definition.document())]
-    step = graph["procedure"]["steps"][0]
-    step["candidates"] = [
-        item.reference.model_dump(mode="json") for item in alternatives
-    ]
-    for case, pin in zip(
-        step["candidate_choice"]["cases"], step["candidates"], strict=True
-    ):
-        case["candidate"] = pin
-    seen = []
-    async with db() as session:
-        svc = FormalMethodService(SqlKnowlabRepository(session), runtime)
-
-        async def grants(_, subject, *, reference, **kwargs):
-            assert subject == OWNER and not session.in_transaction()
-            seen.append(reference)
-            asset = str(uuid4())
-            return {
-                "next": None,
-                "items": [
-                    {
-                        "reference": reference.model_dump(mode="json"),
-                        "scope": "acquired",
-                        "title": "Choice",
-                        "definition": leaf.definition.document(),
-                        "selected": asset,
-                        "installations": [
-                            {
-                                "asset_id": asset,
-                                "revision": 1,
-                                "name": "fixture",
-                                "account": None,
-                            }
-                        ],
-                    }
-                ],
-            }
-
-        monkeypatch.setattr(runtime, "incubation_tool_versions", grants, raising=False)
-        outcome = await svc.preview_candidate_choice(
-            OWNER,
-            str(command.request_id),
-            uuid4(),
-            command.revision,
-            FormalMethodDefinition.model_validate(graph),
-        )
-        assert outcome["fits"] and set(seen) == {
-            item.reference for item in alternatives
-        }

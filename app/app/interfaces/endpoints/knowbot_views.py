@@ -453,6 +453,11 @@ def workdraft_view(
     return {
         "request_id": str(request.id),
         "title": request.title,
+        **(
+            {"studio_method_id": str(workdraft.method_id)}
+            if workdraft.draft_contract and workdraft.method_id
+            else {}
+        ),
         "revision": workdraft.revision,
         "body": workdraft.body,
         **(

@@ -728,7 +728,7 @@ class MethodDraftService:
             prior_entries = {
                 e.id: e for e in await self.repo.list_workdraft_entries(existing_ids)
             }
-        sources: dict[str, Any] = {}
+        sources = dict(current.sources or {})
         for path, text in after_cells.items():
             prev_src = (current.sources or {}).get(path)
             if isinstance(prev_src, dict) and str(prev_src.get("ref", "")).startswith(
@@ -736,7 +736,14 @@ class MethodDraftService:
             ):
                 prev_id = uuid.UUID(str(prev_src["ref"]).removeprefix("record:"))
                 prev_entry = prior_entries.get(prev_id)
-                if prev_entry is not None and prev_entry.text == text:
+                if (
+                    prev_entry is not None
+                    and prev_entry.workdraft_id == current.id
+                    and prev_entry.path == path
+                    and prev_entry.actor_subject == owner
+                    and prev_entry.actor_role == AUTHOR_ROLE
+                    and prev_entry.text == text
+                ):
                     sources[path] = prev_src
                     continue
             record_kind = "edit" if kind == "copy" else kind
@@ -792,6 +799,14 @@ class MethodDraftService:
         except (ValidationError, ValueError):
             pass
         fm = (row.body or {}).get("formal_method") or {}
+        saved_draft = None
+        if fm and definition_digest:
+            try:
+                candidate = FormalMethodDraft.model_validate(fm)
+                if candidate.definition.digest() == definition_digest:
+                    saved_draft = fm
+            except ValidationError:
+                pass
         return {
             "method_id": str(row.method_id),
             "request_id": str(row.request_id) if row.request_id else None,
@@ -801,6 +816,7 @@ class MethodDraftService:
             "projection": projection,
             "public_contract": public_view,
             "definition_digest": definition_digest,
+            "formal_method": saved_draft,
             "source": fm.get("source"),
             "allowed_callers": fm.get("allowed_callers", ["host"]),
             "htn_state": row.htn_state,

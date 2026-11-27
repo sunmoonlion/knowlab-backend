@@ -281,7 +281,8 @@ async def test_retired_draft_has_no_author_or_operator_receipt_or_board_link(par
         await svc.operator_test(str(test.id))
     with pytest.raises(NotFoundError):
         await svc.my_test_execution(OWNER, str(test.id), "c1")
-    life = await KnowbotBoard(repo).life(str(request.id), OWNER)
-    assert (
-        not life.tests and not life.drafts and not life.experts and not life.deliveries
+    with pytest.raises(NotFoundError):
+        await KnowbotBoard(repo).life(str(request.id), OWNER)
+    assert all(
+        life.request.id != request.id for life in await KnowbotBoard(repo).lives(OWNER)
     )
