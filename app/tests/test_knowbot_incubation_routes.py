@@ -143,6 +143,12 @@ async def test_method_directory_uses_logged_in_owner_before_and_during_incubatio
             tools.assert_awaited_with(
                 "knowbench", OWNER, reference=None, after=None, declaration=None
             )
+        tools.reset_mock()
+        retired = f"{draft}/incubation-tools/{request.id}/versions/1"
+        assert (
+            await c.get(retired, params={"digest": "sha256:" + "a" * 64})
+        ).status_code == 404
+        tools.assert_not_awaited()
         assert (
             await c.get(
                 f"/api/web/v1/knowbot-requests/{foreign.id}/formal-method-sources"

@@ -570,24 +570,13 @@ class FormalMethodService:
             raise BadGatewayError("Different incubation binding receipt")
         return expected
 
-    async def shared_tools(self, owner, request_id, *, reference=None, after=None):
+    async def shared_tools(self, owner, request_id, *, after=None):
         runtime, declaration = await self._incubation_basis(owner, request_id)
         page = await self._shared_tools(
-            runtime,
-            owner,
-            reference=reference,
-            after=after,
-            declaration=declaration if reference is None else None,
+            runtime, owner, after=after, declaration=declaration
         )
         for item in page["items"]:
-            definition = item.pop("definition")
-            if definition:
-                procedure = definition.pop("procedure")
-                item["interface"] = {
-                    **definition,
-                    "inputs": procedure["inputs"],
-                    "outputs": procedure["outputs"],
-                }
+            item.pop("definition")
         return page
 
     async def _shared_tools(

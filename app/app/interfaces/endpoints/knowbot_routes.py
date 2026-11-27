@@ -1289,28 +1289,6 @@ async def shared_incubation_tools(
     )
 
 
-@web_router.get(
-    "/knowbot-requests/{request_id}/incubation-tools/{method_id}/versions/{version}"
-)
-async def shared_incubation_tool(
-    principal: User,
-    methods: FormalMethods,
-    request_id: ItemId,
-    method_id: UUID,
-    version: Annotated[int, Path(ge=1)],
-    digest: Annotated[str, Query(pattern=r"^sha256:[a-f0-9]{64}$")],
-):
-    from app.domain.knowbots.formal_method import MethodRef
-
-    return _ok(
-        await methods.shared_tools(
-            principal.subject,
-            request_id,
-            reference=MethodRef(method_id=method_id, version=version, digest=digest),
-        )
-    )
-
-
 @web_router.post("/method-units/{method_id}/validations")
 async def validate_formal_method(
     principal: User,
