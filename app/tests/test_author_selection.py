@@ -174,8 +174,10 @@ def test_unresolved_status_cannot_be_confirmed(status):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("independent", [False, True])
 async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_graph(
     monkeypatch,
+    independent,
 ):
     from unittest.mock import AsyncMock
 
@@ -260,12 +262,16 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
         step("read", "m1", {"value": dict(source="caller", name="input")}),
         step("check", "m1", {"value": output("read")}),
     ]
+    if independent:
+        steps[0]["deliver_as"] = {"result": "evidence"}
+        steps[1]["deliver_as"] = {"result": "difference"}
+        steps[1]["inputs"] = {"value": dict(source="caller", name="closing")}
     choice = dict(
         status="ready",
         steps=steps,
-        patterns=["P1"],
+        patterns=[] if independent else ["P1"],
         routing_required=False,
-        reason="前一步的结果交给后一步",
+        reason="按两个来源分别核对" if independent else "前一步的结果交给后一步",
     )
     runner.results[record.run_id] = IncubationResultV1.model_validate(
         dict(
@@ -290,7 +296,9 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
 
     draft, roles = await adopt()
     assert roles is None
-    assert draft.definition.procedure.steps[-1].depends_on == ("read",)
+    assert draft.definition.procedure.steps[-1].depends_on == (
+        () if independent else ("read",)
+    )
     registry = dict(runtime.registrations)
     runtime.registrations.clear()
     with pytest.raises(NotFoundError):
@@ -309,9 +317,13 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     saved = await SelectionService(repo, runtime).confirm(
         OWNER, request, record, reviewed
     )
-    assert saved.body["formal_method"]["definition"]["procedure"]["steps"][-1][
-        "depends_on"
-    ] == ["read"]
+    procedure = saved.body["formal_method"]["definition"]["procedure"]
+    assert procedure["steps"][-1]["depends_on"] == ([] if independent else ["read"])
+    if independent:
+        assert {k: v["step"] for k, v in procedure["exports"].items()} == {
+            "evidence": "read",
+            "difference": "check",
+        }
     assert (await methods.workdrafts.plan_receipt(saved))[
         "saved_revision"
     ] == saved.revision
@@ -400,7 +412,8 @@ def test_p5_leaf_limit_depends_on_reachable_combinations_of_caller_inputs():
         verify()
 
 
-def test_recursive_composite_uses_author_scope_and_root_promise():
+@pytest.mark.parametrize("with_tree", [True, False])
+def test_composite_uses_author_scope_and_root_promise(with_tree):
     from app.domain.knowbots.selection import PlanningNode, PlanningTree, SketchStep
 
     first = SketchStep.model_validate(
@@ -433,8 +446,17 @@ def test_recursive_composite_uses_author_scope_and_root_promise():
         routing_required=False,
         steps=(first, final),
         patterns=("P1",),
-        tree=tree,
+        tree=tree if with_tree else None,
     )
+    if not with_tree:
+        proposal = proposal.model_copy(
+            update={
+                "steps": (
+                    first,
+                    final.model_copy(update={"deliver_as": {"result": "result"}}),
+                )
+            }
+        )
     methods = {"read": frozen(), "finish": frozen()}
     draft, _ = expand(
         proposal,
@@ -449,3 +471,64 @@ def test_recursive_composite_uses_author_scope_and_root_promise():
     assert tuple(decl.excludes) == ("排除预测",)
     assert decl.promises == {"template_delivery": TEMPLATE.deliverable}
     compile_method(uuid4(), draft.definition, resolved(*methods.values()))
+
+
+def test_author_delivers_evidence_and_difference_without_exposing_internal_work():
+    from app.domain.knowbots.formal_method_plan import export_outputs
+
+    source = tool()
+    source["procedure"]["outputs"]["working"] = slot()
+    methods = {"extract": frozen(source), "calculate": frozen()}
+    steps = [
+        step(
+            "read",
+            "extract",
+            {"value": {"source": "caller", "name": "rows"}},
+            deliver_as={"result": "evidence"},
+        ),
+        step(
+            "compare",
+            "calculate",
+            {"value": output("read")},
+            deliver_as={"result": "difference"},
+        ),
+    ]
+    draft, _ = build(steps, methods, [])
+    definition = draft.definition
+    assert definition.how_to_validate[0].outputs == ("evidence", "difference")
+    assert export_outputs(
+        definition, {"read": {"working": 30, "result": 17}, "compare": {"result": 5}}
+    ) == {
+        "evidence": 17,
+        "difference": 5,
+    }
+    for mapping, error in [
+        ({"result": "evidence"}, "duplicate delivery"),
+        ({"absent": "difference"}, "missing compare.absent"),
+        ({}, "selection_disconnected"),
+    ]:
+        steps[1]["deliver_as"] = mapping
+        with pytest.raises(ValueError, match=error):
+            build(steps, methods, [])
+
+
+def test_separate_terminal_deliveries_require_join_support():
+    methods = {"read": frozen(), "calculate": frozen()}
+    steps = [
+        step(
+            "a",
+            "read",
+            {"value": {"source": "caller", "name": "opening"}},
+            deliver_as={"result": "evidence"},
+        ),
+        step(
+            "b",
+            "calculate",
+            {"value": {"source": "caller", "name": "closing"}},
+            deliver_as={"result": "difference"},
+        ),
+    ]
+    draft, _ = build(steps, methods, [])
+    assert set(draft.definition.interfaces()["inputs"]) == {"opening", "closing"}
+    with pytest.raises(ValueError, match="selection_capability"):
+        build(steps, methods, [], flags={**FLAGS, "join": False})

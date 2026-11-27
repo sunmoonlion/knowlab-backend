@@ -221,6 +221,30 @@ def test_whole_governs_part_exports_permission_namespacing_and_clean_inputs():
             "summary_out": ("n1", "summary"),
         },
     )
+    named = sel.model_copy(
+        update={
+            "steps": (
+                sel.steps[0].model_copy(
+                    update={"deliver_as": {"result": "receipt_out"}}
+                ),
+                sel.steps[1].model_copy(
+                    update={"deliver_as": {"summary": "summary_out"}}
+                ),
+            )
+        }
+    )
+    kwargs = dict(required_cases={}, draft_contract=draft_v2)
+    mapped, _ = expand(named, {"m1": m1, "m2": m2}, None, FLAGS, **kwargs)
+    assert mapped.definition.digest() == expanded_draft.definition.digest()
+    with pytest.raises(ValueError, match="conflicting delivery bindings"):
+        expand(
+            named,
+            {"m1": m1, "m2": m2},
+            None,
+            FLAGS,
+            step_exports={"receipt_out": ("n1", "summary")},
+            **kwargs,
+        )
     defn = expanded_draft.definition
     # M02/R03: promises preserved, n1_1_ stripped, colliding req_id namespaced!
     assert set(defn.capability_declaration.promises) == {

@@ -27,6 +27,7 @@ from app.domain.knowbots.selection import (
     TargetDeliverableHint,
     annotate_catalog_reachability,
     available,
+    check_delivery_targets,
     expand,
     verify_selection_graph,
 )
@@ -198,6 +199,14 @@ class SelectionService:
                         promise_id=p.promise_id,
                         summary=p.summary,
                         expected_domain_id=p.expected_domain_id,
+                        outputs=tuple(
+                            dict.fromkeys(
+                                output
+                                for rule in v2.validation_rules
+                                if rule.promise_id == p.promise_id
+                                for output in rule.outputs
+                            )
+                        ),
                     ).model_dump(mode="json")
                     for p in v2.expected_deliverables
                     if p.expected_domain_id
@@ -342,6 +351,12 @@ class SelectionService:
                     "Selection based on an older revision", code="workdraft_revision"
                 )
             body = parse_body(current.body)
+        try:
+            check_delivery_targets(
+                proposal, saved.get("methods", {}), saved.get("target_deliverables")
+            )
+        except ValueError as exc:
+            raise BadRequestError(str(exc), code="selection_export") from exc
         if body.method_template and body.method_template != template:
             raise ConcurrencyConflictError(
                 "Confirmed template changed", code="workdraft_revision"
@@ -370,6 +385,7 @@ class SelectionService:
                 or step.method not in instructions
                 or proposal.patterns
                 or step.inputs
+                or step.deliver_as
                 or step.cases
                 or step.reviews
                 or step.route_input
