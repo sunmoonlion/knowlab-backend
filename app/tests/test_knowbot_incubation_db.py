@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from app.application.errors.exceptions import ConcurrencyConflictError
+from app.application.errors.exceptions import BadRequestError, ConcurrencyConflictError
 from app.application.services.knowbot_incubation import KnowbotIncubationService
 from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestionService
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
@@ -208,8 +208,8 @@ async def test_incubations_migrate_round_trip_and_run_for_real() -> None:
                 OWNER, str(REQUEST), str(done.id), "s2", action="accept", revision=1
             )
             assert after.decisions["s2"]["state"] == "accepted"
-            draft = await works.publish(OWNER, str(REQUEST))
-            assert draft.mode == "self"
+            with pytest.raises(BadRequestError, match="固定 v2 专家已退役"):
+                await works.publish(OWNER, str(REQUEST))
         async with engine.begin() as c:
             kinds = await _all(
                 c,

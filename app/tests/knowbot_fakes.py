@@ -432,6 +432,9 @@ class MemoryKnowlab:
             self.requests.values(), key=lambda r: r.created_at or 0, reverse=True
         )
 
+    async def lock_method(self, method_id: uuid.UUID) -> None:
+        return None
+
     async def lock_request(self, request_id: uuid.UUID) -> None:
         return None
 

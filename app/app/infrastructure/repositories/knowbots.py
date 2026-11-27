@@ -2061,7 +2061,7 @@ class SqlKnowlabRepository:
         )
         meaning_clause = """(s.meaning = CAST(:meaning AS jsonb)
                 OR (
-                    :domain_id IS NOT NULL
+                    CAST(:domain_id AS text) IS NOT NULL
                     AND (
                         (s.meaning->>'domain_id') = :domain_id
                         OR (s.meaning->>'domain_id') LIKE :domain_prefix
