@@ -595,3 +595,35 @@ def test_directed_review_uses_exact_received_values_and_scopes_every_check():
     stored["review"]["handoff"]["notes"] = fingerprint(outputs["notes"])
     with pytest.raises(ValidationError):
         BranchDelivery.model_validate(stored)
+
+
+async def test_each_unconditional_promise_needs_its_own_passing_example():
+    _, runtime, service, mid, command = await prepared()
+    await service.execute(OWNER, str(mid), command)
+    data = runtime.submitted[command.run_id].model_dump(mode="json", by_alias=True)
+    definition = data["draft"]["definition"]
+    definition["capability_declaration"]["promises"]["evidence"] = "交回原行依据"
+    definition["procedure"]["outputs"]["row"] = definition["procedure"]["outputs"][
+        "result"
+    ]
+    definition["how_to_validate"].append(
+        {
+            **definition["how_to_validate"][0],
+            "promise_id": "evidence",
+            "outputs": ["row"],
+        }
+    )
+    suite = data["execution"]["suite"]
+    suite.pop("digest")
+    first = suite["cases"][0]
+    first["covers_promises"] = ["value"]
+    second = copy.deepcopy(first)
+    second.update(case_id="check_row", covers_promises=["evidence"])
+    second["expected"]["assertions"][0]["pointer"] = "/row"
+    suite["cases"].append(second)
+    data["execution"]["suite"] = (
+        FormalTestSuiteDraft.model_validate(suite).freeze().model_dump(mode="json")
+    )
+    request = FormalMethodExecutionRequest.model_validate(data)
+    assert request.uncovered_promises({"echo"}) == {"evidence"}
+    assert not request.uncovered_promises({"echo", "check_row"})
