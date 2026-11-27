@@ -78,6 +78,14 @@ from app.application.services.knowbot_questions import AnswerIn, KnowbotQuestion
 from app.application.services.knowbot_service import KnowbotCreationService, parse_id
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
+from app.application.services.method_drafts import (
+    BindGapResolutionIn,
+    CreateMethodDraftIn,
+    HandoffSeedIn,
+    MethodDraftService,
+    PatchMethodDraftIn,
+    SpawnGapChildIn,
+)
 from app.application.services.method_search import scan_outputs
 from app.bootstrap.knowbots import (
     formal_method_service,
@@ -93,6 +101,7 @@ from app.bootstrap.knowbots import (
     knowbot_service,
     knowbot_test_data,
     knowbot_workdraft_service,
+    method_draft_service,
     runtime_clients,
 )
 from app.domain.knowbots.delivery import (
@@ -217,6 +226,12 @@ def formal_service(
     return formal_method_service(session)
 
 
+def draft_v2_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> MethodDraftService:
+    return method_draft_service(session)
+
+
 def proposal_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> KnowbotProposalService:
@@ -250,6 +265,7 @@ Incubations = Annotated[KnowbotIncubationService, Depends(incubation_service)]
 Workdrafts = Annotated[KnowbotWorkdraftService, Depends(workdraft_service)]
 Methods = Annotated[KnowbotMethodService, Depends(method_service)]
 FormalMethods = Annotated[FormalMethodService, Depends(formal_service)]
+MethodDrafts = Annotated[MethodDraftService, Depends(draft_v2_service)]
 Experts = Annotated[KnowbotExpertService, Depends(expert_service)]
 Deliveries = Annotated[KnowbotDeliveryService, Depends(delivery_service)]
 Board = Annotated[KnowbotBoard, Depends(board_service)]
@@ -1805,6 +1821,133 @@ async def browse_directory(
 @web_router.get("/method-directory/sources")
 async def directory_sources(principal: User, methods: FormalMethods):
     return _ok(await methods.sources(principal.subject))
+
+
+class InlineSourceRegistrationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["script", "instruction"]
+    name: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=262144)
+    request_id: UUID | None = None
+
+
+@web_router.put("/method-directory/sources/{source_id}/versions/{version}")
+async def register_directory_source(
+    principal: User,
+    methods: FormalMethods,
+    source_id: ItemId,
+    version: Annotated[int, Path(ge=1, le=2147483647)],
+    body: InlineSourceRegistrationIn,
+) -> JSONResponse:
+    item = await methods.register_source(
+        principal.subject,
+        source_id,
+        version,
+        {
+            "kind": body.kind,
+            "name": body.name,
+            "content": body.content,
+        },
+        request_id=str(body.request_id) if body.request_id else None,
+    )
+    return _ok({"source": item})
+
+
+@web_router.get("/slot-vocabulary")
+async def slot_vocabulary(_: User) -> JSONResponse:
+    from app.domain.knowbots.slot_vocabulary import SLOT_MEANING_CATALOG
+
+    return _ok(
+        {
+            "vocab_version": "1",
+            "domains": [
+                {"domain_id": k, "label": v} for k, v in SLOT_MEANING_CATALOG.items()
+            ],
+            "presets": [
+                "plain_question",
+                "structured_record",
+                "data_table",
+                "cited_markdown",
+                "material_ref",
+                "entity_key_list",
+            ],
+            "archetypes": [
+                "S1",
+                "S2",
+                "S3",
+                "S4",
+            ],
+        }
+    )
+
+
+@web_router.get("/method-drafts")
+async def list_method_drafts(principal: User, drafts: MethodDrafts) -> JSONResponse:
+    return _ok({"items": await drafts.list_drafts(principal.subject)})
+
+
+@web_router.post("/method-drafts", status_code=201)
+async def create_method_draft(
+    principal: User, body: CreateMethodDraftIn, drafts: MethodDrafts
+) -> JSONResponse:
+    return _ok(await drafts.create(principal.subject, body), status_code=201)
+
+
+@web_router.post("/method-drafts/from-handoff", status_code=201)
+async def create_method_draft_from_handoff(
+    principal: User, body: HandoffSeedIn, drafts: MethodDrafts
+) -> JSONResponse:
+    return _ok(
+        await drafts.create_from_handoff(principal.subject, body), status_code=201
+    )
+
+
+@web_router.get("/method-drafts/{method_id}")
+async def get_method_draft(
+    principal: User, method_id: ItemId, drafts: MethodDrafts
+) -> JSONResponse:
+    return _ok(await drafts.get(principal.subject, method_id))
+
+
+@web_router.patch("/method-drafts/{method_id}")
+async def patch_method_draft(
+    principal: User,
+    method_id: ItemId,
+    body: PatchMethodDraftIn,
+    drafts: MethodDrafts,
+) -> JSONResponse:
+    return _ok(await drafts.patch(principal.subject, method_id, body))
+
+
+@web_router.post("/method-drafts/{method_id}/runtime-anchor")
+async def ensure_method_draft_runtime_anchor(
+    principal: User, method_id: ItemId, drafts: MethodDrafts
+) -> JSONResponse:
+    req = await drafts.ensure_runtime_anchor(principal.subject, method_id)
+    return _ok({"request_id": str(req.id), "runtime": req.runtime})
+
+
+@web_router.post("/method-drafts/{method_id}/gaps/spawn", status_code=201)
+async def spawn_method_draft_gap_child(
+    principal: User,
+    method_id: ItemId,
+    body: SpawnGapChildIn,
+    drafts: MethodDrafts,
+) -> JSONResponse:
+    return _ok(
+        await drafts.spawn_gap_child(principal.subject, method_id, body),
+        status_code=201,
+    )
+
+
+@web_router.post("/method-drafts/{method_id}/gaps/bind")
+async def bind_method_draft_gap_resolution(
+    principal: User,
+    method_id: ItemId,
+    body: BindGapResolutionIn,
+    drafts: MethodDrafts,
+) -> JSONResponse:
+    return _ok(await drafts.bind_gap_resolution(principal.subject, method_id, body))
 
 
 @web_router.get("/method-directory/shared-tools")

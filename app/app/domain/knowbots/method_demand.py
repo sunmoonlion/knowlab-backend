@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, model_validator
 
@@ -118,7 +118,7 @@ class SuggestedPlan(Strict):
 class FormalHandoff(RuntimeIncubationIn):
     """Approved problem and interface gap; only the method owner may seed a revision."""
 
-    contract: Literal["knowlab/formal-handoff/v1"]
+    contract: Literal["knowlab/formal-handoff/v1", "knowlab/formal-handoff/v2"]
     project_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
     task_id: str | None = Field(default=None, pattern=r"^[0-9a-f-]{36}$")
 
@@ -126,9 +126,21 @@ class FormalHandoff(RuntimeIncubationIn):
     def source_task(self):
         if not self.task_id:
             raise ValueError("Formal feedback requires its original task")
+        if self.contract == "knowlab/formal-handoff/v1" and (
+            self.htn_tree is not None or self.draft_contract is not None
+        ):
+            raise ValueError(
+                "htn_tree and draft_contract require knowlab/formal-handoff/v2"
+            )
         return self
 
     suggested_plan: SuggestedPlan | None = None
+    htn_tree: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    draft_contract: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
     reference_answer: None = None
     reference: MethodRef | None = None
     gap: Text

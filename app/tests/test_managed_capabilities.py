@@ -152,6 +152,14 @@ async def test_import_and_publish_cannot_bypass_the_authoring_gate():
     request = await w.request()
     saved = await w.works.save(OWNER, str(request.id), revision=0, edits=CELLS)
     doc = body()
+    doc["planning"] = {
+        "method_text": "先走第一步，再核对结果",
+        "final_units": ["overview"],
+        "max_steps": 4,
+        "max_replans": 1,
+        "reserve": "1.00",
+        "input_max_chars": 2000,
+    }
     doc["steps"][0]["advanced"] = {
         "managed_capabilities": REQ,
         "access_requirements": [ACCESS],

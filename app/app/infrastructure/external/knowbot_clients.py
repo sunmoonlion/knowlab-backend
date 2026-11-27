@@ -269,6 +269,30 @@ class RuntimeTestClients:
                 "Invalid formal method source catalog", code="formal_sources_invalid"
             ) from exc
 
+    async def register_formal_method_source(
+        self,
+        runtime: str,
+        subject: str,
+        source_id: str,
+        version: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from app.domain.knowbots.formal_method_admission import FormalMethodSource
+
+        _, body = await self._client(runtime).request(
+            "PUT",
+            f"{USERS}/{quote(subject, safe='')}/formal-method-sources/"
+            f"{quote(source_id, safe='')}/versions/{version}",
+            json=payload,
+        )
+        try:
+            return FormalMethodSource.model_validate(body).model_dump(mode="json")
+        except (ValueError, TypeError) as exc:
+            raise BadGatewayError(
+                "Invalid formal method source registration",
+                code="formal_sources_invalid",
+            ) from exc
+
     async def submit_formal_method_validation(
         self, runtime: str, request: Any
     ) -> dict[str, Any]:

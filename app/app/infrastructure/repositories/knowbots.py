@@ -261,6 +261,7 @@ def _workdraft(row: KnowbotWorkdraft) -> WorkdraftRecord:
     return WorkdraftRecord(
         id=row.id,
         request_id=row.request_id,
+        method_id=row.method_id,
         owner_subject=row.owner_subject,
         body=row.body,
         sources=row.sources or {},
@@ -268,6 +269,9 @@ def _workdraft(row: KnowbotWorkdraft) -> WorkdraftRecord:
         created_at=row.created_at,
         updated_at=row.updated_at,
         data_formats=row.data_formats or {},
+        draft_contract=row.draft_contract,
+        htn_state=row.htn_state,
+        parent_gap=row.parent_gap,
     )
 
 
@@ -1596,6 +1600,38 @@ class SqlKnowlabRepository:
         ).scalar_one_or_none()
         return None if row is None else _workdraft(row)
 
+    async def get_method_workdraft(
+        self, method_id: uuid.UUID, *, for_update: bool = False
+    ) -> WorkdraftRecord | None:
+        query = (
+            select(KnowbotWorkdraft)
+            .where(KnowbotWorkdraft.method_id == method_id)
+            .order_by(KnowbotWorkdraft.updated_at.desc(), KnowbotWorkdraft.id)
+            .limit(1)
+        )
+        if for_update:
+            query = query.with_for_update()
+        row = (
+            await self.session.execute(query.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
+        return None if row is None else _workdraft(row)
+
+    async def list_method_workdrafts(
+        self, owner_subject: str
+    ) -> Sequence[WorkdraftRecord]:
+        rows = (
+            await self.session.execute(
+                select(KnowbotWorkdraft)
+                .where(
+                    KnowbotWorkdraft.owner_subject == owner_subject,
+                    KnowbotWorkdraft.method_id.is_not(None),
+                )
+                .order_by(KnowbotWorkdraft.updated_at.desc(), KnowbotWorkdraft.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+        return [_workdraft(r) for r in rows]
+
     async def create_workdraft(
         self, *, request_id: uuid.UUID, owner_subject: str, body: dict[str, Any]
     ) -> WorkdraftRecord:
@@ -1618,6 +1654,40 @@ class SqlKnowlabRepository:
         await self.session.refresh(row)
         return _workdraft(row)
 
+    async def create_method_workdraft(
+        self,
+        *,
+        method_id: uuid.UUID,
+        owner_subject: str,
+        body: dict[str, Any],
+        draft_contract: dict[str, Any] | None = None,
+        htn_state: dict[str, Any] | None = None,
+        parent_gap: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> WorkdraftRecord:
+        row = KnowbotWorkdraft(
+            id=uuid.uuid4(),
+            request_id=request_id,
+            method_id=method_id,
+            owner_subject=owner_subject,
+            body=body,
+            sources={},
+            revision=0,
+            draft_contract=draft_contract,
+            htn_state=htn_state,
+            parent_gap=parent_gap,
+        )
+        self.session.add(row)
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as exc:
+            raise ConcurrencyConflictError(
+                "This method already has its workdraft", code="workdraft_revision"
+            ) from exc
+        await self.session.refresh(row)
+        return _workdraft(row)
+
     async def update_workdraft(
         self,
         workdraft_id: uuid.UUID,
@@ -1626,6 +1696,11 @@ class SqlKnowlabRepository:
         sources: dict[str, Any],
         revision: int,
         data_formats: dict[str, Any] | None = None,
+        draft_contract: dict[str, Any] | None = None,
+        htn_state: dict[str, Any] | None = None,
+        parent_gap: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+        method_id: uuid.UUID | None = None,
     ) -> None:
         values: dict[str, Any] = {
             "body": body,
@@ -1634,6 +1709,16 @@ class SqlKnowlabRepository:
         }
         if data_formats is not None:
             values["data_formats"] = data_formats
+        if draft_contract is not None:
+            values["draft_contract"] = draft_contract
+        if htn_state is not None:
+            values["htn_state"] = htn_state
+        if parent_gap is not None:
+            values["parent_gap"] = parent_gap
+        if request_id is not None:
+            values["request_id"] = request_id
+        if method_id is not None:
+            values["method_id"] = method_id
         await self.session.execute(
             update(KnowbotWorkdraft)
             .where(KnowbotWorkdraft.id == workdraft_id)
@@ -1906,6 +1991,17 @@ class SqlKnowlabRepository:
                 "JOIN knowbot_method m ON m.id=s.method_id AND m.owner_subject=:owner"
             )
             rank = ""
+        domain_id = (
+            slot.meaning.get("domain_id") if isinstance(slot.meaning, dict) else None
+        )
+        meaning_clause = """(s.meaning = CAST(:meaning AS jsonb)
+                OR (
+                    :domain_id IS NOT NULL
+                    AND (
+                        (s.meaning->>'domain_id') = :domain_id
+                        OR (s.meaning->>'domain_id') LIKE :domain_prefix
+                    )
+                ))"""
         stmt = text(f"""
             SELECT s.method_id, s.version, v.digest, s.name AS output,
                    v.definition->'capability_declaration'->>'title' AS title
@@ -1921,7 +2017,7 @@ class SqlKnowlabRepository:
                                    #> '{{validation,execution,validated_callers}}',
                                    'null'::jsonb),
                             '["host"]'::jsonb) ? 'host'
-               AND s.meaning = CAST(:meaning AS jsonb)
+               AND {meaning_clause}
                AND s.value_schema = CAST(:schema AS jsonb)
                AND (NOT :required OR s.guaranteed)
              ORDER BY {rank}s.method_id,s.version DESC,s.name
@@ -1937,6 +2033,10 @@ class SqlKnowlabRepository:
                 "exclude": exclude_method_id,
                 "required": slot.required,
                 "meaning": json.dumps(slot.meaning),
+                "domain_id": domain_id if isinstance(domain_id, str) else None,
+                "domain_prefix": f"{domain_id}.%"
+                if isinstance(domain_id, str)
+                else None,
                 "schema": json.dumps(slot.schema_),
                 "limit": limit,
                 "offset": offset,

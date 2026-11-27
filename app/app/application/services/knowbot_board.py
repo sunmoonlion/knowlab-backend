@@ -247,7 +247,10 @@ class KnowbotBoard:
             owner_subject is not None and request.owner_subject != owner_subject
         ):
             raise NotFoundError("No such request", code="request_not_found")
-        life = (await self._assemble([request]))[0]
+        assembled = await self._assemble([request])
+        if not assembled:
+            raise NotFoundError("No such request", code="request_not_found")
+        life = assembled[0]
         if not operator:
             return life
         shown = operator_view(life, self.now())
@@ -337,7 +340,27 @@ class KnowbotBoard:
         retired_drafts = {
             d.id for d in drafts if d.manifest.get("schema") == MANIFEST_SCHEMA
         }
+        retired_request_ids = {d.request_id for d in drafts if d.id in retired_drafts}
         drafts = [d for d in drafts if d.id not in retired_drafts]
+        surviving_draft_requests = {d.request_id for d in drafts}
+        retired_only_requests: set[uuid.UUID] = set()
+        for rid in retired_request_ids - surviving_draft_requests:
+            wd = await self.repo.get_workdraft(rid)
+            body = (wd.body if wd else None) or {}
+            if not (
+                wd is not None
+                and (
+                    wd.draft_contract is not None
+                    or body.get("formal_method")
+                    or body.get("planning")
+                    or body.get("steps")
+                    or body.get("method_template")
+                    or body.get("method_refs")
+                )
+            ):
+                retired_only_requests.add(rid)
+        if retired_only_requests:
+            requests = [r for r in requests if r.id not in retired_only_requests]
         tests = [t for t in tests if t.draft_id not in retired_drafts]
         experts = [e for e in experts if e.draft_id not in retired_drafts]
         visible_experts = {e.id for e in experts}

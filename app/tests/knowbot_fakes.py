@@ -878,6 +878,27 @@ class MemoryKnowlab:
         found = self.workdrafts.get(request_id)
         return None if found is None else copy.deepcopy(found)
 
+    async def get_method_workdraft(
+        self, method_id: uuid.UUID, *, for_update: bool = False
+    ) -> WorkdraftRecord | None:
+        for found in self.workdrafts.values():
+            if found.method_id == method_id:
+                return copy.deepcopy(found)
+        return None
+
+    async def list_method_workdrafts(
+        self, owner_subject: str
+    ) -> Sequence[WorkdraftRecord]:
+        return sorted(
+            (
+                copy.deepcopy(w)
+                for w in self.workdrafts.values()
+                if w.owner_subject == owner_subject and w.method_id is not None
+            ),
+            key=lambda w: (w.updated_at or w.created_at or self._now(), str(w.id)),
+            reverse=True,
+        )
+
     async def create_workdraft(
         self, *, request_id: uuid.UUID, owner_subject: str, body: dict[str, Any]
     ) -> WorkdraftRecord:
@@ -896,6 +917,37 @@ class MemoryKnowlab:
         self.workdrafts[request_id] = record
         return record
 
+    async def create_method_workdraft(
+        self,
+        *,
+        method_id: uuid.UUID,
+        owner_subject: str,
+        body: dict[str, Any],
+        draft_contract: dict[str, Any] | None = None,
+        htn_state: dict[str, Any] | None = None,
+        parent_gap: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> WorkdraftRecord:
+        if await self.get_method_workdraft(method_id) is not None:
+            raise ConcurrencyConflictError("exists", code="workdraft_revision")
+        key = request_id or method_id
+        record = WorkdraftRecord(
+            id=uuid.uuid4(),
+            request_id=request_id,
+            method_id=method_id,
+            owner_subject=owner_subject,
+            body=copy.deepcopy(body),
+            sources={},
+            revision=0,
+            created_at=self._now(),
+            updated_at=self._now(),
+            draft_contract=copy.deepcopy(draft_contract),
+            htn_state=copy.deepcopy(htn_state),
+            parent_gap=copy.deepcopy(parent_gap),
+        )
+        self.workdrafts[key] = record
+        return record
+
     async def update_workdraft(
         self,
         workdraft_id: uuid.UUID,
@@ -904,10 +956,15 @@ class MemoryKnowlab:
         sources: dict[str, Any],
         revision: int,
         data_formats: dict[str, Any] | None = None,
+        draft_contract: dict[str, Any] | None = None,
+        htn_state: dict[str, Any] | None = None,
+        parent_gap: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+        method_id: uuid.UUID | None = None,
     ) -> None:
-        for key, found in self.workdrafts.items():
+        for key, found in list(self.workdrafts.items()):
             if found.id == workdraft_id:
-                self.workdrafts[key] = replace(
+                updated = replace(
                     found,
                     body=copy.deepcopy(body),
                     sources=copy.deepcopy(sources),
@@ -916,7 +973,21 @@ class MemoryKnowlab:
                     data_formats=found.data_formats
                     if data_formats is None
                     else copy.deepcopy(data_formats),
+                    draft_contract=found.draft_contract
+                    if draft_contract is None
+                    else copy.deepcopy(draft_contract),
+                    htn_state=found.htn_state
+                    if htn_state is None
+                    else copy.deepcopy(htn_state),
+                    parent_gap=found.parent_gap
+                    if parent_gap is None
+                    else copy.deepcopy(parent_gap),
+                    request_id=found.request_id if request_id is None else request_id,
+                    method_id=found.method_id if method_id is None else method_id,
                 )
+                self.workdrafts[key] = updated
+                if request_id is not None and request_id != key:
+                    self.workdrafts[request_id] = updated
 
     async def add_workdraft_entry(self, **fields: Any) -> WorkdraftEntryRecord:
         record = WorkdraftEntryRecord(id=uuid.uuid4(), created_at=self._now(), **fields)
@@ -1053,6 +1124,32 @@ class FakeRuntime:
             raise ServiceUnavailableError("down", code="knowbench_unavailable")
         self.answers.append((run_id, answers))
         return self.results.get(run_id, result(run_id, "running"))
+
+    async def register_formal_method_source(
+        self,
+        runtime: str,
+        subject: str,
+        source_id: str,
+        version: int,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        import hashlib
+
+        content = str(payload.get("content", ""))
+        kind = payload.get("kind", "script")
+        digest = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+        return {
+            "asset_id": None,
+            "asset_revision": None,
+            "kind": "registered_script"
+            if kind == "script"
+            else "registered_instruction",
+            "source": str(source_id),
+            "version": str(version),
+            "digest": digest,
+            "entry": str(payload.get("name", "inline")),
+            "license_basis": "owner",
+        }
 
 
 class FakeIncubator:

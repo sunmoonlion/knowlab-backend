@@ -31,6 +31,7 @@ from app.domain.knowbots.formal_method import (
     FormalMethodDefinition,
     MethodRef,
     Orchestration,
+    extract_public_contract,
 )
 from app.domain.knowbots.formal_method_admission import (
     CONTRACT,
@@ -70,6 +71,27 @@ from app.domain.knowbots.workdraft import (
     record_ids,
     source_problems,
 )
+
+
+def _allow_private_internal_leaf(record: MethodVersionRecord) -> bool:
+    """Allow same-owner verified private internal leaves inside a public expert."""
+    if record.provenance.get("visibility") != "private":
+        return False
+    if (record.definition.get("procedure") or {}).get("kind") != "direct":
+        return False
+    source = record.provenance.get("source")
+    if not isinstance(source, dict) or source.get("kind") not in (
+        "registered_script",
+        "registered_instruction",
+        "service_function",
+    ):
+        return False
+    validation = record.provenance.get("validation") or {}
+    return bool(
+        isinstance(validation, dict)
+        and validation.get("execution") is not None
+        and not validation.get("uncovered")
+    )
 
 
 def admitted_definition(
@@ -167,6 +189,9 @@ class FormalMethodService:
                 item["kind"] for item in output_findings(str(index), sample)
             )
         declaration = record.definition["capability_declaration"]
+        public_contract = extract_public_contract(
+            FormalMethodDefinition.model_validate(record.definition)
+        ).model_dump(mode="json")
         result = await self.market.formal_self_listing(
             {
                 "owner_subject": owner,
@@ -177,6 +202,7 @@ class FormalMethodService:
                 "method_kind": implementation_kind(
                     record.definition["procedure"]["kind"]
                 ),
+                "public_contract": public_contract,
             }
         )
         if (
@@ -213,6 +239,25 @@ class FormalMethodService:
                 request = await self.workdrafts._request(owner, request_id)
                 runtime = request.runtime
         return await self.runtimes.formal_method_sources(runtime, owner)
+
+    async def register_source(
+        self,
+        owner: str,
+        source_id: str,
+        version: int,
+        payload: dict[str, Any],
+        *,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        sid = parse_id(source_id, "source")
+        runtime = "knowbench"
+        if request_id is not None:
+            async with self.repo.transaction():
+                request = await self.workdrafts._request(owner, request_id)
+                runtime = request.runtime
+        return await self.runtimes.register_formal_method_source(
+            runtime, owner, str(sid), version, payload
+        )
 
     async def test_suite(
         self, owner: str, request_id: str, suite_id: str, version: int
@@ -774,7 +819,10 @@ class FormalMethodService:
                     if public and (
                         record is None
                         or record.owner_subject != owner
-                        or record.provenance.get("visibility") != "public"
+                        or (
+                            record.provenance.get("visibility") != "public"
+                            and not _allow_private_internal_leaf(record)
+                        )
                     ):
                         raise BadRequestError(
                             "Public dependencies must belong to the expert author",

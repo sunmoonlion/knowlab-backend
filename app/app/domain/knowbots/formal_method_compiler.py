@@ -14,6 +14,7 @@ from app.domain.knowbots.formal_method import (
     MethodRef,
     Orchestration,
     ToolProcedure,
+    slot_meaning_compatible,
 )
 
 Kind = Literal["tool", "expert"]
@@ -84,7 +85,9 @@ def compile_method(
                 branch_expansions = max(branch_expansions, child_expansions)
                 branch_steps = max(branch_steps, child_steps)
                 _step_interface(step, child.definition.interfaces())
-                _permission_ceiling(current, child.definition)
+                _permission_ceiling(
+                    current, child.definition, conditional=not step.always_required
+                )
             depth = max(depth, branch_depth + 1)
             expansions += branch_expansions
             steps += branch_steps
@@ -133,10 +136,12 @@ def _step_interface(step, interface):
         raise ValueError("Step bindings do not match the candidate input interface")
     for name, item in step.inputs.items():
         target = inputs[name]["slot"]
-        if (
-            item.slot.schema_ != target["schema"]
-            or item.slot.meaning != target["meaning"]
-        ):
+        meaning_ok = (
+            slot_meaning_compatible(item.slot.meaning, target["meaning"])
+            if "domain_id" in item.slot.meaning and "domain_id" in target["meaning"]
+            else item.slot.meaning == target["meaning"]
+        )
+        if item.slot.schema_ != target["schema"] or not meaning_ok:
             raise ValueError(
                 "Step input shape or business meaning differs from the method"
             )
@@ -148,11 +153,15 @@ def _step_interface(step, interface):
             raise ValueError("Fixed input does not match its method schema")
     for name, slot in step.outputs.items():
         provided = outputs.get(name)
-        if (
-            provided is None
-            or slot.schema_ != provided["slot"]["schema"]
-            or slot.meaning != provided["slot"]["meaning"]
-        ):
+        if provided is None:
+            raise ValueError("Step output must be an unchanged candidate output")
+        meaning_ok = (
+            slot_meaning_compatible(provided["slot"]["meaning"], slot.meaning)
+            if "domain_id" in provided["slot"]["meaning"]
+            and "domain_id" in slot.meaning
+            else slot.meaning == provided["slot"]["meaning"]
+        )
+        if slot.schema_ != provided["slot"]["schema"] or not meaning_ok:
             raise ValueError("Step output must be an unchanged candidate output")
         if slot.required and not provided["always_present"]:
             raise ValueError(
@@ -160,7 +169,7 @@ def _step_interface(step, interface):
             )
 
 
-def _permission_ceiling(parent, child):
+def _permission_ceiling(parent, child, *, conditional: bool = False):
     """Declarations are ceilings, not grants; runtime still narrows live authority."""
     for need in child.access_requirements:
 
@@ -173,8 +182,14 @@ def _permission_ceiling(parent, child):
                 (r.resource_kind, r.resource_role): set(r.values)
                 for r in need.resources
             }
+            timing_ok = (
+                True
+                if conditional or ceiling.required_when == "always"
+                else need.required_when == "when_selected"
+            )
             return (
-                ceiling.capability_ref == need.capability_ref
+                timing_ok
+                and ceiling.capability_ref == need.capability_ref
                 and ceiling.version == need.version
                 and set(need.operations) <= set(ceiling.operations)
                 and ceiling.data_transfer.destination == need.data_transfer.destination

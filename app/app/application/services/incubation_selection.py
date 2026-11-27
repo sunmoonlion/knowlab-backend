@@ -14,11 +14,18 @@ from app.application.services.formal_methods import (
     admitted_definition,
 )
 from app.application.services.knowbot_workdraft import parse_body
-from app.domain.knowbots.formal_method import FormalMethodDefinition, MethodRef
+from app.domain.knowbots.formal_method import (
+    FormalMethodDefinition,
+    MethodDraftV2,
+    MethodRef,
+)
 from app.domain.knowbots.formal_method_admission import FormalMethodDraft
 from app.domain.knowbots.formal_method_compiler import FrozenMethod
 from app.domain.knowbots.selection import (
     Selection,
+    SelectionCandidate,
+    TargetDeliverableHint,
+    annotate_catalog_reachability,
     available,
     expand,
     verify_selection_graph,
@@ -179,6 +186,40 @@ class SelectionService:
             if row["kind"] in {"registered_instruction", "skill_instruction"}
             and row["license_basis"] != "pending"
         ]
+        target_deliverables: list[dict[str, Any]] = []
+        allowed_capabilities: list[str] = []
+        async with self.repo.transaction():
+            _, workdraft = await self.methods.workdrafts.get(owner, rid)
+        if workdraft and workdraft.draft_contract:
+            try:
+                v2 = MethodDraftV2.model_validate(workdraft.draft_contract)
+                target_deliverables = [
+                    TargetDeliverableHint(
+                        promise_id=p.promise_id,
+                        summary=p.summary,
+                        expected_domain_id=p.expected_domain_id,
+                    ).model_dump(mode="json")
+                    for p in v2.expected_deliverables
+                    if p.expected_domain_id
+                ]
+                allowed_capabilities = sorted(
+                    {r.requirement_id for r in v2.access_ceiling}
+                )
+                if target_deliverables:
+                    parsed_candidates = {
+                        alias: SelectionCandidate.model_validate(entry)
+                        for alias, entry in catalog.items()
+                    }
+                    annotated, _ = annotate_catalog_reachability(
+                        parsed_candidates,
+                        tuple(d["expected_domain_id"] for d in target_deliverables),
+                    )
+                    catalog = {
+                        alias: cand.model_dump(mode="json")
+                        for alias, cand in annotated.items()
+                    }
+            except ValueError:
+                pass
         return dict(
             instructions={f"i{i}": row for i, row in enumerate(instructions[:PAGE], 1)},
             methods=catalog,
@@ -190,6 +231,16 @@ class SelectionService:
                 or shared.get("partial")
                 or shared["next"]
                 or len(installed) > PAGE
+            ),
+            **(
+                {"target_deliverables": target_deliverables}
+                if target_deliverables
+                else {}
+            ),
+            **(
+                {"allowed_capabilities": allowed_capabilities}
+                if allowed_capabilities
+                else {}
             ),
         )
 

@@ -51,7 +51,12 @@ async def incubation_request(
     return JSONResponse(
         status_code=201 if created else 200,
         content={
-            "contract_version": 2 if isinstance(body, RuntimeIncubationV2) else 1,
+            "contract_version": (
+                2
+                if isinstance(body, RuntimeIncubationV2)
+                or getattr(body, "contract", None) == "knowlab/formal-handoff/v2"
+                else 1
+            ),
             "request_id": str(found.id),
             "title": found.title,
             "created": created,

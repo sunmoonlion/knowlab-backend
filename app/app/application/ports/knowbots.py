@@ -149,7 +149,7 @@ class WorkdraftRecord:
     的出处（格子路径 → {kind, ref}）；revision 每存一次加 1。"""
 
     id: uuid.UUID
-    request_id: uuid.UUID
+    request_id: uuid.UUID | None
     owner_subject: str
     body: dict[str, Any] = field(repr=False)
     sources: dict[str, Any] = field(repr=False)
@@ -159,6 +159,10 @@ class WorkdraftRecord:
     # 挑的数据的格式（资料编号 → 契约 DataFormat 的形状）：作者挑的时候凭本人令牌向
     # knowbase 取下记着，平台人员发起的那一轮没有作者令牌也照样交得出去（第 8.2 节）
     data_formats: dict[str, Any] = field(default_factory=dict, repr=False)
+    method_id: uuid.UUID | None = None
+    draft_contract: dict[str, Any] | None = field(default=None, repr=False)
+    htn_state: dict[str, Any] | None = field(default=None, repr=False)
+    parent_gap: dict[str, Any] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -783,11 +787,31 @@ class KnowlabRepository(Protocol):
         self, request_id: uuid.UUID, *, for_update: bool = False
     ) -> WorkdraftRecord | None: ...
 
+    async def get_method_workdraft(
+        self, method_id: uuid.UUID, *, for_update: bool = False
+    ) -> WorkdraftRecord | None: ...
+
+    async def list_method_workdrafts(
+        self, owner_subject: str
+    ) -> Sequence[WorkdraftRecord]: ...
+
     async def create_workdraft(
         self, *, request_id: uuid.UUID, owner_subject: str, body: dict[str, Any]
     ) -> WorkdraftRecord:
         """建一份空的（revision 0）；这个名称已有就抛 ConcurrencyConflictError。"""
         ...
+
+    async def create_method_workdraft(
+        self,
+        *,
+        method_id: uuid.UUID,
+        owner_subject: str,
+        body: dict[str, Any],
+        draft_contract: dict[str, Any] | None = None,
+        htn_state: dict[str, Any] | None = None,
+        parent_gap: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+    ) -> WorkdraftRecord: ...
 
     async def update_workdraft(
         self,
@@ -797,6 +821,11 @@ class KnowlabRepository(Protocol):
         sources: dict[str, Any],
         revision: int,
         data_formats: dict[str, Any] | None = None,
+        draft_contract: dict[str, Any] | None = None,
+        htn_state: dict[str, Any] | None = None,
+        parent_gap: dict[str, Any] | None = None,
+        request_id: uuid.UUID | None = None,
+        method_id: uuid.UUID | None = None,
     ) -> None:
         """data_formats 给了才换（挑数据时记下的格式），不给照旧。"""
         ...
@@ -951,6 +980,15 @@ class RuntimeTestClient(Protocol):
 
     async def formal_method_sources(
         self, runtime: str, subject: str
+    ) -> dict[str, Any]: ...
+
+    async def register_formal_method_source(
+        self,
+        runtime: str,
+        subject: str,
+        source_id: str,
+        version: int,
+        payload: dict[str, Any],
     ) -> dict[str, Any]: ...
 
     async def submit_formal_method_validation(

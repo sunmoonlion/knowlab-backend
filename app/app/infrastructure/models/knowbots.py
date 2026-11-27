@@ -608,10 +608,15 @@ class KnowbotWorkdraft(TimestampMixin, Base):
     __tablename__ = "knowbot_workdraft"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    request_id: Mapped[uuid.UUID] = mapped_column(
+    request_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("knowbot_request.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
+    )
+    method_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowbot_method.id", ondelete="RESTRICT"),
+        nullable=True,
     )
     owner_subject: Mapped[str] = mapped_column(String(512), nullable=False)
     body: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -623,10 +628,23 @@ class KnowbotWorkdraft(TimestampMixin, Base):
     data_formats: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
+    draft_contract: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    htn_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    parent_gap: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("request_id", name="uq_knowbot_workdraft_request"),
         CheckConstraint("revision >= 0", name="ck_knowbot_workdraft_revision"),
+        CheckConstraint(
+            "request_id IS NOT NULL OR method_id IS NOT NULL",
+            name="ck_knowbot_workdraft_anchor",
+        ),
+        Index(
+            "uq_knowbot_workdraft_method",
+            "method_id",
+            unique=True,
+            postgresql_where=text("method_id IS NOT NULL AND request_id IS NULL"),
+        ),
     )
 
 

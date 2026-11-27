@@ -20,6 +20,7 @@ from app.application.services.knowbot_questions import KnowbotQuestionService
 from app.application.services.knowbot_service import KnowbotCreationService
 from app.application.services.knowbot_test_data import KnowbotTestData
 from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
+from app.application.services.method_drafts import MethodDraftService
 from app.infrastructure.external.knowbase_data_v2 import KnowbaseDataV2
 from app.infrastructure.external.knowbase_delivery import KnowbaseDelivery
 from app.infrastructure.external.knowbase_library import KnowbaseLibrary
@@ -165,3 +166,7 @@ def formal_method_service(session: AsyncSession) -> FormalMethodService:
     return FormalMethodService(
         SqlKnowlabRepository(session), RuntimeTestClients(), knowmart_client()
     )
+
+
+def method_draft_service(session: AsyncSession) -> MethodDraftService:
+    return MethodDraftService(SqlKnowlabRepository(session))

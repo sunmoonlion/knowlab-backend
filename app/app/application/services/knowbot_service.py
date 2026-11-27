@@ -325,6 +325,7 @@ class KnowbotCreationService:
                         )
                     handoff = {
                         "handoff": mode,
+                        "handoff_contract": body.contract,
                         **(
                             {
                                 "suggested_plan": body.suggested_plan.model_dump(
@@ -332,6 +333,16 @@ class KnowbotCreationService:
                                 )
                             }
                             if body.suggested_plan
+                            else {}
+                        ),
+                        **(
+                            {"htn_tree": body.htn_tree}
+                            if body.htn_tree is not None
+                            else {}
+                        ),
+                        **(
+                            {"draft_contract": body.draft_contract}
+                            if body.draft_contract is not None
                             else {}
                         ),
                         **(
@@ -432,7 +443,33 @@ class KnowbotCreationService:
                                 name: {"kind": "user_text", "ref": f"record:{entry.id}"}
                                 for name in fields
                             },
+                            draft_contract=body.draft_contract,
+                            htn_state={"tree": body.htn_tree}
+                            if body.htn_tree is not None
+                            else None,
                         )
+                elif (
+                    isinstance(body, FormalHandoff)
+                    and not source
+                    and (body.htn_tree is not None or body.draft_contract is not None)
+                ):
+                    from app.domain.knowbots.workdraft import empty_body
+
+                    seeded = await self.repo.create_workdraft(
+                        request_id=created.id,
+                        owner_subject=owner_subject,
+                        body=empty_body(),
+                    )
+                    await self.repo.update_workdraft(
+                        seeded.id,
+                        body=seeded.body,
+                        sources=seeded.sources,
+                        revision=1,
+                        draft_contract=body.draft_contract,
+                        htn_state={"tree": body.htn_tree}
+                        if body.htn_tree is not None
+                        else None,
+                    )
                 await self.repo.add_acceptance(
                     self_acceptance(created.id, 1, self.now())
                 )
