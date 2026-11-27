@@ -233,15 +233,36 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
     from app.application.services.method_drafts import HandoffSeedIn, MethodDraftService
     from app.domain.knowbots.formal_method import MethodDraftV2
 
+    studio = {"title": "核验", "purpose": "核验", "method_kind": "expert"}
+    if not independent:
+        studio.update(
+            applies_when=["输入原表"],
+            excludes=["预测"],
+            expected_deliverables=[
+                dict(
+                    promise_id="reconciled",
+                    summary="按原表核验",
+                    expected_domain_id="core.number.value",
+                    expected_schema={"type": "number"},
+                )
+            ],
+            validation_rules=[
+                dict(
+                    promise_id="reconciled",
+                    outputs=["result"],
+                    check="复算",
+                    evidence="原始值",
+                    on_failure="fail",
+                )
+            ],
+        )
     mid = uuid4()
     await MethodDraftService(repo).create_from_handoff(
         OWNER,
         HandoffSeedIn(
             title="核验",
             goal="核验",
-            draft_contract=MethodDraftV2(
-                title="核验", purpose="核验", method_kind="expert"
-            ),
+            draft_contract=MethodDraftV2.model_validate(studio),
         ),
         method_id=mid,
         request_id=request.id,
@@ -312,6 +333,11 @@ async def test_frozen_directory_round_rechecks_pins_and_records_the_adopted_grap
 
     draft, roles = await adopt()
     assert roles is None
+    if not independent:
+        assert draft.definition.capability_declaration.promises == {
+            "reconciled": "按原表核验"
+        }
+        assert draft.definition.capability_declaration.excludes == ("预测",)
     assert draft.definition.procedure.steps[-1].depends_on == (
         () if independent else ("read",)
     )
@@ -547,3 +573,29 @@ def test_separate_terminal_deliveries_require_join_support():
     assert set(draft.definition.interfaces()["inputs"]) == {"opening", "closing"}
     with pytest.raises(ValueError, match="selection_capability"):
         build(steps, methods, [], flags={**FLAGS, "join": False})
+
+
+def test_single_step_tree_requires_explicit_public_output_if_tool_has_several():
+    from app.domain.knowbots.selection import PlanningNode, PlanningTree, SketchStep
+
+    call = SketchStep.model_validate(
+        step("n1", "m1", {"value": {"source": "literal", "value": 1}})
+    )
+    leaf = PlanningNode(id="n1", goal="核验", status="hit", operator="leaf", step=call)
+    plan = Selection(
+        status="ready",
+        reason="核验",
+        routing_required=False,
+        tree=PlanningTree(catalog_digest="1" * 64, nodes=(leaf,)),
+        steps=(call,),
+    )
+    draft, _ = expand(
+        plan, {"m1": frozen()}, None, FLAGS, required_cases={}, question="核验"
+    )
+    assert set(draft.definition.capability_declaration.promises) == {"request_delivery"}
+    doc = tool()
+    doc["procedure"]["outputs"]["raw_debug"] = slot()
+    with pytest.raises(ValueError, match="selection_export"):
+        expand(
+            plan, {"m1": frozen(doc)}, None, FLAGS, required_cases={}, question="核验"
+        )

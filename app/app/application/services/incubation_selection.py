@@ -485,6 +485,11 @@ class SelectionService:
                 required_cases=required_cases,
                 title=request.title,
                 scope=(body.scope.does, body.scope.does_not),
+                draft_contract=(
+                    MethodDraftV2.model_validate(current.draft_contract)
+                    if current.draft_contract is not None
+                    else None
+                ),
             )
             # Resolve nested dependencies through the same gate as runtime admission.
             shared.update(
@@ -502,6 +507,8 @@ class SelectionService:
             return draft, roles
         except ValueError as exc:
             code = str(exc)
+            if code.startswith("selection_export:"):
+                raise BadRequestError(code, code="selection_export") from exc
             raise BadRequestError(
                 "The proposed graph needs revision",
                 code=code
