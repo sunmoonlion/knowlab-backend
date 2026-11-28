@@ -251,3 +251,19 @@ def test_schemas_are_valid_and_never_fetch_remote_content(schema):
     raw["procedure"]["inputs"]["value"]["schema"] = schema
     with pytest.raises(ValueError):
         FormalMethodDefinition.model_validate(raw)
+
+
+def test_value_slot_pointer_can_address_one_array_element():
+    from app.domain.knowbots.formal_method import ValueSlot
+
+    root = {"$defs": {"types": {"anyOf": [{"type": "number"}, {"type": "string"}]}}}
+
+    def value(index):
+        return ValueSlot.model_validate(
+            slot() | {"schema": root | {"$ref": f"#/$defs/types/anyOf/{index}"}}
+        )
+
+    assert value("1").accepts("销售收入") and not value("1").accepts(42)
+    for bad in ("01", "-1", "2", "-", "one"):
+        with pytest.raises(ValueError):
+            value(bad)
