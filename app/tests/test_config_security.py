@@ -47,7 +47,7 @@ def test_one_settings_root_exposes_isolated_browser_profiles() -> None:
     )
 
 
-def test_database_urls_use_asyncpg_and_drop_sslmode() -> None:
+def test_database_urls_preserve_driver_ssl_policy() -> None:
     settings = Settings(
         _env_file=None,
         database_url=(
@@ -59,10 +59,10 @@ def test_database_urls_use_asyncpg_and_drop_sslmode() -> None:
         ),
     )
     assert settings.database_url == (
-        "postgresql+asyncpg://knowlab:secret@postgresql:5432/knowlab?application_name=knowlab"
+        "postgresql+asyncpg://knowlab:secret@postgresql:5432/knowlab?ssl=disable&application_name=knowlab"
     )
     assert settings.migration_url == (
-        "postgresql+asyncpg://migrator:secret@postgresql:5432/knowlab"
+        "postgresql+asyncpg://migrator:secret@postgresql:5432/knowlab?ssl=require"
     )
 
 
