@@ -49,15 +49,15 @@ def _now() -> sa.sql.elements.TextClause:
 
 PREFLIGHT = (
     (
-        "a passed or delivered draft has a version that is not a whole number",
+        "a passed or delivered draft version is not a positive PostgreSQL integer",
         """SELECT id, version FROM knowbot_draft
-           WHERE status IN ('passed', 'delivered') AND version !~ '^[0-9]+$'""",
+           WHERE status IN ('passed', 'delivered') AND (CASE WHEN version ~ '^[0-9]+$' THEN version::numeric BETWEEN 1 AND 2147483647 ELSE false END) IS NOT TRUE""",
     ),
     (
         "two passed or delivered drafts of one request share a version",
-        """SELECT request_id, version, count(*) FROM knowbot_draft
+        """SELECT request_id, ltrim(version, '0'), count(*) FROM knowbot_draft
            WHERE status IN ('passed', 'delivered')
-           GROUP BY request_id, version HAVING count(*) > 1""",
+           GROUP BY request_id, ltrim(version, '0') HAVING count(*) > 1""",
     ),
     (
         "a request has more than one draft in testing",
@@ -355,7 +355,18 @@ NEW_WRITES = (
     ),
     (
         "experts outside the trial",
-        "SELECT count(*) FROM knowbot_expert WHERE NOT trial",
+        """SELECT count(*) FROM knowbot_expert e JOIN knowbot_draft d ON d.id = e.draft_id
+           LEFT JOIN knowbot_test t ON t.id = e.test_id
+           WHERE NOT e.trial AND (
+             e.returned_by IS DISTINCT FROM 'system:trial'
+             OR e.returned_at IS DISTINCT FROM coalesce(t.finished_at, d.updated_at)
+             OR e.user_accepted IS DISTINCT FROM (CASE WHEN d.delivery ->> 'accepted_at' IS NOT NULL THEN true END)
+             OR e.user_decided_at IS DISTINCT FROM (d.delivery ->> 'accepted_at')::timestamptz
+             OR e.user_decided_by IS DISTINCT FROM (d.delivery ->> 'accepted_by')
+             OR num_nonnulls(e.review_approved, e.review_listing, e.review_reason, e.reviewed_by,
+                       e.reviewed_at, e.listed_at, e.knowmart_knowbot_id, e.digest, e.delivery,
+                       e.delivery_error, e.stopped_at, e.stopped_by, e.stop_reason, e.unlisted_sent_at) > 0
+           )""",
     ),
 )
 

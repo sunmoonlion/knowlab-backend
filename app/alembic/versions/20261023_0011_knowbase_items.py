@@ -75,6 +75,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    missing = (
+        op.get_bind()
+        .execute(
+            sa.text("""
+        SELECT id FROM knowbot_dataset WHERE object_key IS NULL OR version_id IS NULL
+        ORDER BY id LIMIT 20
+    """)
+        )
+        .scalars()
+        .all()
+    )
+    if missing:
+        raise RuntimeError(
+            f"0011 downgrade requires original object versions for knowbase datasets {missing}; restore the pre-upgrade backup or restore those objects first"
+        )
     op.drop_table("knowbot_consent_withdrawal")
     op.drop_table("knowbot_test_consent")
     op.drop_column("knowbot_draft", "run_grant_id")
