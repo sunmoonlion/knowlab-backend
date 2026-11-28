@@ -111,14 +111,10 @@ def test_web_return_to_allowlist_and_admin_root_policy_are_explicit() -> None:
     pages = (
         "dashboard",
         "login",
-        "applications",
-        "incubation",
-        "tests",
-        "delivery",
-        "review",
-        "experts",
+        "studio",
+        "methods",
         "knowledge",
-        "names",
+        "toolkit",
     )
     assert settings.browser_profile("web").allowed_return_paths == tuple(
         f"/{locale}/{page}" for page in pages for locale in ("zh-CN", "en")

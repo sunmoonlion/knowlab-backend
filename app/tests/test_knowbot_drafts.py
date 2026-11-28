@@ -116,7 +116,7 @@ def test_approx_expectations_need_a_number_and_a_tolerance() -> None:
 # —— 清单 v2（SDD 0043 块 4；decisions ⑰ 起只收 v2）——
 
 
-def test_v2_drafts_declare_no_data_needs() -> None:
+def test_dynamic_drafts_declare_no_data_needs() -> None:
     """清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：草稿里写了声明就不收。"""
 
     def problems(**overrides):
@@ -133,10 +133,10 @@ def test_v2_drafts_declare_no_data_needs() -> None:
         "formats": ["pdf"],
     }
     assert problems(data_needs=[need]) == [
-        "a v2 manifest declares no data needs (say it in the step instead)"
+        "declare data needs in the step"
     ]
     assert problems(data_bindings=[]) == [
-        "a v2 manifest has no data_bindings (test sets are separate)"
+        "supply data bindings in the test set"
     ]
     assert problems(bindings=[]) == [
         "bindings are frozen at delivery, not written in a draft"

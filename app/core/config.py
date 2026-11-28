@@ -104,14 +104,10 @@ class Settings(BaseSettings):
         for page in (
             "dashboard",
             "login",
-            "applications",
-            "incubation",
-            "tests",
-            "delivery",
-            "review",
-            "experts",
+            "studio",
+            "methods",
             "knowledge",
-            "names",
+            "toolkit",
         )
         for locale in ("zh-CN", "en")
     )

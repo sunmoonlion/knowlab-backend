@@ -404,13 +404,16 @@ async def test_users_only_reach_their_own(parts):
 async def test_retired_fixed_author_manifest_cannot_create_a_new_trial(parts):
     from tests.knowbot_fakes import historical_manifest
 
-    svc, repo, _, _ = parts
+    svc, repo, runtime, _ = parts
     request = await _accepted(svc)
     draft = await platform_draft(svc, str(request.id), historical_manifest())
-    with pytest.raises(NotFoundError):
+    with pytest.raises(NotFoundError) as exc:
         await svc.request_user_review(str(draft.id), "admin-1")
-    with pytest.raises(NotFoundError):
+    assert exc.value.code == "draft_not_found"
+    with pytest.raises(NotFoundError) as exc:
         await svc.review_rules(str(draft.id), "admin-1")
-    with pytest.raises(NotFoundError):
+    assert exc.value.code == "draft_not_found"
+    with pytest.raises(NotFoundError) as exc:
         await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
-    assert not repo.tests
+    assert exc.value.code == "draft_not_found"
+    assert not repo.tests and not runtime.started

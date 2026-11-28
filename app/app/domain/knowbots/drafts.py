@@ -225,10 +225,10 @@ def draft_manifest_problems(
         # 清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：要什么数据每件委托由
         # 第 0 步按问题提出；要提示模型，写在步骤说明里
         problems.append(
-            "a v2 manifest declares no data needs (say it in the step instead)"
+            "declare data needs in the step"
         )
     if "data_bindings" in doc:
-        problems.append("a v2 manifest has no data_bindings (test sets are separate)")
+        problems.append("supply data bindings in the test set")
     if "bindings" in doc:
         problems.append("bindings are frozen at delivery, not written in a draft")
     return problems

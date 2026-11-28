@@ -11,10 +11,11 @@ import os
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from fastapi import Cookie, FastAPI, Header, Request, Response
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi import Cookie, FastAPI, Header, Query, Request, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.application.dto.interaction import RunAction
+from app.application.errors.exceptions import AppException
 from app.application.ports import InteractionContext
 from app.application.services.web_interaction import (
     REFERENCE_EVIDENCE_ID,
@@ -22,6 +23,7 @@ from app.application.services.web_interaction import (
     ReferenceWebInteractionAdapter,
 )
 from app.domain.security import Principal
+from app.interfaces.http.web.interactions import stream_run as web_stream_run
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 _origin = os.environ.get("PAIR_ORIGIN", "http://127.0.0.1:3009")
@@ -44,8 +46,10 @@ def _error(status: int, code: str) -> JSONResponse:
 
 def _principal(surface: str, *, operator: bool = False) -> Principal:
     now = datetime.now(UTC)
-    roles = ("operator",) if operator else (
-        ("admin",) if surface == "admin" else ("member",)
+    roles = (
+        ("operator",)
+        if operator
+        else (("admin",) if surface == "admin" else ("member",))
     )
     return Principal(
         actor_type="user",
@@ -145,21 +149,18 @@ async def get_run(
 @app.get("/api/web/v1/runs/{run_id}/events")
 async def stream_run(
     run_id: str,
+    header_cursor: str | None = Header(default=None, alias="Last-Event-ID"),
+    query_cursor: str | None = Query(default=None, alias="last_event_id"),
     session_id: str | None = Cookie(default=None, alias="sunmoonai_knowlab_web_sid"),
 ) -> Response:
     if session_id != "e2e-session":
         return _error(401, "auth_required")
-    stream = await _adapter.open_run_stream(run_id, None, _web_context())
-
-    async def events():
-        async for event in stream:
-            yield (
-                f"id: {event.event_id}\n"
-                "event: run-event\n"
-                f"data: {event.model_dump_json()}\n\n"
-            )
-
-    return StreamingResponse(events(), media_type="text/event-stream")
+    try:
+        return await web_stream_run(
+            run_id, _principal("web"), _adapter, header_cursor, query_cursor
+        )
+    except AppException as exc:
+        return _error(exc.status_code, exc.code)
 
 
 @app.post("/api/web/v1/runs/{run_id}/actions", response_model=None)

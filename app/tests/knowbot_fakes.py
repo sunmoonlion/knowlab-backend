@@ -106,8 +106,28 @@ def manifest(version: str = "1", **overrides: Any) -> dict[str, Any]:
             "pack_id": "fin-forecast",
             "version": version,
             "runtime_contract": "knowbench/dynamic-methods/v1",
-            "planning": {"method_text": "按题目选择方法", "final_units": ["summary"]},
-            "method_units": [{"contract": {"step_id": "summary", "title": "读财报"}}],
+            "title": "财务分析与预测",
+            "planning": single_method_planning("summary"),
+            "method_units": [
+                {
+                    "selection": {
+                        "required": True,
+                        "max_calls": 1,
+                        "applies_when": "分析公司财报",
+                    },
+                    "contract": {
+                        "step_id": "summary",
+                        "title": "读财报",
+                        "output_artifact": "summary",
+                        "method_text": "从财报中计算毛利率",
+                        "acceptance": [
+                            {"kind": "json_object"},
+                            {"kind": "required_keys", "keys": ["gross_margin"]},
+                            {"kind": "no_positioning_advice"},
+                        ],
+                    },
+                }
+            ],
         },
         "rule_sources": [
             {"rule": "毛利率口径", "source": "user_text", "ref": "想法原文第 4 问"}
@@ -149,7 +169,7 @@ def result(run_id: str, status: str = "passed", **extra: Any) -> RunResultV1:
             {
                 "case_id": "c1",
                 "status": case_status,
-                "steps": [{"step_id": "s1", "accepted": case_status == "passed"}],
+                "steps": [{"step_id": "summary", "accepted": case_status == "passed"}],
                 "expectations": [case_status == "passed"],
             }
         ]
@@ -240,21 +260,25 @@ class MemoryKnowlab:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[None]:
-        snapshot = (
-            dict(self.requests),
-            dict(self.drafts),
-            dict(self.questions),
-            dict(self.outputs),
-            dict(self.versions),
-            dict(self.acceptances),
-            dict(self.tests),
-            dict(self.experts),
-            dict(self.workdrafts),
-            dict(self.entries),
-            dict(self.incubations),
-            dict(self.grants),
-            dict(self.proposals),
-            dict(self.deliveries),
+        snapshot = copy.deepcopy(
+            (
+                self.requests,
+                self.drafts,
+                self.questions,
+                self.outputs,
+                self.versions,
+                self.acceptances,
+                self.tests,
+                self.experts,
+                self.workdrafts,
+                self.entries,
+                self.incubations,
+                self.grants,
+                self.proposals,
+                self.deliveries,
+                self.last_polled,
+                self.test_sets,
+            )
         )
         try:
             yield
@@ -275,6 +299,8 @@ class MemoryKnowlab:
                 self.grants,
                 self.proposals,
                 self.deliveries,
+                self.last_polled,
+                self.test_sets,
             ) = snapshot
             self.rollbacks += 1
             raise
@@ -710,6 +736,7 @@ class MemoryKnowlab:
                 requests=list(q.get("requests") or []),
             )
             self.questions[record.id] = record
+            seen.add((draft_id, run_id, record.question_id))
 
     async def get_question(
         self, question: uuid.UUID, *, for_update: bool = False
@@ -800,6 +827,7 @@ class MemoryKnowlab:
                 proposal=gap.get("proposal"),
             )
             self.questions[found.id] = found
+            seen.add((record.id, found.question_id))
 
     async def list_gaps(
         self,
@@ -1308,6 +1336,7 @@ class FakeKnowbaseDelivery:
         self.frozen: list[tuple[str, str, str]] = []
         self.frozen_sets: dict[str, list[dict[str, Any]]] = {}
         self.consents: list[dict[str, Any]] = []
+        self.live_scopes: dict[tuple[str, str], set[tuple[str | None, int | None]]] = {}
         self.ended: list[dict[str, Any]] = []
         self.grants: list[dict[str, Any]] = []
         self.outputs: list[dict[str, Any]] = []
@@ -1399,12 +1428,17 @@ class FakeKnowbaseDelivery:
         self.consents.append(
             {"token": user_token, "kind": kind, "ref": ref, "items": items}
         )
-        return max(len(items), 1)  # 没资料也记一条（账号级）
+        scope = {(item["material_id"], item.get("version_no")) for item in items} or {
+            (None, None)
+        }
+        self.live_scopes.setdefault((kind, ref), set()).update(scope)
+        return len(scope)
 
     async def end_platform(
         self, *, subject: str, kind: str, ref: str, reason: str
     ) -> None:
         self._check()
+        self.live_scopes.pop((kind, ref), None)
         self.ended.append(
             {"subject": subject, "kind": kind, "ref": ref, "reason": reason}
         )
@@ -1442,11 +1476,7 @@ class FakeKnowbaseDelivery:
         self._check()
         if ref in self.withdrawn_in_knowbase:  # 作者在 knowbase 总栏撤了
             return 0
-        return sum(
-            len(c["items"])
-            for c in self.consents
-            if (c["kind"], c["ref"]) == (kind, ref)
-        )
+        return len(self.live_scopes.get((kind, ref), ()))
 
     async def machine_grant(
         self,
@@ -1464,10 +1494,10 @@ class FakeKnowbaseDelivery:
         uses.add(platform_use)
         if len(uses) != 1:
             raise BadGatewayError("process", code="basis_ref_invalid")
-        _, _, kind, ref = platform_use.split(":")
-        consented = any((c["kind"], c["ref"]) == (kind, ref) for c in self.consents)
-        ended = any((e["kind"], e["ref"]) == (kind, ref) for e in self.ended)
-        if not consented or ended:  # 这次过程本人的同意要在
+        _, _, kind, process_ref = platform_use.split(":", 3)
+        if not await self.platform_consent_live(
+            subject=owner, kind=kind, ref=process_ref
+        ):
             raise BadGatewayError("consent", code="outside_consent")
         if (
             self.fail_grant_after is not None
