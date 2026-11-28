@@ -253,3 +253,19 @@ async def test_operator_propose_remove_step_with_none_value(world) -> None:
     )
     assert decided.state == "accepted"
     assert stored is not None and stored.body.get("steps") == []
+
+
+async def test_add_top_level_text_uses_the_same_path_as_edit(world):
+    _, svc, works, proposals, *_ = world
+    request = await _platform(svc)
+    rid = str(request.id)
+    await svc.accept(rid, 1, all_clear(), "admin-1")
+    entries = await proposals.propose(
+        rid,
+        "admin-1",
+        [{"path": "name", "op": "add", "value": "核验", "reason": "补上名称"}],
+    )
+    assert len(entries) == 1 and entries[0].value == "核验"
+    from app.domain.knowbots.incubation_rounds import apply_suggestion
+
+    assert apply_suggestion({}, "name", "add", "核验")["name"] == "核验"

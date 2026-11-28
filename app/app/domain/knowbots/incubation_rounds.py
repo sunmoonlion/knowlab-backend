@@ -130,6 +130,8 @@ def _moved(items: list[Any], index: int, to: int) -> list[Any]:
 
 
 def _add(doc: dict[str, Any], parts: list[str], value: Any) -> dict[str, Any]:
+    if parts[0] != "steps":
+        return apply(doc, "/".join(parts), value)
     if len(parts) == 2:  # 加一步
         if any(s.get("id") == parts[1] for s in _steps(doc)):
             raise ValueError(f"step {parts[1]} is already there")

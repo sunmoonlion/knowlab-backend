@@ -422,7 +422,9 @@ class SelectionService:
                 raise NotFoundError(
                     "Instruction unavailable", code="selection_candidate"
                 )
-            return direct_instruction(request.title, template, step.task, source), None
+            return direct_instruction(
+                request.title, template, step.task, source, body.scope
+            ), None
         tools = {}
         shared = {}
         for alias in sorted(aliases):
@@ -517,7 +519,7 @@ class SelectionService:
             ) from exc
 
 
-def direct_instruction(title, template, task, source):
+def direct_instruction(title, template, task, source, scope):
     def slot(description):
         return dict(
             description=description,
@@ -536,8 +538,8 @@ def direct_instruction(title, template, task, source):
                 "capability_declaration": dict(
                     title=title,
                     purpose=template.goal,
-                    applies_when=[template.goal],
-                    excludes=[],
+                    applies_when=[scope.does or template.goal],
+                    excludes=[scope.does_not] if scope.does_not else [],
                     promises={"template_delivery": template.deliverable},
                 ),
                 "access_requirements": [],

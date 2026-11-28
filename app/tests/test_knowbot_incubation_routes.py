@@ -190,7 +190,11 @@ async def test_author_reviews_selection_before_saving_and_source_is_rechecked(
             title="核对",
             goal="核对",
             draft_contract=MethodDraftV2(
-                title="核对", purpose="核对", method_kind="tool"
+                title="核对",
+                purpose="核对",
+                method_kind="tool",
+                applies_when=["年度数据齐全"],
+                excludes=["季度预测"],
             ),
         ),
         method_id=mid,
@@ -283,6 +287,8 @@ async def test_author_reviews_selection_before_saving_and_source_is_rechecked(
         assert saved.status_code == 200, saved.text
         result = saved.json()
         detail = await MethodDraftService(repo).get(OWNER, str(mid))
+        assert detail["draft_contract"]["applies_when"] == ["年度数据齐全"]
+        assert detail["draft_contract"]["excludes"] == ["季度预测"]
         assert detail["source"] == source
         assert detail["draft_contract"]["procedure"]["instructions"].startswith(
             "逐行核对后留依据"
