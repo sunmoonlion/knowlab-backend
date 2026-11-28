@@ -110,6 +110,10 @@ class KnowbaseClient:
             raise ServiceUnavailableError(
                 "knowbase failed", code="knowbase_unavailable"
             )
+        if not response.is_success and response.status_code < 400:
+            raise ServiceUnavailableError(
+                "knowbase returned an unexpected status", code="knowbase_unavailable"
+            )
         if response.status_code >= 400:
             try:
                 answer = response.json()

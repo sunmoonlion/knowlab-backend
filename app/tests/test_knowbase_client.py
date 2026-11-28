@@ -156,3 +156,80 @@ async def test_the_web_dependency_trades_this_sessions_token(monkeypatch):
     with pytest.raises(ServiceUnavailableError) as caught:
         await middleware.get_web_knowbase_token(session=None, session_id="sid")
     assert caught.value.code == "knowbase_unconfigured"
+
+
+@pytest.mark.parametrize("status", [200, 202, 307])
+async def test_only_completed_revocation_is_acknowledged(status, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.application.errors.exceptions import BadGatewayError
+    from app.infrastructure.external.knowbase_delivery import KnowbaseDelivery
+
+    svc = KnowbaseDelivery(
+        environ(), transport=httpx.MockTransport(lambda req: httpx.Response(status))
+    )
+    monkeypatch.setattr(svc, "_service_token", AsyncMock(return_value="fixture"))
+    with pytest.raises((BadGatewayError, ServiceUnavailableError)):
+        await svc.end_platform(
+            subject="author", kind="test", ref="test-1", reason="cancel"
+        )
+
+
+async def test_frozen_and_output_receipts_preserve_reference_identity(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.application.errors.exceptions import BadGatewayError
+    from app.infrastructure.external.knowbase_delivery import KnowbaseDelivery
+
+    svc = KnowbaseDelivery(environ())
+    monkeypatch.setattr(svc, "_service_token", AsyncMock(return_value="fixture"))
+    row = {
+        "material_id": "sample",
+        "version_no": 2,
+        "sha256": "a" * 64,
+        "basis_ref": "expert:sample@1",
+        "license": "self",
+    }
+    for response in ([], [row], [row, None], [{}]):
+        monkeypatch.setattr(svc, "_send", AsyncMock(return_value=(200, response, {})))
+        if response == [] or response == [row]:
+            assert await svc.freeze("sample", "1", author="author") == response
+        else:
+            with pytest.raises(BadGatewayError):
+                await svc.freeze("sample", "1", author="author")
+    for version in [None, False, 0, "2", 2]:
+        receipt = {"material_id": "sample"}
+        if version is not None:
+            receipt["version_no"] = version
+        monkeypatch.setattr(svc, "_send", AsyncMock(return_value=(201, receipt, {})))
+        call = svc.write_output(
+            beneficiary="author",
+            task_ref="task",
+            run_ref="run",
+            name="name",
+            content=b"x",
+            expert_id="m",
+            expert_version="1",
+        )
+        if type(version) is int and version > 0:
+            assert await call == receipt
+        else:
+            with pytest.raises(BadGatewayError):
+                await call
+
+
+@pytest.mark.parametrize("ttl", [True, float("inf"), float("nan"), 10**400])
+async def test_invalid_service_lifetime_is_never_cached(ttl):
+    from unittest.mock import AsyncMock
+
+    api, _, oidc = client(lambda req: httpx.Response(200, json={}))
+    oidc.exchange_client_credentials = AsyncMock(
+        side_effect=[
+            {"access_token": "invalid", "expires_in": ttl},
+            {"access_token": "valid", "expires_in": 60},
+        ]
+    )
+    with pytest.raises(ServiceUnavailableError):
+        await api._service_token("user-data-read")
+    assert await api._service_token("user-data-read") == "valid"
+    assert oidc.exchange_client_credentials.await_count == 2

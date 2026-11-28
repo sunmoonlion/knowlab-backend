@@ -15,6 +15,12 @@ from app.domain.knowbots.formal_method import MethodDraftV2, MethodRef
 Text = Annotated[str, Field(min_length=1, max_length=2000)]
 
 
+OriginId = Annotated[
+    str,
+    Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+]
+
+
 class SuggestedPlan(Strict):
     sketch_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     methods: tuple[MethodRef, ...] = Field(min_length=1, max_length=8)
@@ -28,8 +34,8 @@ class FormalHandoff(Strict):
     question: Text
     key: str = Field(min_length=8, max_length=128)
     contract: Literal["knowlab/formal-handoff/v2"]
-    project_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
-    task_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    project_id: OriginId
+    task_id: OriginId
 
     @model_validator(mode="after")
     def check_draft_contract(self):
@@ -45,7 +51,7 @@ class FormalHandoff(Strict):
         default=None, exclude_if=lambda v: v is None
     )
     reference: MethodRef | None = None
-    gap: Text
+    gap: Text = Field(pattern=r"\S")
     review_digest: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
 
     def digest(self):

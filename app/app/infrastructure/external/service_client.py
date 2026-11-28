@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -116,7 +117,10 @@ class ServiceClient:
                 raise ServiceUnavailableError(
                     "The service token is missing", code="service_token_unavailable"
                 )
-            if not isinstance(expires_in, int | float) or expires_in <= 0:
+            if (
+                type(expires_in) not in (int, float)
+                or not 0 < expires_in <= sys.float_info.max
+            ):
                 raise ServiceUnavailableError(
                     "The service token expiry is invalid",
                     code="service_token_unavailable",

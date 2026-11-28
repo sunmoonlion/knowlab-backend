@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from app.application.errors.exceptions import BadGatewayError
 from app.infrastructure.external.knowbase_client import (
@@ -24,6 +26,20 @@ from app.infrastructure.external.knowbase_client import (
     KnowbaseRefused,
     _segment,
 )
+
+
+class _OutputReference(BaseModel):
+    material_id: Annotated[str, Field(min_length=1)]
+    version_no: Annotated[int, Field(strict=True, ge=1)]
+
+
+class _FrozenBinding(_OutputReference):
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+    basis_ref: Annotated[str, Field(min_length=1)]
+    license: Literal["self", "via_expert", "sale"]
+
+
+_BINDINGS = TypeAdapter(list[_FrozenBinding])
 
 
 class KnowbaseDelivery(KnowbaseClient):
@@ -63,12 +79,14 @@ class KnowbaseDelivery(KnowbaseClient):
             token,
             json={"author": author, "preview": preview},
         )
-        if not isinstance(body, list):
+        try:
+            _BINDINGS.validate_python(body, strict=True)
+        except ValidationError:
             raise BadGatewayError(
                 "knowbase answered the freeze outside user-data/v2",
                 code="knowbase_contract_invalid",
-            )
-        return [b for b in body if isinstance(b, dict)]
+            ) from None
+        return body
 
     async def void_frozen(self, expert_id: str, version: str, *, author: str) -> int:
         """作废没交成的那次冻结（作者撤回、平台作废没交到 knowmart 的交付）。"""
@@ -131,12 +149,16 @@ class KnowbaseDelivery(KnowbaseClient):
         self, *, subject: str, kind: str, ref: str, reason: str
     ) -> None:
         token = await self._service_token("user-data-grant-test")
-        await self._send(
+        status, _, _ = await self._send(
             "POST",
             f"/service/platform-processes/{_segment(kind)}/{_segment(ref)}/end",
             token,
             json={"subject": subject, "reason": reason},
         )
+        if status != 204:
+            raise BadGatewayError(
+                "knowbase did not confirm closure", code="knowbase_contract_invalid"
+            )
 
     async def platform_consent_live(self, *, subject: str, kind: str, ref: str) -> int:
         """本人给这次平台过程留的依据还有几份有效（只读；作者在 knowbase 总栏撤了就是
@@ -217,12 +239,10 @@ class KnowbaseDelivery(KnowbaseClient):
             },
             content=content,
         )
-        if not isinstance(body, dict) or not body.get("material_id"):
+        try:
+            return _OutputReference.model_validate(body).model_dump()
+        except ValidationError:
             raise BadGatewayError(
                 "knowbase answered the output outside user-data/v2",
                 code="knowbase_contract_invalid",
-            )
-        return {
-            "material_id": str(body["material_id"]),
-            "version_no": int(body.get("version_no") or 1),
-        }
+            ) from None

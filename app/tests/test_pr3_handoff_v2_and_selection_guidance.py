@@ -145,3 +145,23 @@ async def test_selection_catalog_annotates_reachability_from_method_draft_v2(
         "upstream_producer",
         "available",
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [("project_id", "-" * 36), ("task_id", "a" * 36), ("gap", "  \t ")],
+)
+def test_handoff_origin_and_gap_are_validated_before_storage(field, invalid):
+    body = {
+        "contract": "knowlab/formal-handoff/v2",
+        "owner_subject": "author",
+        "question": "复核",
+        "key": "feedback-1",
+        "project_id": "12121212-aaaa-bbbb-cccc-dddddddddddd",
+        "task_id": "33333333-aaaa-bbbb-cccc-dddddddddddd",
+        "gap": "缺证据",
+        "review_digest": "sha256:" + "a" * 64,
+    }
+    assert FormalHandoff.model_validate(body).gap == "缺证据"
+    with pytest.raises(ValueError):
+        FormalHandoff.model_validate(body | {field: invalid})
