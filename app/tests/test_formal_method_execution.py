@@ -625,3 +625,36 @@ async def test_each_unconditional_promise_needs_its_own_passing_example():
     request = FormalMethodExecutionRequest.model_validate(data)
     assert request.uncovered_promises({"echo"}) == {"evidence"}
     assert not request.uncovered_promises({"echo", "check_row"})
+
+
+def test_adjacent_long_integers_do_not_pass_zero_tolerance():
+    from app.domain.knowbots.formal_method_execution import (
+        ApproxAssertion,
+        check_output_assertions,
+    )
+
+    for n in (2**53, 2**53 + 1, 10**350):
+        for tolerance in (0, 1):
+            rule = ApproxAssertion(
+                kind="approx", pointer="/n", value=n, absolute_tolerance=tolerance
+            )
+            for delta in (-1, 0, 1):
+                result = check_output_assertions((rule,), {"n": n + delta})
+                assert result[0].passed == (abs(delta) <= tolerance)
+
+
+def test_case_and_suite_limits_use_compact_utf8_payloads():
+    base = suite()
+    case = base["cases"][0]
+    case["input"]["values"] = {"a": [1] * 22000}
+    assert FormalTestSuiteDraft.model_validate(base).freeze()
+    for count in (10, 20):
+        base["cases"] = [
+            {**case, "case_id": f"c{n}", "input": {"values": {"a": "甲" * 19000}}}
+            for n in range(count)
+        ]
+        if count == 10:
+            assert FormalTestSuiteDraft.model_validate(base).freeze()
+        else:
+            with pytest.raises(ValidationError, match="1000000"):
+                FormalTestSuiteDraft.model_validate(base).freeze()
