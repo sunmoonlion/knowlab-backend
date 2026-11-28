@@ -59,6 +59,67 @@ def required(*names: str) -> CheckCell:
     return CheckCell(template="required", params={"keys": list(names)})
 
 
+def assertion(path, expression):
+    return check("assertion", path, expression=expression)
+
+
+def scenario_interval_checks():
+    checks = []
+    for horizon in ("next_quarter", "following_quarter"):
+        for metric in ("revenue", "parent_net_profit", "gross_margin"):
+            for scenario, bound in (
+                ("pessimistic", "lower"),
+                ("base", "base"),
+                ("optimistic", "upper"),
+            ):
+                key = f'horizon="{horizon}", scenario="{scenario}"'
+                interval = f'horizon="{horizon}", metric="{metric}"'
+                income = "forecast_income_statement[]"
+                projection = "forecast_intervals[]"
+                measure = "revenue" if metric == "gross_margin" else metric
+                actual = f'num("{income}.value", {key}, metric="{measure}")'
+                if metric == "gross_margin":
+                    cost = f'num("{income}.value", {key}, metric="operating_cost")'
+                    actual = f"(({actual} - {cost}) / {actual})"
+                target = f'num("{projection}.{bound}", {interval})'
+                same_period = (
+                    f'word("{projection}.period", {interval}) == '
+                    f'word("{income}.period", {key}, metric="{measure}")'
+                )
+                if metric == "gross_margin":
+                    cost_key = f'{key}, metric="operating_cost"'
+                    same_period += f' == word("{income}.period", {cost_key})'
+                checks.append(
+                    assertion(
+                        "forecast_intervals", f"{target} == {actual} and {same_period}"
+                    )
+                )
+    return checks
+
+
+def cagr_checks():
+    checks = []
+    for metric, output in (
+        ("revenue", "revenue_cagr_3yr"),
+        ("profit", "net_profit_cagr_3yr"),
+    ):
+        start = f'num("cagr_basis[].start", metric="{metric}")'
+        end = f'num("cagr_basis[].end", metric="{metric}")'
+        rate_count = f'size("cagr_rates[]", metric="{metric}")'
+        checks.append(
+            assertion(
+                "cagr_basis",
+                f"(({start} > 0 and {end} > 0) and {rate_count} == 1 and "
+                f'{start} == num("cagr_rates[].start", metric="{metric}") and '
+                f'{end} == num("cagr_rates[].end", metric="{metric}") and '
+                f'num("{output}") == num("cagr_rates[].value", metric="{metric}")) or '
+                f"(({start} <= 0 or {end} <= 0) and {rate_count} == 0 and not "
+                f'exists("{output}") and nonblank("reason"))',
+            )
+        )
+    return checks
+
+
 def financial_rows_checks(path: str, minimum: int = 3) -> list[CheckCell]:
     return [
         check("list_min", path, min=minimum),
@@ -255,13 +316,25 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 "opening_comparisons",
                 "audit_reconciliations",
             ),
+            assertion(
+                "reconciliation_status",
+                '(word("reconciliation_status") == "平衡" and '
+                'num("balance_sheet_balance_diff") < 1 and num("opening_balance_diff") '
+                "< 1 and "
+                'num("cash_flow_diff") < 1 and num("retained_earnings_diff") < 1 and '
+                'largest("opening_comparisons[].value") < 1) or '
+                '(word("reconciliation_status") == "差异已检出" and '
+                '(num("balance_sheet_balance_diff") >= 1 or '
+                'num("opening_balance_diff") >= 1 or '
+                'num("cash_flow_diff") >= 1 or num("retained_earnings_diff") >= 1 or '
+                'largest("opening_comparisons[].value") >= 1))',
+            ),
             check("non_empty", "reconciliation_status"),
             check(
                 "computed",
                 "balance_sheet_balance_diff",
                 expression="abs(total_assets - (total_liabilities + equity))",
-                expected_value=0,
-                tolerance=1,
+                tolerance=0,
             ),
             check(
                 "computed",
@@ -269,8 +342,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 expression=(
                     "abs(opening_assets - (opening_liabilities + opening_equity))"
                 ),
-                expected_value=0,
-                tolerance=1,
+                tolerance=0,
             ),
             check(
                 "computed",
@@ -279,15 +351,13 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                     "abs(closing_retained - (opening_retained + parent_profit "
                     "- reserve_transfer - dividends + restatement_adjustment))"
                 ),
-                expected_value=0,
-                tolerance=1,
+                tolerance=0,
             ),
             check(
                 "computed",
                 "cash_flow_diff",
                 expression="abs(closing_cash - opening_cash - cash_increase)",
-                expected_value=0,
-                tolerance=1,
+                tolerance=0,
             ),
             check("list_min", "opening_comparisons", min=1),
             check(
@@ -301,8 +371,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 "computed",
                 "opening_comparisons",
                 expression="abs(opening_value - prior_closing_value)",
-                expected_value=0,
-                tolerance=1,
+                tolerance=0,
             ),
             check("list_min", "audit_reconciliations", min=5),
             check(
@@ -556,6 +625,28 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             OutputCell(name="solvency_risk_level", type="text"),
         ],
         "checks": [
+            *[
+                assertion(
+                    "evidence_items",
+                    f'num("{metric}") == num("evidence_items[].value", '
+                    f'metric="{metric}")',
+                )
+                for metric in (
+                    "current_ratio",
+                    "quick_ratio",
+                    "cash_to_current_debt",
+                    "altman_z_score",
+                )
+            ],
+            assertion(
+                "solvency_risk_level",
+                '(num("altman_z_score") < 1.81 and word("solvency_risk_level") == '
+                '"高") or '
+                '(1.81 <= num("altman_z_score") <= 2.99 and '
+                'word("solvency_risk_level") == "中") or '
+                '(num("altman_z_score") > 2.99 and word("solvency_risk_level") == '
+                '"低")',
+            ),
             check("list_min", "evidence_items", min=4),
             check(
                 "each_has",
@@ -1018,6 +1109,9 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，"
             "拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，"
             "输出「不可计算」并改报绝对变动额，不做符号技巧处理。"
+            "用 cagr_basis 保存两个端点及绝对变动回执，cagr_rates 仅列可算项。"
+            "可算时输出 revenue_cagr_3yr 或 net_profit_cagr_3yr；"
+            "不可算时省略相应指标并在 reason 中说明。"
         ),
         "why": "消除单一年份周期波动假象，确立企业中长期历史内生增长基准轨道。",
         "provenance": ("金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型"),
@@ -1039,33 +1133,53 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_reconciled": "reconciled"},
         "expert_inputs": {"reconciled": "accounting_statement_reconciliation"},
         "outputs": [
-            OutputCell(name="revenue_cagr_3yr", type="number"),
-            OutputCell(name="net_profit_cagr_3yr", type="number"),
-            OutputCell(name="trend_projection_series", type="list"),
+            rows(
+                "cagr_basis",
+                metric="text",
+                start="number",
+                end="number",
+                value="number",
+            ),
+            rows(
+                "cagr_rates",
+                metric="text",
+                start="number",
+                end="number",
+                value="number",
+            ),
+            rows("trend_projection_series", period="text", value="number"),
         ],
         "checks": [
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "revenue_cagr_3yr",
-                        "net_profit_cagr_3yr",
-                        "trend_projection_series",
-                    ]
-                },
+            required("cagr_basis", "cagr_rates", "trend_projection_series"),
+            check("list_min", "trend_projection_series", min=1),
+            check(
+                "each_has",
+                "cagr_basis",
+                unique_by=["metric"],
+                field="metric",
+                values=["revenue", "profit"],
             ),
-            CheckCell(
-                template="list_min",
-                params={"path": "trend_projection_series", "min": 1},
+            check(
+                "each_has",
+                "cagr_rates",
+                unique_by=["metric"],
+                field="metric",
+                values=["revenue", "profit"],
             ),
-            CheckCell(
-                template="computed",
-                params={
-                    "path": "revenue_cagr_3yr",
-                    "expression": "(end_revenue / start_revenue) ** (1 / 3) - 1",
-                    "tolerance": 0.0001,
-                },
+            check(
+                "computed",
+                "cagr_basis",
+                expression="end-start",
+                input_keys=["start", "end"],
             ),
+            check(
+                "computed",
+                "cagr_rates",
+                expression="(end/start)**(1/3)-1",
+                input_keys=["start", "end"],
+                tolerance=0.0001,
+            ),
+            *cagr_checks(),
         ],
     },
     # M13: 三表联动预测模型
@@ -1151,6 +1265,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             rows(
                 "forecast_intervals",
                 horizon="text",
+                period="text",
                 metric="text",
                 lower="number",
                 base="number",
@@ -1180,6 +1295,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 ["opening_cash", "closing_cash", "cash_increase"],
                 "abs(closing_cash - opening_cash - cash_increase)",
             ),
+            *scenario_interval_checks(),
             check("list_min", "forecast_intervals", min=6),
             check(
                 "each_has",
@@ -1255,9 +1371,27 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             OutputCell(name="equity_value_dcf", type="number"),
             OutputCell(name="per_share_intrinsic_value", type="number"),
             OutputCell(name="wacc_used", type="number"),
-            OutputCell(name="sensitivity_table", type="table"),
+            rows(
+                "sensitivity_table", wacc="number", growth="number", per_share="number"
+            ),
         ],
         "checks": [
+            assertion(
+                "sensitivity_table",
+                'distinct("sensitivity_table[].wacc") >= 2 and '
+                'distinct("sensitivity_table[].growth") >= 2 and '
+                'size("sensitivity_table") == pairs("sensitivity_table", first="wacc", '
+                'second="growth") == distinct("sensitivity_table[].wacc") * '
+                'distinct("sensitivity_table[].growth")',
+            ),
+            check("list_min", "sensitivity_table", min=4),
+            check(
+                "each_has",
+                "sensitivity_table",
+                keys=["wacc", "growth", "per_share"],
+                non_empty_keys=["wacc", "growth", "per_share"],
+                unique_by=["wacc", "growth"],
+            ),
             check("list_min", "evidence_items", min=4),
             check(
                 "each_has",
@@ -1320,6 +1454,8 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         ),
         "does_not": (
             "不接亏损公司PE（无意义，转PB/PS并标注）；"
+            "本合成方法以 earnings 判定，盈利时列 PE 和历史分位，"
+            "非正时说明 reason，选择 PB × 账面权益或 PS × 营收并列明依据；"
             "可比公司名单由作者确认，不自动圈选。"
         ),
         "elsewhere": (
@@ -1336,30 +1472,38 @@ ALL_20_SPECS: list[dict[str, Any]] = [
         "inputs": {"feeder_purified": "purified"},
         "expert_inputs": {"purified": "non_recurring_items_purification"},
         "outputs": [
-            OutputCell(name="target_pe_ttm", type="number"),
-            OutputCell(name="target_pb_lf", type="number"),
-            OutputCell(name="historical_pe_percentile", type="number"),
+            OutputCell(name="valuation_basis", type="text"),
+            OutputCell(name="earnings", type="number"),
             OutputCell(name="implied_market_cap", type="number"),
         ],
         "checks": [
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "target_pe_ttm",
-                        "target_pb_lf",
-                        "historical_pe_percentile",
-                        "implied_market_cap",
-                    ]
-                },
+            required("valuation_basis", "earnings", "implied_market_cap"),
+            check("sourced", "earnings", tolerance=0),
+            check(
+                "computed",
+                "implied_market_cap",
+                expression="multiple * base",
+                input_keys=["multiple", "base"],
+                tolerance=0.01,
             ),
-            CheckCell(
-                template="computed",
-                params={
-                    "path": "implied_market_cap",
-                    "expression": "purified_net_profit * target_pe_ttm",
-                    "tolerance": 0.01,
-                },
+            assertion(
+                "implied_market_cap",
+                '(num("earnings") > 0 and word("valuation_basis") == "PE" and '
+                'exists("target_pb_lf") and num("target_pe_ttm") > 0 and '
+                'num("target_pe_ttm") == num("implied_market_cap.multiple") and '
+                'num("earnings") == num("implied_market_cap.base") and 0 <= '
+                'num("historical_pe_percentile") <= 1) or '
+                '(num("earnings") <= 0 and not exists("target_pe_ttm") and not '
+                'exists("historical_pe_percentile") and '
+                'nonblank("reason") and ((word("valuation_basis") == "PB" and '
+                'num("target_pb_lf") > 0 and '
+                'num("target_pb_lf") == num("implied_market_cap.multiple") and '
+                'num("book_equity") > 0 and num("book_equity") == '
+                'num("implied_market_cap.base")) or (word("valuation_basis") == "PS" '
+                'and num("sales") > 0 and '
+                'num("sales") == num("implied_market_cap.base") '
+                'and num("target_ps_ttm") > 0 and '
+                'num("target_ps_ttm") == num("implied_market_cap.multiple"))))',
             ),
         ],
     },
@@ -1543,10 +1687,21 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                 keys=["kind", "text"],
                 non_empty_keys=["text"],
                 field="kind",
-                values=["opinion"],
+                values=["opinion", "no_kam"],
+            ),
+            assertion(
+                "audit_opinion_type",
+                'size("audit_opinion_type[]", kind="opinion") == 1',
             ),
             check("quoted", "audit_opinion_type", field="kind", equals="opinion"),
-            check("list_min", "kam_matters", min=1),
+            check("quoted", "audit_opinion_type", field="kind", equals="no_kam"),
+            assertion("kam_matters", 'num("kam_topics_count") == size("kam_matters")'),
+            assertion(
+                "audit_opinion_type",
+                '(num("kam_topics_count") > 0 and size("audit_opinion_type[]", '
+                'kind="no_kam") == 0) or (num("kam_topics_count") == 0 and '
+                'size("audit_opinion_type[]", kind="no_kam") == 1)',
+            ),
             check(
                 "each_has",
                 "kam_matters",

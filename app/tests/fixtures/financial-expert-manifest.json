@@ -444,6 +444,13 @@
               "message": "没过：必须有：「reconciliation_status」、「balance_sheet_balance_diff」、「opening_balance_diff」、「retained_earnings_diff」、「cash_flow_diff」、「opening_comparisons」、「audit_reconciliations」"
             },
             {
+              "kind": "assertion",
+              "path": "reconciliation_status",
+              "expression": "(word(\"reconciliation_status\") == \"平衡\" and num(\"balance_sheet_balance_diff\") < 1 and num(\"opening_balance_diff\") < 1 and num(\"cash_flow_diff\") < 1 and num(\"retained_earnings_diff\") < 1 and largest(\"opening_comparisons[].value\") < 1) or (word(\"reconciliation_status\") == \"差异已检出\" and (num(\"balance_sheet_balance_diff\") >= 1 or num(\"opening_balance_diff\") >= 1 or num(\"cash_flow_diff\") >= 1 or num(\"retained_earnings_diff\") >= 1 or largest(\"opening_comparisons[].value\") >= 1))",
+              "label": "核对「reconciliation_status」的交付条件",
+              "message": "没过：核对「reconciliation_status」的交付条件"
+            },
+            {
               "kind": "non_empty",
               "path": "reconciliation_status",
               "label": "「reconciliation_status」不能空",
@@ -452,38 +459,34 @@
             {
               "kind": "computed",
               "path": "balance_sheet_balance_diff",
-              "tolerance": 1,
-              "expected_value": 0,
+              "tolerance": 0,
               "expression": "abs(total_assets - (total_liabilities + equity))",
-              "label": "「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))），结果应为 0（容差 1）",
-              "message": "没过：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))），结果应为 0（容差 1）"
+              "label": "「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))）",
+              "message": "没过：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))）"
             },
             {
               "kind": "computed",
               "path": "opening_balance_diff",
-              "tolerance": 1,
-              "expected_value": 0,
+              "tolerance": 0,
               "expression": "abs(opening_assets - (opening_liabilities + opening_equity))",
-              "label": "「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))），结果应为 0（容差 1）",
-              "message": "没过：「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))），结果应为 0（容差 1）"
+              "label": "「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))）",
+              "message": "没过：「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))）"
             },
             {
               "kind": "computed",
               "path": "retained_earnings_diff",
-              "tolerance": 1,
-              "expected_value": 0,
+              "tolerance": 0,
               "expression": "abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))",
-              "label": "「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))），结果应为 0（容差 1）",
-              "message": "没过：「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))），结果应为 0（容差 1）"
+              "label": "「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))）",
+              "message": "没过：「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))）"
             },
             {
               "kind": "computed",
               "path": "cash_flow_diff",
-              "tolerance": 1,
-              "expected_value": 0,
+              "tolerance": 0,
               "expression": "abs(closing_cash - opening_cash - cash_increase)",
-              "label": "「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 1）",
-              "message": "没过：「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 1）"
+              "label": "「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)）",
+              "message": "没过：「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)）"
             },
             {
               "kind": "list_min",
@@ -513,11 +516,10 @@
             {
               "kind": "computed",
               "path": "opening_comparisons",
-              "tolerance": 1,
-              "expected_value": 0,
+              "tolerance": 0,
               "expression": "abs(opening_value - prior_closing_value)",
-              "label": "「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)），结果应为 0（容差 1）",
-              "message": "没过：「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)），结果应为 0（容差 1）"
+              "label": "「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)）",
+              "message": "没过：「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)）"
             },
             {
               "kind": "list_min",
@@ -901,6 +903,41 @@
               ],
               "label": "交回项都在：「evidence_items」、「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
               "message": "缺交回项"
+            },
+            {
+              "kind": "assertion",
+              "path": "evidence_items",
+              "expression": "num(\"current_ratio\") == num(\"evidence_items[].value\", metric=\"current_ratio\")",
+              "label": "核对「evidence_items」的交付条件",
+              "message": "没过：核对「evidence_items」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "evidence_items",
+              "expression": "num(\"quick_ratio\") == num(\"evidence_items[].value\", metric=\"quick_ratio\")",
+              "label": "核对「evidence_items」的交付条件",
+              "message": "没过：核对「evidence_items」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "evidence_items",
+              "expression": "num(\"cash_to_current_debt\") == num(\"evidence_items[].value\", metric=\"cash_to_current_debt\")",
+              "label": "核对「evidence_items」的交付条件",
+              "message": "没过：核对「evidence_items」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "evidence_items",
+              "expression": "num(\"altman_z_score\") == num(\"evidence_items[].value\", metric=\"altman_z_score\")",
+              "label": "核对「evidence_items」的交付条件",
+              "message": "没过：核对「evidence_items」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "solvency_risk_level",
+              "expression": "(num(\"altman_z_score\") < 1.81 and word(\"solvency_risk_level\") == \"高\") or (1.81 <= num(\"altman_z_score\") <= 2.99 and word(\"solvency_risk_level\") == \"中\") or (num(\"altman_z_score\") > 2.99 and word(\"solvency_risk_level\") == \"低\")",
+              "label": "核对「solvency_risk_level」的交付条件",
+              "message": "没过：核对「solvency_risk_level」的交付条件"
             },
             {
               "kind": "list_min",
@@ -1606,12 +1643,12 @@
         "contract": {
           "step_id": "historical_cagr_trend_extrapolation",
           "title": "复合年均增长率与趋势外推",
-          "summary": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。",
+          "summary": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。用 cagr_basis 保存两个端点及绝对变动回执，cagr_rates 仅列可算项。可算时输出 revenue_cagr_3yr 或 net_profit_cagr_3yr；不可算时省略相应指标并在 reason 中说明。",
           "why": "消除单一年份周期波动假象，确立企业中长期历史内生增长基准轨道。",
           "input_refs": [
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。\n\n规则：\n1. 依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接未来预测与区间预测（属「三表联动预测模型」）；趋势外推仅作历史参考线，不写成预期。\n4. 未来两个季度的区间预测找「三表联动预测模型」；单季度还原找「非经常性损益穿透与扣非还原」。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- revenue_cagr_3yr：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- net_profit_cagr_3yr：数\n- trend_projection_series：列表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。用 cagr_basis 保存两个端点及绝对变动回执，cagr_rates 仅列可算项。可算时输出 revenue_cagr_3yr 或 net_profit_cagr_3yr；不可算时省略相应指标并在 reason 中说明。\n\n规则：\n1. 依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接未来预测与区间预测（属「三表联动预测模型」）；趋势外推仅作历史参考线，不写成预期。\n4. 未来两个季度的区间预测找「三表联动预测模型」；单季度还原找「非经常性损益穿透与扣非还原」。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- cagr_basis：表，每行有：metric（文字）、start（数）、end（数）、value（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- cagr_rates：表，每行有：metric（文字）、start（数）、end（数）、value（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- trend_projection_series：表，每行有：period（文字）、value（数）\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1627,13 +1664,29 @@
           ],
           "output_artifact": "historical_cagr_trend_extrapolation",
           "output_schema": {
-            "revenue_cagr_3yr": {
-              "value": "number",
-              "compute_id": "string"
-            },
-            "net_profit_cagr_3yr": "number",
+            "cagr_basis": [
+              {
+                "metric": "string",
+                "start": "number",
+                "end": "number",
+                "value": "number",
+                "compute_id": "string"
+              }
+            ],
+            "cagr_rates": [
+              {
+                "metric": "string",
+                "start": "number",
+                "end": "number",
+                "value": "number",
+                "compute_id": "string"
+              }
+            ],
             "trend_projection_series": [
-              "string"
+              {
+                "period": "string",
+                "value": "number"
+              }
             ]
           },
           "acceptance": [
@@ -1645,22 +1698,22 @@
             {
               "kind": "required_keys",
               "keys": [
-                "revenue_cagr_3yr",
-                "net_profit_cagr_3yr",
+                "cagr_basis",
+                "cagr_rates",
                 "trend_projection_series"
               ],
-              "label": "交回项都在：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」",
+              "label": "交回项都在：「cagr_basis」、「cagr_rates」、「trend_projection_series」",
               "message": "缺交回项"
             },
             {
               "kind": "required_keys",
               "keys": [
-                "revenue_cagr_3yr",
-                "net_profit_cagr_3yr",
+                "cagr_basis",
+                "cagr_rates",
                 "trend_projection_series"
               ],
-              "label": "必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」",
-              "message": "没过：必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」"
+              "label": "必须有：「cagr_basis」、「cagr_rates」、「trend_projection_series」",
+              "message": "没过：必须有：「cagr_basis」、「cagr_rates」、「trend_projection_series」"
             },
             {
               "kind": "list_min",
@@ -1670,12 +1723,71 @@
               "message": "没过：「trend_projection_series」至少 1 项"
             },
             {
+              "kind": "each_has",
+              "path": "cagr_basis",
+              "unique_by": [
+                "metric"
+              ],
+              "keys": [],
+              "field": "metric",
+              "values": [
+                "revenue",
+                "profit"
+              ],
+              "label": "「cagr_basis」每项，「metric」只能是「revenue」、「profit」；「metric」的组合不重复",
+              "message": "没过：「cagr_basis」每项，「metric」只能是「revenue」、「profit」；「metric」的组合不重复"
+            },
+            {
+              "kind": "each_has",
+              "path": "cagr_rates",
+              "unique_by": [
+                "metric"
+              ],
+              "keys": [],
+              "field": "metric",
+              "values": [
+                "revenue",
+                "profit"
+              ],
+              "label": "「cagr_rates」每项，「metric」只能是「revenue」、「profit」；「metric」的组合不重复",
+              "message": "没过：「cagr_rates」每项，「metric」只能是「revenue」、「profit」；「metric」的组合不重复"
+            },
+            {
               "kind": "computed",
-              "path": "revenue_cagr_3yr",
+              "path": "cagr_basis",
+              "input_keys": [
+                "start",
+                "end"
+              ],
+              "expression": "end-start",
+              "label": "「cagr_basis」的数都是用计算工具算的（算式 end-start）",
+              "message": "没过：「cagr_basis」的数都是用计算工具算的（算式 end-start）"
+            },
+            {
+              "kind": "computed",
+              "path": "cagr_rates",
               "tolerance": 0.0001,
-              "expression": "(end_revenue / start_revenue) ** (1 / 3) - 1",
-              "label": "「revenue_cagr_3yr」的数都是用计算工具算的（算式 (end_revenue / start_revenue) ** (1 / 3) - 1）",
-              "message": "没过：「revenue_cagr_3yr」的数都是用计算工具算的（算式 (end_revenue / start_revenue) ** (1 / 3) - 1）"
+              "input_keys": [
+                "start",
+                "end"
+              ],
+              "expression": "(end/start)**(1/3)-1",
+              "label": "「cagr_rates」的数都是用计算工具算的（算式 (end/start)**(1/3)-1）",
+              "message": "没过：「cagr_rates」的数都是用计算工具算的（算式 (end/start)**(1/3)-1）"
+            },
+            {
+              "kind": "assertion",
+              "path": "cagr_basis",
+              "expression": "((num(\"cagr_basis[].start\", metric=\"revenue\") > 0 and num(\"cagr_basis[].end\", metric=\"revenue\") > 0) and size(\"cagr_rates[]\", metric=\"revenue\") == 1 and num(\"cagr_basis[].start\", metric=\"revenue\") == num(\"cagr_rates[].start\", metric=\"revenue\") and num(\"cagr_basis[].end\", metric=\"revenue\") == num(\"cagr_rates[].end\", metric=\"revenue\") and num(\"revenue_cagr_3yr\") == num(\"cagr_rates[].value\", metric=\"revenue\")) or ((num(\"cagr_basis[].start\", metric=\"revenue\") <= 0 or num(\"cagr_basis[].end\", metric=\"revenue\") <= 0) and size(\"cagr_rates[]\", metric=\"revenue\") == 0 and not exists(\"revenue_cagr_3yr\") and nonblank(\"reason\"))",
+              "label": "核对「cagr_basis」的交付条件",
+              "message": "没过：核对「cagr_basis」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "cagr_basis",
+              "expression": "((num(\"cagr_basis[].start\", metric=\"profit\") > 0 and num(\"cagr_basis[].end\", metric=\"profit\") > 0) and size(\"cagr_rates[]\", metric=\"profit\") == 1 and num(\"cagr_basis[].start\", metric=\"profit\") == num(\"cagr_rates[].start\", metric=\"profit\") and num(\"cagr_basis[].end\", metric=\"profit\") == num(\"cagr_rates[].end\", metric=\"profit\") and num(\"net_profit_cagr_3yr\") == num(\"cagr_rates[].value\", metric=\"profit\")) or ((num(\"cagr_basis[].start\", metric=\"profit\") <= 0 or num(\"cagr_basis[].end\", metric=\"profit\") <= 0) and size(\"cagr_rates[]\", metric=\"profit\") == 0 and not exists(\"net_profit_cagr_3yr\") and nonblank(\"reason\"))",
+              "label": "核对「cagr_basis」的交付条件",
+              "message": "没过：核对「cagr_basis」的交付条件"
             },
             {
               "kind": "no_positioning_advice",
@@ -1706,7 +1818,7 @@
             "dupont_five_way_decomposition",
             "working_capital_cash_cycle_analysis"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于历史基准、杜邦分解与营运资本假设联动推演三表，输出覆盖未来两个季度、按悲观/基准/乐观三情景的区间预测；资产负债表用现金/短期债务作平衡项(Plug)保持配平，配平残差恒零。\n\n规则：\n1. 依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接五年以上长期预测；情景参数（收入增速区间、毛利波动）属作者假设，随委托单列示取值与依据，不写死；预测表行结构（季度×情景×科目）待真实数据接入后定形。\n4. 历史增长基准找「复合年均增长率与趋势外推」；预测现金流的贴现估值找「企业自由现金流贴现估值 DCF」。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）、working_capital_cash_cycle_analysis（营运资本周转与现金转化周期 CCC）\n\n交回一个 JSON，包含：\n- forecast_income_statement：表，每行有：horizon（文字）、period（文字）、scenario（文字）、metric（文字）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_balance_sheet：表，每行有：horizon（文字）、period（文字）、scenario（文字）、assets（数）、liabilities（数）、equity（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_cashflow_statement：表，每行有：horizon（文字）、period（文字）、scenario（文字）、opening_cash（数）、closing_cash（数）、cash_increase（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_intervals：表，每行有：horizon（文字）、metric（文字）、lower（数）、base（数）、upper（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_assumptions：表，每行有：name（文字）、reason（文字）、source（文字）\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：基于历史基准、杜邦分解与营运资本假设联动推演三表，输出覆盖未来两个季度、按悲观/基准/乐观三情景的区间预测；资产负债表用现金/短期债务作平衡项(Plug)保持配平，配平残差恒零。\n\n规则：\n1. 依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接五年以上长期预测；情景参数（收入增速区间、毛利波动）属作者假设，随委托单列示取值与依据，不写死；预测表行结构（季度×情景×科目）待真实数据接入后定形。\n4. 历史增长基准找「复合年均增长率与趋势外推」；预测现金流的贴现估值找「企业自由现金流贴现估值 DCF」。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）、working_capital_cash_cycle_analysis（营运资本周转与现金转化周期 CCC）\n\n交回一个 JSON，包含：\n- forecast_income_statement：表，每行有：horizon（文字）、period（文字）、scenario（文字）、metric（文字）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_balance_sheet：表，每行有：horizon（文字）、period（文字）、scenario（文字）、assets（数）、liabilities（数）、equity（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_cashflow_statement：表，每行有：horizon（文字）、period（文字）、scenario（文字）、opening_cash（数）、closing_cash（数）、cash_increase（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_intervals：表，每行有：horizon（文字）、period（文字）、metric（文字）、lower（数）、base（数）、upper（数）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- forecast_assumptions：表，每行有：name（文字）、reason（文字）、source（文字）\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -1759,6 +1871,7 @@
             "forecast_intervals": [
               {
                 "horizon": "string",
+                "period": "string",
                 "metric": "string",
                 "lower": "number",
                 "base": "number",
@@ -1997,6 +2110,132 @@
               "message": "没过：「forecast_cashflow_statement」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 0.01）"
             },
             {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].lower\", horizon=\"next_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].base\", horizon=\"next_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].upper\", horizon=\"next_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].lower\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].base\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"parent_net_profit\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].upper\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].lower\", horizon=\"next_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].base\", horizon=\"next_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"operating_cost\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].upper\", horizon=\"next_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].lower\", horizon=\"following_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].base\", horizon=\"following_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].upper\", horizon=\"following_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].lower\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].base\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"parent_net_profit\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].upper\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].lower\", horizon=\"following_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].base\", horizon=\"following_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"operating_cost\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "forecast_intervals",
+              "expression": "num(\"forecast_intervals[].upper\", horizon=\"following_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")",
+              "label": "核对「forecast_intervals」的交付条件",
+              "message": "没过：核对「forecast_intervals」的交付条件"
+            },
+            {
               "kind": "list_min",
               "path": "forecast_intervals",
               "min_items": 6,
@@ -2106,7 +2345,7 @@
           "input_refs": [
             "three_statement_linked_forecasting"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：以三表联动预测的FCFF为显性期现金流，按加权平均资本成本(WACC)贴现，加永续增长终值推导企业价值与每股内在价值；WACC的无风险利率、ERP、beta逐项标注来源，显性期长度与永续增长率随委托单列示取值与依据；输出WACC×永续增长率双变量敏感性表。\n\n规则：\n1. 依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接目标价与买卖建议表述（平台红线）；银行、保险不适用FCFF贴现（应改用DDM或超额收益法，另行立项）。\n4. 显性期现金流来源找「三表联动预测模型」；市场乘数交叉验证找「相对估值与历史分位数对标」。\n\n用上：three_statement_linked_forecasting（三表联动预测模型）\n\n交回一个 JSON，包含：\n- evidence_items：表，每行有：metric（文字）、value（数）、compute_id（文字）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- enterprise_value_dcf：数\n- equity_value_dcf：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- per_share_intrinsic_value：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- wacc_used：数\n- sensitivity_table：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：以三表联动预测的FCFF为显性期现金流，按加权平均资本成本(WACC)贴现，加永续增长终值推导企业价值与每股内在价值；WACC的无风险利率、ERP、beta逐项标注来源，显性期长度与永续增长率随委托单列示取值与依据；输出WACC×永续增长率双变量敏感性表。\n\n规则：\n1. 依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接目标价与买卖建议表述（平台红线）；银行、保险不适用FCFF贴现（应改用DDM或超额收益法，另行立项）。\n4. 显性期现金流来源找「三表联动预测模型」；市场乘数交叉验证找「相对估值与历史分位数对标」。\n\n用上：three_statement_linked_forecasting（三表联动预测模型）\n\n交回一个 JSON，包含：\n- evidence_items：表，每行有：metric（文字）、value（数）、compute_id（文字）；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- enterprise_value_dcf：数\n- equity_value_dcf：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- per_share_intrinsic_value：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- wacc_used：数\n- sensitivity_table：表，每行有：wacc（数）、growth（数）、per_share（数）\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2140,7 +2379,11 @@
             },
             "wacc_used": "number",
             "sensitivity_table": [
-              "string"
+              {
+                "wacc": "number",
+                "growth": "number",
+                "per_share": "number"
+              }
             ]
           },
           "acceptance": [
@@ -2161,6 +2404,40 @@
               ],
               "label": "交回项都在：「evidence_items」、「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」、「sensitivity_table」",
               "message": "缺交回项"
+            },
+            {
+              "kind": "assertion",
+              "path": "sensitivity_table",
+              "expression": "distinct(\"sensitivity_table[].wacc\") >= 2 and distinct(\"sensitivity_table[].growth\") >= 2 and size(\"sensitivity_table\") == pairs(\"sensitivity_table\", first=\"wacc\", second=\"growth\") == distinct(\"sensitivity_table[].wacc\") * distinct(\"sensitivity_table[].growth\")",
+              "label": "核对「sensitivity_table」的交付条件",
+              "message": "没过：核对「sensitivity_table」的交付条件"
+            },
+            {
+              "kind": "list_min",
+              "path": "sensitivity_table",
+              "min_items": 4,
+              "label": "「sensitivity_table」至少 4 项",
+              "message": "没过：「sensitivity_table」至少 4 项"
+            },
+            {
+              "kind": "each_has",
+              "path": "sensitivity_table",
+              "non_empty_keys": [
+                "wacc",
+                "growth",
+                "per_share"
+              ],
+              "unique_by": [
+                "wacc",
+                "growth"
+              ],
+              "keys": [
+                "wacc",
+                "growth",
+                "per_share"
+              ],
+              "label": "「sensitivity_table」每项都有「wacc」、「growth」、「per_share」；「wacc」、「growth」、「per_share」不能为空；「wacc」、「growth」的组合不重复",
+              "message": "没过：「sensitivity_table」每项都有「wacc」、「growth」、「per_share」；「wacc」、「growth」、「per_share」不能为空；「wacc」、「growth」的组合不重复"
             },
             {
               "kind": "list_min",
@@ -2241,7 +2518,7 @@
       },
       {
         "selection": {
-          "applies_when": "问题需要相对估值与历史分位数对标。适用边界：不接亏损公司PE（无意义，转PB/PS并标注）；可比公司名单由作者确认，不自动圈选。",
+          "applies_when": "问题需要相对估值与历史分位数对标。适用边界：不接亏损公司PE（无意义，转PB/PS并标注）；本合成方法以 earnings 判定，盈利时列 PE 和历史分位，非正时说明 reason，选择 PB × 账面权益或 PS × 营收并列明依据；可比公司名单由作者确认，不自动圈选。",
           "required": false,
           "max_calls": 1
         },
@@ -2253,7 +2530,7 @@
           "input_refs": [
             "non_recurring_items_purification"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算PE-TTM、PB-LF、EV/EBITDA乘数（EV=市值+净债务），按日频分布测算所处历史3年/5年分位数，对标行业可比公司中位数。\n\n规则：\n1. 依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接亏损公司PE（无意义，转PB/PS并标注）；可比公司名单由作者确认，不自动圈选。\n4. 内在价值锚找「企业自由现金流贴现估值 DCF」；盈利质量前提找「收益质量分析与应计项排雷、FCF」。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- target_pe_ttm：数\n- target_pb_lf：数\n- historical_pe_percentile：数\n- implied_market_cap：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：计算PE-TTM、PB-LF、EV/EBITDA乘数（EV=市值+净债务），按日频分布测算所处历史3年/5年分位数，对标行业可比公司中位数。\n\n规则：\n1. 依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接亏损公司PE（无意义，转PB/PS并标注）；本合成方法以 earnings 判定，盈利时列 PE 和历史分位，非正时说明 reason，选择 PB × 账面权益或 PS × 营收并列明依据；可比公司名单由作者确认，不自动圈选。\n4. 内在价值锚找「企业自由现金流贴现估值 DCF」；盈利质量前提找「收益质量分析与应计项排雷、FCF」。\n\n用上：non_recurring_items_purification（非经常性损益穿透与扣非还原）\n\n交回一个 JSON，包含：\n- valuation_basis：文字\n- earnings：数；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n- implied_market_cap：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2269,9 +2546,11 @@
           ],
           "output_artifact": "relative_multiple_valuation",
           "output_schema": {
-            "target_pe_ttm": "number",
-            "target_pb_lf": "number",
-            "historical_pe_percentile": "number",
+            "valuation_basis": "string",
+            "earnings": {
+              "value": "number",
+              "address": "string"
+            },
             "implied_market_cap": {
               "value": "number",
               "compute_id": "string"
@@ -2286,32 +2565,48 @@
             {
               "kind": "required_keys",
               "keys": [
-                "target_pe_ttm",
-                "target_pb_lf",
-                "historical_pe_percentile",
+                "valuation_basis",
+                "earnings",
                 "implied_market_cap"
               ],
-              "label": "交回项都在：「target_pe_ttm」、「target_pb_lf」、「historical_pe_percentile」、「implied_market_cap」",
+              "label": "交回项都在：「valuation_basis」、「earnings」、「implied_market_cap」",
               "message": "缺交回项"
             },
             {
               "kind": "required_keys",
               "keys": [
-                "target_pe_ttm",
-                "target_pb_lf",
-                "historical_pe_percentile",
+                "valuation_basis",
+                "earnings",
                 "implied_market_cap"
               ],
-              "label": "必须有：「target_pe_ttm」、「target_pb_lf」、「historical_pe_percentile」、「implied_market_cap」",
-              "message": "没过：必须有：「target_pe_ttm」、「target_pb_lf」、「historical_pe_percentile」、「implied_market_cap」"
+              "label": "必须有：「valuation_basis」、「earnings」、「implied_market_cap」",
+              "message": "没过：必须有：「valuation_basis」、「earnings」、「implied_market_cap」"
+            },
+            {
+              "kind": "sourced",
+              "path": "earnings",
+              "tolerance": 0,
+              "label": "「earnings」的数和原数据那一格对得上",
+              "message": "没过：「earnings」的数和原数据那一格对得上"
             },
             {
               "kind": "computed",
               "path": "implied_market_cap",
               "tolerance": 0.01,
-              "expression": "purified_net_profit * target_pe_ttm",
-              "label": "「implied_market_cap」的数都是用计算工具算的（算式 purified_net_profit * target_pe_ttm）",
-              "message": "没过：「implied_market_cap」的数都是用计算工具算的（算式 purified_net_profit * target_pe_ttm）"
+              "input_keys": [
+                "multiple",
+                "base"
+              ],
+              "expression": "multiple * base",
+              "label": "「implied_market_cap」的数都是用计算工具算的（算式 multiple * base）",
+              "message": "没过：「implied_market_cap」的数都是用计算工具算的（算式 multiple * base）"
+            },
+            {
+              "kind": "assertion",
+              "path": "implied_market_cap",
+              "expression": "(num(\"earnings\") > 0 and word(\"valuation_basis\") == \"PE\" and exists(\"target_pb_lf\") and num(\"target_pe_ttm\") > 0 and num(\"target_pe_ttm\") == num(\"implied_market_cap.multiple\") and num(\"earnings\") == num(\"implied_market_cap.base\") and 0 <= num(\"historical_pe_percentile\") <= 1) or (num(\"earnings\") <= 0 and not exists(\"target_pe_ttm\") and not exists(\"historical_pe_percentile\") and nonblank(\"reason\") and ((word(\"valuation_basis\") == \"PB\" and num(\"target_pb_lf\") > 0 and num(\"target_pb_lf\") == num(\"implied_market_cap.multiple\") and num(\"book_equity\") > 0 and num(\"book_equity\") == num(\"implied_market_cap.base\")) or (word(\"valuation_basis\") == \"PS\" and num(\"sales\") > 0 and num(\"sales\") == num(\"implied_market_cap.base\") and num(\"target_ps_ttm\") > 0 and num(\"target_ps_ttm\") == num(\"implied_market_cap.multiple\"))))",
+              "label": "核对「implied_market_cap」的交付条件",
+              "message": "没过：核对「implied_market_cap」的交付条件"
             },
             {
               "kind": "no_positioning_advice",
@@ -2619,10 +2914,18 @@
               ],
               "field": "kind",
               "values": [
-                "opinion"
+                "opinion",
+                "no_kam"
               ],
-              "label": "「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」；「text」不能为空",
-              "message": "没过：「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」；「text」不能为空"
+              "label": "「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」、「no_kam」；「text」不能为空",
+              "message": "没过：「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」、「no_kam」；「text」不能为空"
+            },
+            {
+              "kind": "assertion",
+              "path": "audit_opinion_type",
+              "expression": "size(\"audit_opinion_type[]\", kind=\"opinion\") == 1",
+              "label": "核对「audit_opinion_type」的交付条件",
+              "message": "没过：核对「audit_opinion_type」的交付条件"
             },
             {
               "kind": "quoted",
@@ -2633,11 +2936,26 @@
               "message": "没过：「audit_opinion_type」的说法附原文引文"
             },
             {
-              "kind": "list_min",
+              "kind": "quoted",
+              "path": "audit_opinion_type",
+              "field": "kind",
+              "equals": "no_kam",
+              "label": "「audit_opinion_type」的说法附原文引文",
+              "message": "没过：「audit_opinion_type」的说法附原文引文"
+            },
+            {
+              "kind": "assertion",
               "path": "kam_matters",
-              "min_items": 1,
-              "label": "「kam_matters」至少 1 项",
-              "message": "没过：「kam_matters」至少 1 项"
+              "expression": "num(\"kam_topics_count\") == size(\"kam_matters\")",
+              "label": "核对「kam_matters」的交付条件",
+              "message": "没过：核对「kam_matters」的交付条件"
+            },
+            {
+              "kind": "assertion",
+              "path": "audit_opinion_type",
+              "expression": "(num(\"kam_topics_count\") > 0 and size(\"audit_opinion_type[]\", kind=\"no_kam\") == 0) or (num(\"kam_topics_count\") == 0 and size(\"audit_opinion_type[]\", kind=\"no_kam\") == 1)",
+              "label": "核对「audit_opinion_type」的交付条件",
+              "message": "没过：核对「audit_opinion_type」的交付条件"
             },
             {
               "kind": "each_has",
@@ -3458,7 +3776,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003e9",
           "version": 1,
-          "digest": "sha256:e7ae5ff54c68c2f540a6935ceb920687491e6cb22dec7d28ae0abb1a66f37723",
+          "digest": "sha256:3988c68ab02625d79df93594f2401db2db850b2bd4ae540a5711d907e3eb59d2",
           "inputs": {
             "statements": "fin_statement_restructure"
           }
@@ -3563,6 +3881,13 @@
                 }
               },
               {
+                "template": "assertion",
+                "params": {
+                  "path": "reconciliation_status",
+                  "expression": "(word(\"reconciliation_status\") == \"平衡\" and num(\"balance_sheet_balance_diff\") < 1 and num(\"opening_balance_diff\") < 1 and num(\"cash_flow_diff\") < 1 and num(\"retained_earnings_diff\") < 1 and largest(\"opening_comparisons[].value\") < 1) or (word(\"reconciliation_status\") == \"差异已检出\" and (num(\"balance_sheet_balance_diff\") >= 1 or num(\"opening_balance_diff\") >= 1 or num(\"cash_flow_diff\") >= 1 or num(\"retained_earnings_diff\") >= 1 or largest(\"opening_comparisons[].value\") >= 1))"
+                }
+              },
+              {
                 "template": "non_empty",
                 "params": {
                   "path": "reconciliation_status"
@@ -3573,8 +3898,7 @@
                 "params": {
                   "path": "balance_sheet_balance_diff",
                   "expression": "abs(total_assets - (total_liabilities + equity))",
-                  "expected_value": 0,
-                  "tolerance": 1
+                  "tolerance": 0
                 }
               },
               {
@@ -3582,8 +3906,7 @@
                 "params": {
                   "path": "opening_balance_diff",
                   "expression": "abs(opening_assets - (opening_liabilities + opening_equity))",
-                  "expected_value": 0,
-                  "tolerance": 1
+                  "tolerance": 0
                 }
               },
               {
@@ -3591,8 +3914,7 @@
                 "params": {
                   "path": "retained_earnings_diff",
                   "expression": "abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))",
-                  "expected_value": 0,
-                  "tolerance": 1
+                  "tolerance": 0
                 }
               },
               {
@@ -3600,8 +3922,7 @@
                 "params": {
                   "path": "cash_flow_diff",
                   "expression": "abs(closing_cash - opening_cash - cash_increase)",
-                  "expected_value": 0,
-                  "tolerance": 1
+                  "tolerance": 0
                 }
               },
               {
@@ -3634,8 +3955,7 @@
                 "params": {
                   "path": "opening_comparisons",
                   "expression": "abs(opening_value - prior_closing_value)",
-                  "expected_value": 0,
-                  "tolerance": 1
+                  "tolerance": 0
                 }
               },
               {
@@ -4203,7 +4523,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ec",
           "version": 1,
-          "digest": "sha256:07ac5aed686d0ca3c7f6d795f2006eb7962747f438ccb1c314bfd9c41942432d",
+          "digest": "sha256:5bdfc5c4bdcff8a6a77dd86f1f3070e07a5dd0eddb669793ff8c7d0c635a496f",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -4283,6 +4603,41 @@
               }
             ],
             "checks": [
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "evidence_items",
+                  "expression": "num(\"current_ratio\") == num(\"evidence_items[].value\", metric=\"current_ratio\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "evidence_items",
+                  "expression": "num(\"quick_ratio\") == num(\"evidence_items[].value\", metric=\"quick_ratio\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "evidence_items",
+                  "expression": "num(\"cash_to_current_debt\") == num(\"evidence_items[].value\", metric=\"cash_to_current_debt\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "evidence_items",
+                  "expression": "num(\"altman_z_score\") == num(\"evidence_items[].value\", metric=\"altman_z_score\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "solvency_risk_level",
+                  "expression": "(num(\"altman_z_score\") < 1.81 and word(\"solvency_risk_level\") == \"高\") or (1.81 <= num(\"altman_z_score\") <= 2.99 and word(\"solvency_risk_level\") == \"中\") or (num(\"altman_z_score\") > 2.99 and word(\"solvency_risk_level\") == \"低\")"
+                }
+              },
               {
                 "template": "list_min",
                 "params": {
@@ -5444,7 +5799,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f3",
           "version": 1,
-          "digest": "sha256:7db86d48da5c5f3db1c7a5be649d0a3a9b072e5e0473918fe379af00f203cff3",
+          "digest": "sha256:bf169503d6c0514a6a6c655ab51a9fca5fc6f14da56006548d32a116265105c0",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -5454,7 +5809,7 @@
           "step": {
             "id": "method",
             "title": "复合年均增长率与趋势外推",
-            "does": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。",
+            "does": "计算3年/5年营业收入与扣非净利润的复合年均增长率(CAGR，几何平均)，拟合历史时序回归趋势；基期或终期为负、为零时CAGR无定义，输出「不可计算」并改报绝对变动额，不做符号技巧处理。用 cagr_basis 保存两个端点及绝对变动回执，cagr_rates 仅列可算项。可算时输出 revenue_cagr_3yr 或 net_profit_cagr_3yr；不可算时省略相应指标并在 reason 中说明。",
             "why": "消除单一年份周期波动假象，确立企业中长期历史内生增长基准轨道。",
             "uses": [
               "reconciled"
@@ -5480,19 +5835,62 @@
             "ask_before": [],
             "outputs": [
               {
-                "name": "revenue_cagr_3yr",
-                "type": "number",
-                "items": null
+                "name": "cagr_basis",
+                "type": "table",
+                "items": [
+                  {
+                    "name": "metric",
+                    "type": "text"
+                  },
+                  {
+                    "name": "start",
+                    "type": "number"
+                  },
+                  {
+                    "name": "end",
+                    "type": "number"
+                  },
+                  {
+                    "name": "value",
+                    "type": "number"
+                  }
+                ]
               },
               {
-                "name": "net_profit_cagr_3yr",
-                "type": "number",
-                "items": null
+                "name": "cagr_rates",
+                "type": "table",
+                "items": [
+                  {
+                    "name": "metric",
+                    "type": "text"
+                  },
+                  {
+                    "name": "start",
+                    "type": "number"
+                  },
+                  {
+                    "name": "end",
+                    "type": "number"
+                  },
+                  {
+                    "name": "value",
+                    "type": "number"
+                  }
+                ]
               },
               {
                 "name": "trend_projection_series",
-                "type": "list",
-                "items": null
+                "type": "table",
+                "items": [
+                  {
+                    "name": "period",
+                    "type": "text"
+                  },
+                  {
+                    "name": "value",
+                    "type": "number"
+                  }
+                ]
               }
             ],
             "checks": [
@@ -5500,8 +5898,8 @@
                 "template": "required",
                 "params": {
                   "keys": [
-                    "revenue_cagr_3yr",
-                    "net_profit_cagr_3yr",
+                    "cagr_basis",
+                    "cagr_rates",
                     "trend_projection_series"
                   ]
                 }
@@ -5514,11 +5912,68 @@
                 }
               },
               {
+                "template": "each_has",
+                "params": {
+                  "path": "cagr_basis",
+                  "unique_by": [
+                    "metric"
+                  ],
+                  "field": "metric",
+                  "values": [
+                    "revenue",
+                    "profit"
+                  ]
+                }
+              },
+              {
+                "template": "each_has",
+                "params": {
+                  "path": "cagr_rates",
+                  "unique_by": [
+                    "metric"
+                  ],
+                  "field": "metric",
+                  "values": [
+                    "revenue",
+                    "profit"
+                  ]
+                }
+              },
+              {
                 "template": "computed",
                 "params": {
-                  "path": "revenue_cagr_3yr",
-                  "expression": "(end_revenue / start_revenue) ** (1 / 3) - 1",
+                  "path": "cagr_basis",
+                  "expression": "end-start",
+                  "input_keys": [
+                    "start",
+                    "end"
+                  ]
+                }
+              },
+              {
+                "template": "computed",
+                "params": {
+                  "path": "cagr_rates",
+                  "expression": "(end/start)**(1/3)-1",
+                  "input_keys": [
+                    "start",
+                    "end"
+                  ],
                   "tolerance": 0.0001
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "cagr_basis",
+                  "expression": "((num(\"cagr_basis[].start\", metric=\"revenue\") > 0 and num(\"cagr_basis[].end\", metric=\"revenue\") > 0) and size(\"cagr_rates[]\", metric=\"revenue\") == 1 and num(\"cagr_basis[].start\", metric=\"revenue\") == num(\"cagr_rates[].start\", metric=\"revenue\") and num(\"cagr_basis[].end\", metric=\"revenue\") == num(\"cagr_rates[].end\", metric=\"revenue\") and num(\"revenue_cagr_3yr\") == num(\"cagr_rates[].value\", metric=\"revenue\")) or ((num(\"cagr_basis[].start\", metric=\"revenue\") <= 0 or num(\"cagr_basis[].end\", metric=\"revenue\") <= 0) and size(\"cagr_rates[]\", metric=\"revenue\") == 0 and not exists(\"revenue_cagr_3yr\") and nonblank(\"reason\"))"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "cagr_basis",
+                  "expression": "((num(\"cagr_basis[].start\", metric=\"profit\") > 0 and num(\"cagr_basis[].end\", metric=\"profit\") > 0) and size(\"cagr_rates[]\", metric=\"profit\") == 1 and num(\"cagr_basis[].start\", metric=\"profit\") == num(\"cagr_rates[].start\", metric=\"profit\") and num(\"cagr_basis[].end\", metric=\"profit\") == num(\"cagr_rates[].end\", metric=\"profit\") and num(\"net_profit_cagr_3yr\") == num(\"cagr_rates[].value\", metric=\"profit\")) or ((num(\"cagr_basis[].start\", metric=\"profit\") <= 0 or num(\"cagr_basis[].end\", metric=\"profit\") <= 0) and size(\"cagr_rates[]\", metric=\"profit\") == 0 and not exists(\"net_profit_cagr_3yr\") and nonblank(\"reason\"))"
                 }
               }
             ],
@@ -5543,13 +5998,29 @@
               "reserve": "0.05",
               "input_max_chars": 8000,
               "output_schema": {
-                "revenue_cagr_3yr": {
-                  "value": "number",
-                  "compute_id": "string"
-                },
-                "net_profit_cagr_3yr": "number",
+                "cagr_basis": [
+                  {
+                    "metric": "string",
+                    "start": "number",
+                    "end": "number",
+                    "value": "number",
+                    "compute_id": "string"
+                  }
+                ],
+                "cagr_rates": [
+                  {
+                    "metric": "string",
+                    "start": "number",
+                    "end": "number",
+                    "value": "number",
+                    "compute_id": "string"
+                  }
+                ],
                 "trend_projection_series": [
-                  "string"
+                  {
+                    "period": "string",
+                    "value": "number"
+                  }
                 ]
               },
               "output_file": null
@@ -5601,7 +6072,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f4",
           "version": 1,
-          "digest": "sha256:1e78ea93e64e34e5f39e39cd861c1be1c874642d5a95c172dc9d09f7cb650ff6",
+          "digest": "sha256:53e3e6b84b3f9f950bcc0ffb06daf63af262c6fbf87054962041734d29fc8ee9",
           "inputs": {
             "dupont": "dupont_five_way_decomposition",
             "working_capital": "working_capital_cash_cycle_analysis"
@@ -5726,6 +6197,10 @@
                 "items": [
                   {
                     "name": "horizon",
+                    "type": "text"
+                  },
+                  {
+                    "name": "period",
                     "type": "text"
                   },
                   {
@@ -5966,6 +6441,132 @@
                 }
               },
               {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].lower\", horizon=\"next_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].base\", horizon=\"next_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].upper\", horizon=\"next_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].lower\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].base\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"parent_net_profit\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].upper\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].lower\", horizon=\"next_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].base\", horizon=\"next_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"base\", metric=\"operating_cost\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].upper\", horizon=\"next_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"next_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"next_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].lower\", horizon=\"following_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].base\", horizon=\"following_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].upper\", horizon=\"following_quarter\", metric=\"revenue\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].lower\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"parent_net_profit\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].base\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"parent_net_profit\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].upper\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\") and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"parent_net_profit\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"parent_net_profit\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].lower\", horizon=\"following_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"pessimistic\", metric=\"operating_cost\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].base\", horizon=\"following_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"base\", metric=\"operating_cost\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "forecast_intervals",
+                  "expression": "num(\"forecast_intervals[].upper\", horizon=\"following_quarter\", metric=\"gross_margin\") == ((num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\") - num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")) / num(\"forecast_income_statement[].value\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\")) and word(\"forecast_intervals[].period\", horizon=\"following_quarter\", metric=\"gross_margin\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"revenue\") == word(\"forecast_income_statement[].period\", horizon=\"following_quarter\", scenario=\"optimistic\", metric=\"operating_cost\")"
+                }
+              },
+              {
                 "template": "list_min",
                 "params": {
                   "path": "forecast_intervals",
@@ -6105,6 +6706,7 @@
                 "forecast_intervals": [
                   {
                     "horizon": "string",
+                    "period": "string",
                     "metric": "string",
                     "lower": "number",
                     "base": "number",
@@ -6170,7 +6772,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f5",
           "version": 1,
-          "digest": "sha256:bd282d7d4e764e47cf381dd3f4ef8da0e2449524f265b1805838cbaef72b388e",
+          "digest": "sha256:cc2673b8af1187c725d764878281b02db8d1765d6acbdd29c5b6996fa68d719e",
           "inputs": {
             "forecast": "three_statement_linked_forecasting"
           }
@@ -6246,10 +6848,57 @@
               {
                 "name": "sensitivity_table",
                 "type": "table",
-                "items": null
+                "items": [
+                  {
+                    "name": "wacc",
+                    "type": "number"
+                  },
+                  {
+                    "name": "growth",
+                    "type": "number"
+                  },
+                  {
+                    "name": "per_share",
+                    "type": "number"
+                  }
+                ]
               }
             ],
             "checks": [
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "sensitivity_table",
+                  "expression": "distinct(\"sensitivity_table[].wacc\") >= 2 and distinct(\"sensitivity_table[].growth\") >= 2 and size(\"sensitivity_table\") == pairs(\"sensitivity_table\", first=\"wacc\", second=\"growth\") == distinct(\"sensitivity_table[].wacc\") * distinct(\"sensitivity_table[].growth\")"
+                }
+              },
+              {
+                "template": "list_min",
+                "params": {
+                  "path": "sensitivity_table",
+                  "min": 4
+                }
+              },
+              {
+                "template": "each_has",
+                "params": {
+                  "path": "sensitivity_table",
+                  "keys": [
+                    "wacc",
+                    "growth",
+                    "per_share"
+                  ],
+                  "non_empty_keys": [
+                    "wacc",
+                    "growth",
+                    "per_share"
+                  ],
+                  "unique_by": [
+                    "wacc",
+                    "growth"
+                  ]
+                }
+              },
               {
                 "template": "list_min",
                 "params": {
@@ -6353,7 +7002,11 @@
                 },
                 "wacc_used": "number",
                 "sensitivity_table": [
-                  "string"
+                  {
+                    "wacc": "number",
+                    "growth": "number",
+                    "per_share": "number"
+                  }
                 ]
               },
               "output_file": null
@@ -6403,6 +7056,7 @@
               "forecast_intervals": [
                 {
                   "horizon": "string",
+                  "period": "string",
                   "metric": "string",
                   "lower": "number",
                   "base": "number",
@@ -6426,7 +7080,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f6",
           "version": 1,
-          "digest": "sha256:f7696f61a04bf401b2b4ad2e8078cde7c0ed59b3c12426545fffa5ccdb85c1c6",
+          "digest": "sha256:7df4076eb9347b80df484cfc8a0dbce05160a33b8b4d4455c1cd5225957612f8",
           "inputs": {
             "purified": "non_recurring_items_purification"
           }
@@ -6452,7 +7106,7 @@
               },
               {
                 "id": "scope_exclusions",
-                "text": "不接亏损公司PE（无意义，转PB/PS并标注）；可比公司名单由作者确认，不自动圈选。"
+                "text": "不接亏损公司PE（无意义，转PB/PS并标注）；本合成方法以 earnings 判定，盈利时列 PE 和历史分位，非正时说明 reason，选择 PB × 账面权益或 PS × 营收并列明依据；可比公司名单由作者确认，不自动圈选。"
               },
               {
                 "id": "scope_routing",
@@ -6462,17 +7116,12 @@
             "ask_before": [],
             "outputs": [
               {
-                "name": "target_pe_ttm",
-                "type": "number",
+                "name": "valuation_basis",
+                "type": "text",
                 "items": null
               },
               {
-                "name": "target_pb_lf",
-                "type": "number",
-                "items": null
-              },
-              {
-                "name": "historical_pe_percentile",
+                "name": "earnings",
                 "type": "number",
                 "items": null
               },
@@ -6487,19 +7136,36 @@
                 "template": "required",
                 "params": {
                   "keys": [
-                    "target_pe_ttm",
-                    "target_pb_lf",
-                    "historical_pe_percentile",
+                    "valuation_basis",
+                    "earnings",
                     "implied_market_cap"
                   ]
+                }
+              },
+              {
+                "template": "sourced",
+                "params": {
+                  "path": "earnings",
+                  "tolerance": 0
                 }
               },
               {
                 "template": "computed",
                 "params": {
                   "path": "implied_market_cap",
-                  "expression": "purified_net_profit * target_pe_ttm",
+                  "expression": "multiple * base",
+                  "input_keys": [
+                    "multiple",
+                    "base"
+                  ],
                   "tolerance": 0.01
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "implied_market_cap",
+                  "expression": "(num(\"earnings\") > 0 and word(\"valuation_basis\") == \"PE\" and exists(\"target_pb_lf\") and num(\"target_pe_ttm\") > 0 and num(\"target_pe_ttm\") == num(\"implied_market_cap.multiple\") and num(\"earnings\") == num(\"implied_market_cap.base\") and 0 <= num(\"historical_pe_percentile\") <= 1) or (num(\"earnings\") <= 0 and not exists(\"target_pe_ttm\") and not exists(\"historical_pe_percentile\") and nonblank(\"reason\") and ((word(\"valuation_basis\") == \"PB\" and num(\"target_pb_lf\") > 0 and num(\"target_pb_lf\") == num(\"implied_market_cap.multiple\") and num(\"book_equity\") > 0 and num(\"book_equity\") == num(\"implied_market_cap.base\")) or (word(\"valuation_basis\") == \"PS\" and num(\"sales\") > 0 and num(\"sales\") == num(\"implied_market_cap.base\") and num(\"target_ps_ttm\") > 0 and num(\"target_ps_ttm\") == num(\"implied_market_cap.multiple\"))))"
                 }
               }
             ],
@@ -6524,9 +7190,11 @@
               "reserve": "0.05",
               "input_max_chars": 8000,
               "output_schema": {
-                "target_pe_ttm": "number",
-                "target_pb_lf": "number",
-                "historical_pe_percentile": "number",
+                "valuation_basis": "string",
+                "earnings": {
+                  "value": "number",
+                  "address": "string"
+                },
                 "implied_market_cap": {
                   "value": "number",
                   "compute_id": "string"
@@ -6535,7 +7203,7 @@
               "output_file": null
             },
             "selection": {
-              "applies_when": "问题需要相对估值与历史分位数对标。适用边界：不接亏损公司PE（无意义，转PB/PS并标注）；可比公司名单由作者确认，不自动圈选。",
+              "applies_when": "问题需要相对估值与历史分位数对标。适用边界：不接亏损公司PE（无意义，转PB/PS并标注）；本合成方法以 earnings 判定，盈利时列 PE 和历史分位，非正时说明 reason，选择 PB × 账面权益或 PS × 营收并列明依据；可比公司名单由作者确认，不自动圈选。",
               "required": false,
               "max_calls": 1
             }
@@ -6872,7 +7540,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003f9",
           "version": 1,
-          "digest": "sha256:247a350570d0273525fdbf54ae50eaddbb0d827d5c31a1fc2f8ffe536a80f820",
+          "digest": "sha256:74444ed84e51e2e4b6a8a2fa0f5033a9a0bd367de548583b2163d0dd6ee14984",
           "inputs": {
             "reconciled": "accounting_statement_reconciliation"
           }
@@ -6988,8 +7656,16 @@
                   ],
                   "field": "kind",
                   "values": [
-                    "opinion"
+                    "opinion",
+                    "no_kam"
                   ]
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "audit_opinion_type",
+                  "expression": "size(\"audit_opinion_type[]\", kind=\"opinion\") == 1"
                 }
               },
               {
@@ -7001,10 +7677,25 @@
                 }
               },
               {
-                "template": "list_min",
+                "template": "quoted",
+                "params": {
+                  "path": "audit_opinion_type",
+                  "field": "kind",
+                  "equals": "no_kam"
+                }
+              },
+              {
+                "template": "assertion",
                 "params": {
                   "path": "kam_matters",
-                  "min": 1
+                  "expression": "num(\"kam_topics_count\") == size(\"kam_matters\")"
+                }
+              },
+              {
+                "template": "assertion",
+                "params": {
+                  "path": "audit_opinion_type",
+                  "expression": "(num(\"kam_topics_count\") > 0 and size(\"audit_opinion_type[]\", kind=\"no_kam\") == 0) or (num(\"kam_topics_count\") == 0 and size(\"audit_opinion_type[]\", kind=\"no_kam\") == 1)"
                 }
               },
               {
@@ -7303,7 +7994,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fb",
           "version": 1,
-          "digest": "sha256:50cab71f870d64ab8c5403917517febdffd4fe4f8569be596413dce9dc0c811a",
+          "digest": "sha256:a7bd9c9ed8e655d11d0b1f02292e5bf0269e19be188f4c1b7f19b99f1b43bd9e",
           "inputs": {
             "reconciliation": "accounting_statement_reconciliation",
             "dupont": "dupont_five_way_decomposition",
@@ -7871,7 +8562,11 @@
               },
               "wacc_used": "number",
               "sensitivity_table": [
-                "string"
+                {
+                  "wacc": "number",
+                  "growth": "number",
+                  "per_share": "number"
+                }
               ]
             }
           }
@@ -7966,54 +8661,59 @@
       "ref": "record:00000000-0000-0000-0000-000000000055"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「reconciliation_status」不能空",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：核对「reconciliation_status」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000056"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))），结果应为 0（容差 1）",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「reconciliation_status」不能空",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000057"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))），结果应为 0（容差 1）",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000058"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))），结果应为 0（容差 1）",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000059"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 1）",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005a"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」至少 1 项",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005b"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」每项都有「item」、「period」；「item」、「period」不能为空；「item」、「period」的组合不重复",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」至少 1 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005c"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)），结果应为 0（容差 1）",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」每项都有「item」、「period」；「item」、「period」不能为空；「item」、「period」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005d"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」至少 5 项",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005e"
     },
     {
-      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」每项都有「check_name」、「evidence」，「check_name」只能是「closing_balance」、「opening_balance」、「retained_earnings」、「cash_flow」、「opening_comparisons」；「evidence」不能为空；「check_name…",
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」至少 5 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000005f"
+    },
+    {
+      "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」每项都有「check_name」、「evidence」，「check_name」只能是「closing_balance」、「opening_balance」、「retained_earnings」、「cash_flow」、「opening_comparisons」；「evidence」不能为空；「check_name…",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000060"
     },
     {
       "rule": "报表勾稽平衡与重述校验：依据：《企业会计准则——基本准则》会计等式；中国注册会计师审计准则第1313号《分析程序》；证监会《公开发行证券的公司信息披露编报规则第19号——财务信息的更正及相关披露》（追溯重述部分）",
@@ -8038,887 +8738,1067 @@
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：必须有：「purified_net_profit」、「recurring_profit_margin」、「quarterly_unpacked_profits」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006e"
+      "ref": "record:00000000-0000-0000-0000-00000000006f"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「purified_net_profit」的数都是用计算工具算的（算式 net_profit - non_recurring_net）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006f"
+      "ref": "record:00000000-0000-0000-0000-000000000070"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「recurring_profit_margin」的数都是用计算工具算的（算式 purified_net_profit / revenue）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000070"
+      "ref": "record:00000000-0000-0000-0000-000000000071"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000071"
+      "ref": "record:00000000-0000-0000-0000-000000000072"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000072"
+      "ref": "record:00000000-0000-0000-0000-000000000073"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000067"
+      "ref": "record:00000000-0000-0000-0000-000000000068"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000068"
+      "ref": "record:00000000-0000-0000-0000-000000000069"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：不接非经常性损益认定口径的再裁量（以公告列举为准，列举外项目标存疑列入待确认）；不接年化处理与季节性调整。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000069"
+      "ref": "record:00000000-0000-0000-0000-00000000006a"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：趋势外推找「复合年均增长率与趋势外推」；盈利结构分解找「杜邦五步分解法」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006a"
+      "ref": "record:00000000-0000-0000-0000-00000000006b"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」、「dupont_evidence_items」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000086"
+      "ref": "record:00000000-0000-0000-0000-000000000087"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」至少 6 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000087"
+      "ref": "record:00000000-0000-0000-0000-000000000088"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「roe」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000088"
+      "ref": "record:00000000-0000-0000-0000-000000000089"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000089"
+      "ref": "record:00000000-0000-0000-0000-00000000008a"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「roe」的数都是用计算工具算的（算式 tax_burden * interest_burden * ebit_margin * asset_turnover * equity_multiplier）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008a"
+      "ref": "record:00000000-0000-0000-0000-00000000008b"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_chain_product」两边相等（容差 0.001）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008b"
+      "ref": "record:00000000-0000-0000-0000-00000000008c"
     },
     {
       "rule": "杜邦五步分解法：依据：杜邦公司财务分析体系（Donaldson Brown, 1914）的五因子扩展；CFA Institute《Financial Reporting and Analysis》杜邦分解框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007a"
+      "ref": "record:00000000-0000-0000-0000-00000000007b"
     },
     {
       "rule": "杜邦五步分解法：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007b"
+      "ref": "record:00000000-0000-0000-0000-00000000007c"
     },
     {
       "rule": "杜邦五步分解法：不接银行、保险、券商等金融企业——其报表结构与监管口径不适用通用杜邦分解，金融版分解另列候选方法，不在本方法内打补丁。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007c"
+      "ref": "record:00000000-0000-0000-0000-00000000007d"
     },
     {
       "rule": "杜邦五步分解法：金融企业盈利结构分析需另行指定方法；估值找「企业自由现金流贴现估值 DCF」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000007d"
+      "ref": "record:00000000-0000-0000-0000-00000000007e"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」至少 4 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009d"
-    },
-    {
-      "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」；「metric」的组合不重复",
+      "rule": "偿债压力与流动性体检·怎样算对：核对「evidence_items」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000009e"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」的数都是用计算工具算的",
+      "rule": "偿债压力与流动性体检·怎样算对：核对「evidence_items」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000009f"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
+      "rule": "偿债压力与流动性体检·怎样算对：核对「evidence_items」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000a0"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「solvency_risk_level」不能空",
+      "rule": "偿债压力与流动性体检·怎样算对：核对「evidence_items」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000a1"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「current_ratio」的数都是用计算工具算的（算式 current_assets / current_liabilities）",
+      "rule": "偿债压力与流动性体检·怎样算对：核对「solvency_risk_level」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000a2"
     },
     {
-      "rule": "偿债压力与流动性体检·怎样算对：「quick_ratio」的数都是用计算工具算的（算式 (current_assets - inventory) / current_liabilities）",
+      "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」至少 4 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000000a3"
     },
     {
-      "rule": "偿债压力与流动性体检：依据：Altman（1968）Z-Score初始模型（制造业上市公司样本）；流动/速动/现金短债比为银行信贷与信用评级通行口径",
+      "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000093"
+      "ref": "record:00000000-0000-0000-0000-0000000000a4"
     },
     {
-      "rule": "偿债压力与流动性体检：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」的数都是用计算工具算的",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000a5"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000a6"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：「solvency_risk_level」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000a7"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：「current_ratio」的数都是用计算工具算的（算式 current_assets / current_liabilities）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000a8"
+    },
+    {
+      "rule": "偿债压力与流动性体检·怎样算对：「quick_ratio」的数都是用计算工具算的（算式 (current_assets - inventory) / current_liabilities）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000000a9"
+    },
+    {
+      "rule": "偿债压力与流动性体检：依据：Altman（1968）Z-Score初始模型（制造业上市公司样本）；流动/速动/现金短债比为银行信贷与信用评级通行口径",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000094"
     },
     {
-      "rule": "偿债压力与流动性体检：不接金融机构偿债分析（监管资本口径另行处理）；Z-Score沿用1968年初始模型与阈值，未按行业校准，分级仅供内部参考；利息保障倍数暂不纳入输出，列入候选增强。",
+      "rule": "偿债压力与流动性体检：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000095"
     },
     {
-      "rule": "偿债压力与流动性体检：现金流质量找「收益质量分析与应计项排雷、FCF」；或有负债找「关键审计事项与或有负债排查」。",
+      "rule": "偿债压力与流动性体检：不接金融机构偿债分析（监管资本口径另行处理）；Z-Score沿用1968年初始模型与阈值，未按行业校准，分级仅供内部参考；利息保障倍数暂不纳入输出，列入候选增强。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000096"
     },
     {
+      "rule": "偿债压力与流动性体检：现金流质量找「收益质量分析与应计项排雷、FCF」；或有负债找「关键审计事项与或有负债排查」。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000097"
+    },
+    {
       "rule": "营运资本周转与现金转化周期 CCC·怎样算对：必须有：「dio_days」、「dso_days」、「dpo_days」、「cash_conversion_cycle_days」、「working_capital_turnover」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b4"
+      "ref": "record:00000000-0000-0000-0000-0000000000ba"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC·怎样算对：「cash_conversion_cycle_days」的数都是用计算工具算的（算式 dio_days + dso_days - dpo_days）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b5"
+      "ref": "record:00000000-0000-0000-0000-0000000000bb"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：依据：现金循环周期模型（Richards & Laughlin, 1980）及营运资本管理通行教材口径",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ab"
+      "ref": "record:00000000-0000-0000-0000-0000000000b1"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ac"
+      "ref": "record:00000000-0000-0000-0000-0000000000b2"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：不接收入确认口径争议（以披露口径为准）；不分行业调整周转基准天数。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ad"
+      "ref": "record:00000000-0000-0000-0000-0000000000b3"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：营运假设驱动的预测找「三表联动预测模型」；偿债能力找「偿债压力与流动性体检」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ae"
+      "ref": "record:00000000-0000-0000-0000-0000000000b4"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「evidence_items」至少 3 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c6"
+      "ref": "record:00000000-0000-0000-0000-0000000000cc"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「operating_cf_to_net_income」、「free_cash_flow_firm」、「accrual_anomaly_score」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c7"
+      "ref": "record:00000000-0000-0000-0000-0000000000cd"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「evidence_items」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c8"
+      "ref": "record:00000000-0000-0000-0000-0000000000ce"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：必须有：「operating_cf_to_net_income」、「free_cash_flow_firm」、「accrual_anomaly_score」、「earnings_quality_flag」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c9"
+      "ref": "record:00000000-0000-0000-0000-0000000000cf"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「earnings_quality_flag」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ca"
+      "ref": "record:00000000-0000-0000-0000-0000000000d0"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「free_cash_flow_firm」的数都是用计算工具算的（算式 operating_cash_flow - capex）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cb"
+      "ref": "record:00000000-0000-0000-0000-0000000000d1"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「operating_cf_to_net_income」的数都是用计算工具算的（算式 operating_cash_flow / net_income）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cc"
+      "ref": "record:00000000-0000-0000-0000-0000000000d2"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：依据：Dechow, Sloan & Sweeney（1995）修正琼斯模型（操纵性应计）与Dechow & Dichev（2002）应计质量框架；FCFF 口径见 Damodaran 估值教材",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bd"
+      "ref": "record:00000000-0000-0000-0000-0000000000c3"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000be"
+      "ref": "record:00000000-0000-0000-0000-0000000000c4"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：完整修正琼斯模型需同行业面板回归，本轮以总应计利润率跨期异动替代，不输出行业调整后的操纵性应计估计；不接现金流预测。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bf"
+      "ref": "record:00000000-0000-0000-0000-0000000000c5"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：自由现金流预测与贴现找「企业自由现金流贴现估值 DCF」；报表真实性找「报表勾稽平衡与重述校验」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c0"
+      "ref": "record:00000000-0000-0000-0000-0000000000c6"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：必须有：「segment_revenue_shares」、「volume_growth_rates」、「price_variance_effects」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000db"
+      "ref": "record:00000000-0000-0000-0000-0000000000e1"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000dc"
+      "ref": "record:00000000-0000-0000-0000-0000000000e2"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000dd"
+      "ref": "record:00000000-0000-0000-0000-0000000000e3"
     },
     {
       "rule": "主营业务分部量价拆解：依据：财政部《企业会计准则第35号——分部报告》(CAS 35)；管理会计因素分析（连环替代）法惯例",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d4"
+      "ref": "record:00000000-0000-0000-0000-0000000000da"
     },
     {
       "rule": "主营业务分部量价拆解：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d5"
+      "ref": "record:00000000-0000-0000-0000-0000000000db"
     },
     {
       "rule": "主营业务分部量价拆解：不接未披露任何分部数据的公司（输出缺口说明，不编造分部数）；不接分部的盈利能力归因。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d6"
+      "ref": "record:00000000-0000-0000-0000-0000000000dc"
     },
     {
       "rule": "主营业务分部量价拆解：客户与供应商依赖度找「前五大客户与供应商集中度透视」；成长外推找「复合年均增长率与趋势外推」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d7"
+      "ref": "record:00000000-0000-0000-0000-0000000000dd"
     },
     {
       "rule": "前五大客户与供应商集中度透视·怎样算对：必须有：「top5_customer_ratio」、「top5_supplier_ratio」、「concentration_risk_rating」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ec"
+      "ref": "record:00000000-0000-0000-0000-0000000000f2"
     },
     {
       "rule": "前五大客户与供应商集中度透视·怎样算对：「concentration_risk_rating」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ed"
+      "ref": "record:00000000-0000-0000-0000-0000000000f3"
     },
     {
       "rule": "前五大客户与供应商集中度透视·怎样算对：「top5_customer_ratio」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ee"
+      "ref": "record:00000000-0000-0000-0000-0000000000f4"
     },
     {
       "rule": "前五大客户与供应商集中度透视：依据：中国证监会及沪深交易所《股票上市规则》关于年报前五大客户与供应商披露规范",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e5"
+      "ref": "record:00000000-0000-0000-0000-0000000000eb"
     },
     {
       "rule": "前五大客户与供应商集中度透视：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e6"
+      "ref": "record:00000000-0000-0000-0000-0000000000ec"
     },
     {
       "rule": "前五大客户与供应商集中度透视：客户/供应商以「客户一、客户二」脱敏披露时只做比例统计，不做身份穿透；关联方认定以 CAS 36 披露为准，不自行扩大。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e7"
+      "ref": "record:00000000-0000-0000-0000-0000000000ed"
     },
     {
       "rule": "前五大客户与供应商集中度透视：重大关联交易穿透找「股权质押、减持与重大关联交易穿透」；分部结构找「主营业务分部量价拆解」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e8"
+      "ref": "record:00000000-0000-0000-0000-0000000000ee"
     },
     {
       "rule": "资本开支与产能释放周期追踪·怎样算对：必须有：「capex_to_depreciation」、「cip_turnover_rate」、「capacity_expansion_stage」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fd"
+      "ref": "record:00000000-0000-0000-0000-000000000103"
     },
     {
       "rule": "资本开支与产能释放周期追踪·怎样算对：「capacity_expansion_stage」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fe"
+      "ref": "record:00000000-0000-0000-0000-000000000104"
     },
     {
       "rule": "资本开支与产能释放周期追踪·怎样算对：「capex_to_depreciation」的数都是用计算工具算的（算式 capex / depreciation_amortization）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ff"
+      "ref": "record:00000000-0000-0000-0000-000000000105"
     },
     {
       "rule": "资本开支与产能释放周期追踪：依据：财政部《企业会计准则第4号——固定资产》(CAS 4) 折旧估计规范及产能周期分析通行框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f6"
+      "ref": "record:00000000-0000-0000-0000-0000000000fc"
     },
     {
       "rule": "资本开支与产能释放周期追踪：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f7"
+      "ref": "record:00000000-0000-0000-0000-0000000000fd"
     },
     {
       "rule": "资本开支与产能释放周期追踪：不评估项目投产后的实际达产率（无披露数据源）；产能爬坡只按在建工程与公告口径定性分级。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f8"
+      "ref": "record:00000000-0000-0000-0000-0000000000fe"
     },
     {
       "rule": "资本开支与产能释放周期追踪：资本开支对应的现金流压力找「收益质量分析与应计项排雷、FCF」；折旧政策变更找「报表勾稽平衡与重述校验」的重述线索。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f9"
+      "ref": "record:00000000-0000-0000-0000-0000000000ff"
     },
     {
       "rule": "研发投入资本化与产出效能评估·怎样算对：必须有：「rnd_intensity」、「capitalization_ratio」、「rnd_revenue_conversion」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010e"
+      "ref": "record:00000000-0000-0000-0000-000000000114"
     },
     {
       "rule": "研发投入资本化与产出效能评估·怎样算对：「rnd_intensity」的数都是用计算工具算的（算式 rnd_total_expenditure / revenue）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010f"
+      "ref": "record:00000000-0000-0000-0000-000000000115"
     },
     {
       "rule": "研发投入资本化与产出效能评估·怎样算对：「capitalization_ratio」的数都是用计算工具算的（算式 rnd_capitalized / rnd_total_expenditure）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000110"
+      "ref": "record:00000000-0000-0000-0000-000000000116"
     },
     {
       "rule": "研发投入资本化与产出效能评估：依据：财政部《企业会计准则第6号——无形资产》(CAS 6) 研发支出资本化条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000107"
+      "ref": "record:00000000-0000-0000-0000-00000000010d"
     },
     {
       "rule": "研发投入资本化与产出效能评估：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000108"
+      "ref": "record:00000000-0000-0000-0000-00000000010e"
     },
     {
       "rule": "研发投入资本化与产出效能评估：不接研发立项质量评估；专利数量与新产品收入以公司披露为准，不做外部专利库核验。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000109"
+      "ref": "record:00000000-0000-0000-0000-00000000010f"
     },
     {
       "rule": "研发投入资本化与产出效能评估：研发资本化对利润的影响找「非经常性损益穿透与扣非还原」口径核对；资本化形成的无形资产减值找「商誉减值与资产质量压力测试」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010a"
+      "ref": "record:00000000-0000-0000-0000-000000000110"
     },
     {
-      "rule": "复合年均增长率与趋势外推·怎样算对：必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」",
+      "rule": "复合年均增长率与趋势外推·怎样算对：必须有：「cagr_basis」、「cagr_rates」、「trend_projection_series」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011f"
+      "ref": "record:00000000-0000-0000-0000-000000000125"
     },
     {
       "rule": "复合年均增长率与趋势外推·怎样算对：「trend_projection_series」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000120"
+      "ref": "record:00000000-0000-0000-0000-000000000126"
     },
     {
-      "rule": "复合年均增长率与趋势外推·怎样算对：「revenue_cagr_3yr」的数都是用计算工具算的（算式 (end_revenue / start_revenue) ** (1 / 3) - 1）",
+      "rule": "复合年均增长率与趋势外推·怎样算对：「cagr_basis」每项，「metric」只能是「revenue」、「profit」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000121"
+      "ref": "record:00000000-0000-0000-0000-000000000127"
     },
     {
-      "rule": "复合年均增长率与趋势外推：依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型",
+      "rule": "复合年均增长率与趋势外推·怎样算对：「cagr_rates」每项，「metric」只能是「revenue」、「profit」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000118"
+      "ref": "record:00000000-0000-0000-0000-000000000128"
     },
     {
-      "rule": "复合年均增长率与趋势外推：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000119"
-    },
-    {
-      "rule": "复合年均增长率与趋势外推：不接未来预测与区间预测（属「三表联动预测模型」）；趋势外推仅作历史参考线，不写成预期。",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011a"
-    },
-    {
-      "rule": "复合年均增长率与趋势外推：未来两个季度的区间预测找「三表联动预测模型」；单季度还原找「非经常性损益穿透与扣非还原」。",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011b"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：必须有：「forecast_income_statement」、「forecast_balance_sheet」、「forecast_cashflow_statement」、「forecast_intervals」、「forecast_assumptions」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000132"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」至少 18 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000133"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项都有「horizon」、「period」、「scenario」、「metric」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」不能为空；「horizon」、「scenario」、「metric」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000134"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000135"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项，「metric」只能是「revenue」、「parent_net_profit」、「operating_cost」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000136"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」的数都是用计算工具算的",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000137"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」至少 6 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000138"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」每项都有「horizon」、「period」、「scenario」、「assets」、「liabilities」、「equity」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」不能为空；「horizon」、「sce…",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000139"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013a"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」的数都是用计算工具算的（算式 abs(assets - liabilities - equity)），结果应为 0（容差 0.01）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013b"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」至少 6 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013c"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」每项都有「horizon」、「period」、「scenario」、「opening_cash」、「closing_cash」、「cash_increase」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」…",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013d"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013e"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 0.01）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013f"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」至少 6 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000140"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」每项都有「horizon」、「metric」、「lower」、「base」、「upper」，「horizon」只能是「next_quarter」、「following_quarter」；「horizon」、「metric」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000141"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」每项，「metric」只能是「revenue」、「parent_net_profit」、「gross_margin」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000142"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」的数都是用计算工具算的（算式 max(lower - base, base - upper, 0)），结果应为 0（容差 0）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000143"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_assumptions」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000144"
-    },
-    {
-      "rule": "三表联动预测模型·怎样算对：「forecast_assumptions」每项都有「name」、「reason」、「source」；「name」、「reason」、「source」不能为空；「name」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000145"
-    },
-    {
-      "rule": "三表联动预测模型：依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架",
+      "rule": "复合年均增长率与趋势外推·怎样算对：「cagr_basis」的数都是用计算工具算的（算式 end-start）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000129"
     },
     {
-      "rule": "三表联动预测模型：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "复合年均增长率与趋势外推·怎样算对：「cagr_rates」的数都是用计算工具算的（算式 (end/start)**(1/3)-1）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000012a"
     },
     {
-      "rule": "三表联动预测模型：不接五年以上长期预测；情景参数（收入增速区间、毛利波动）属作者假设，随委托单列示取值与依据，不写死；预测表行结构（季度×情景×科目）待真实数据接入后定形。",
+      "rule": "复合年均增长率与趋势外推·怎样算对：核对「cagr_basis」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000012b"
     },
     {
-      "rule": "三表联动预测模型：历史增长基准找「复合年均增长率与趋势外推」；预测现金流的贴现估值找「企业自由现金流贴现估值 DCF」。",
+      "rule": "复合年均增长率与趋势外推·怎样算对：核对「cagr_basis」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000012c"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」至少 4 项",
+      "rule": "复合年均增长率与趋势外推：依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000157"
+      "ref": "record:00000000-0000-0000-0000-00000000011e"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」；「metric」的组合不重复",
+      "rule": "复合年均增长率与趋势外推：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000158"
+      "ref": "record:00000000-0000-0000-0000-00000000011f"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」的数都是用计算工具算的",
+      "rule": "复合年均增长率与趋势外推：不接未来预测与区间预测（属「三表联动预测模型」）；趋势外推仅作历史参考线，不写成预期。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000159"
+      "ref": "record:00000000-0000-0000-0000-000000000120"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF·怎样算对：必须有：「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」、「sensitivity_table」",
+      "rule": "复合年均增长率与趋势外推：未来两个季度的区间预测找「三表联动预测模型」；单季度还原找「非经常性损益穿透与扣非还原」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015a"
+      "ref": "record:00000000-0000-0000-0000-000000000121"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「equity_value_dcf」的数都是用计算工具算的（算式 enterprise_value_dcf - net_debt）",
+      "rule": "三表联动预测模型·怎样算对：必须有：「forecast_income_statement」、「forecast_balance_sheet」、「forecast_cashflow_statement」、「forecast_intervals」、「forecast_assumptions」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015b"
+      "ref": "record:00000000-0000-0000-0000-00000000013d"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「per_share_intrinsic_value」的数都是用计算工具算的（算式 equity_value_dcf / shares_outstanding）",
+      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」至少 18 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015c"
+      "ref": "record:00000000-0000-0000-0000-00000000013e"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF：依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著",
+      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项都有「horizon」、「period」、「scenario」、「metric」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」不能为空；「horizon」、「scenario」、「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000013f"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000140"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项，「metric」只能是「revenue」、「parent_net_profit」、「operating_cost」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000141"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」的数都是用计算工具算的",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000142"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」至少 6 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000143"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」每项都有「horizon」、「period」、「scenario」、「assets」、「liabilities」、「equity」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」不能为空；「horizon」、「sce…",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000144"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000145"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」的数都是用计算工具算的（算式 abs(assets - liabilities - equity)），结果应为 0（容差 0.01）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000146"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」至少 6 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000147"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」每项都有「horizon」、「period」、「scenario」、「opening_cash」、「closing_cash」、「cash_increase」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」…",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000148"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000149"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 0.01）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000014a"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000014b"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000014c"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000014d"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000014e"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF：不接目标价与买卖建议表述（平台红线）；银行、保险不适用FCFF贴现（应改用DDM或超额收益法，另行立项）。",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000014f"
     },
     {
-      "rule": "企业自由现金流贴现估值 DCF：显性期现金流来源找「三表联动预测模型」；市场乘数交叉验证找「相对估值与历史分位数对标」。",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000150"
     },
     {
-      "rule": "相对估值与历史分位数对标·怎样算对：必须有：「target_pe_ttm」、「target_pb_lf」、「historical_pe_percentile」、「implied_market_cap」",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000016c"
+      "ref": "record:00000000-0000-0000-0000-000000000151"
     },
     {
-      "rule": "相对估值与历史分位数对标·怎样算对：「implied_market_cap」的数都是用计算工具算的（算式 purified_net_profit * target_pe_ttm）",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000016d"
+      "ref": "record:00000000-0000-0000-0000-000000000152"
     },
     {
-      "rule": "相对估值与历史分位数对标：依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000164"
+      "ref": "record:00000000-0000-0000-0000-000000000153"
     },
     {
-      "rule": "相对估值与历史分位数对标：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000165"
+      "ref": "record:00000000-0000-0000-0000-000000000154"
     },
     {
-      "rule": "相对估值与历史分位数对标：不接亏损公司PE（无意义，转PB/PS并标注）；可比公司名单由作者确认，不自动圈选。",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000166"
+      "ref": "record:00000000-0000-0000-0000-000000000155"
     },
     {
-      "rule": "相对估值与历史分位数对标：内在价值锚找「企业自由现金流贴现估值 DCF」；盈利质量前提找「收益质量分析与应计项排雷、FCF」。",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000167"
+      "ref": "record:00000000-0000-0000-0000-000000000156"
     },
     {
-      "rule": "股权质押、减持与重大关联交易穿透·怎样算对：必须有：「controlling_shareholder_pledge_ratio」、「major_holder_reduction_plans」、「related_party_anomaly_score」",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000017c"
+      "ref": "record:00000000-0000-0000-0000-000000000157"
     },
     {
-      "rule": "股权质押、减持与重大关联交易穿透·怎样算对：「controlling_shareholder_pledge_ratio」的数和原数据那一格对得上",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000017d"
+      "ref": "record:00000000-0000-0000-0000-000000000158"
     },
     {
-      "rule": "股权质押、减持与重大关联交易穿透：依据：中国证监会《上市公司股东、董监高减持股份的若干规定》及《企业会计准则第36号——关联方披露》",
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000159"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015a"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015b"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：核对「forecast_intervals」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015c"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」至少 6 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015d"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」每项都有「horizon」、「metric」、「lower」、「base」、「upper」，「horizon」只能是「next_quarter」、「following_quarter」；「horizon」、「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015e"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」每项，「metric」只能是「revenue」、「parent_net_profit」、「gross_margin」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000015f"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_intervals」的数都是用计算工具算的（算式 max(lower - base, base - upper, 0)），结果应为 0（容差 0）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000160"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_assumptions」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000161"
+    },
+    {
+      "rule": "三表联动预测模型·怎样算对：「forecast_assumptions」每项都有「name」、「reason」、「source」；「name」、「reason」、「source」不能为空；「name」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000162"
+    },
+    {
+      "rule": "三表联动预测模型：依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000134"
+    },
+    {
+      "rule": "三表联动预测模型：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000135"
+    },
+    {
+      "rule": "三表联动预测模型：不接五年以上长期预测；情景参数（收入增速区间、毛利波动）属作者假设，随委托单列示取值与依据，不写死；预测表行结构（季度×情景×科目）待真实数据接入后定形。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000136"
+    },
+    {
+      "rule": "三表联动预测模型：历史增长基准找「复合年均增长率与趋势外推」；预测现金流的贴现估值找「企业自由现金流贴现估值 DCF」。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000137"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：核对「sensitivity_table」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000174"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「sensitivity_table」至少 4 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000175"
     },
     {
-      "rule": "股权质押、减持与重大关联交易穿透：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「sensitivity_table」每项都有「wacc」、「growth」、「per_share」；「wacc」、「growth」、「per_share」不能为空；「wacc」、「growth」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000176"
     },
     {
-      "rule": "股权质押、减持与重大关联交易穿透：数据以公告披露为准，不接实时盘口监控；平仓线测算的质押率假设按券商通行50%–60%区间标注，不输出单点预警线。",
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」至少 4 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000177"
     },
     {
-      "rule": "股权质押、减持与重大关联交易穿透：公司治理与护城河研判找「竞争壁垒与核心投资假说验证」；或有负债找「关键审计事项与或有负债排查」。",
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」；「metric」的组合不重复",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000178"
     },
     {
-      "rule": "商誉减值与资产质量压力测试·怎样算对：必须有：「goodwill_to_net_assets」、「cgu_recoverable_amount」、「impairment_stress_headroom」",
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」的数都是用计算工具算的",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000179"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：必须有：「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」、「sensitivity_table」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000017a"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「equity_value_dcf」的数都是用计算工具算的（算式 enterprise_value_dcf - net_debt）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000017b"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF·怎样算对：「per_share_intrinsic_value」的数都是用计算工具算的（算式 equity_value_dcf / shares_outstanding）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000017c"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF：依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016a"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016b"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF：不接目标价与买卖建议表述（平台红线）；银行、保险不适用FCFF贴现（应改用DDM或超额收益法，另行立项）。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016c"
+    },
+    {
+      "rule": "企业自由现金流贴现估值 DCF：显性期现金流来源找「三表联动预测模型」；市场乘数交叉验证找「相对估值与历史分位数对标」。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000016d"
+    },
+    {
+      "rule": "相对估值与历史分位数对标·怎样算对：必须有：「valuation_basis」、「earnings」、「implied_market_cap」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-00000000018b"
+    },
+    {
+      "rule": "相对估值与历史分位数对标·怎样算对：「earnings」的数和原数据那一格对得上",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000018c"
     },
     {
-      "rule": "商誉减值与资产质量压力测试·怎样算对：「goodwill_to_net_assets」的数都是用计算工具算的（算式 goodwill_balance / net_assets）",
+      "rule": "相对估值与历史分位数对标·怎样算对：「implied_market_cap」的数都是用计算工具算的（算式 multiple * base）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000018d"
     },
     {
-      "rule": "商誉减值与资产质量压力测试·怎样算对：「impairment_stress_headroom」两边相等（容差 0.01）",
+      "rule": "相对估值与历史分位数对标·怎样算对：核对「implied_market_cap」的交付条件",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-00000000018e"
     },
     {
-      "rule": "商誉减值与资产质量压力测试：依据：财政部《企业会计准则第8号——资产减值》(CAS 8) 及会计监管风险提示第8号——商誉减值",
+      "rule": "相对估值与历史分位数对标：依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000184"
+    },
+    {
+      "rule": "相对估值与历史分位数对标：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000185"
     },
     {
-      "rule": "商誉减值与资产质量压力测试：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "相对估值与历史分位数对标：不接亏损公司PE（无意义，转PB/PS并标注）；本合成方法以 earnings 判定，盈利时列 PE 和历史分位，非正时说明 reason，选择 PB × 账面权益或 PS × 营收并列明依据；可比公司名单由作者确认，不自动圈选。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000186"
     },
     {
-      "rule": "商誉减值与资产质量压力测试：可收回金额的公允价值测算属评估师工作，本轮只做账面与承诺完成率的压力测试，不输出正式减值结论。",
+      "rule": "相对估值与历史分位数对标：内在价值锚找「企业自由现金流贴现估值 DCF」；盈利质量前提找「收益质量分析与应计项排雷、FCF」。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000187"
     },
     {
-      "rule": "商誉减值与资产质量压力测试：无形资产与研发资本化质量找「研发投入资本化与产出效能评估」；减值对偿债指标的冲击找「偿债压力与流动性体检」。",
+      "rule": "股权质押、减持与重大关联交易穿透·怎样算对：必须有：「controlling_shareholder_pledge_ratio」、「major_holder_reduction_plans」、「related_party_anomaly_score」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000188"
+      "ref": "record:00000000-0000-0000-0000-00000000019d"
     },
     {
-      "rule": "关键审计事项与或有负债排查·怎样算对：必须有：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
+      "rule": "股权质押、减持与重大关联交易穿透·怎样算对：「controlling_shareholder_pledge_ratio」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000019f"
+      "ref": "record:00000000-0000-0000-0000-00000000019e"
     },
     {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a0"
-    },
-    {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」；「text」不能为空",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a1"
-    },
-    {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」的说法附原文引文",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a2"
-    },
-    {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a3"
-    },
-    {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」每项都有「kind」、「matter」、「audit_response」，「kind」只能是「kam」；「matter」、「audit_response」不能为空；「matter」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a4"
-    },
-    {
-      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」的说法附原文引文",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a5"
-    },
-    {
-      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号《在审计报告中沟通关键审计事项》及《企业会计准则第13号——或有事项》",
+      "rule": "股权质押、减持与重大关联交易穿透：依据：中国证监会《上市公司股东、董监高减持股份的若干规定》及《企业会计准则第36号——关联方披露》",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000196"
     },
     {
-      "rule": "关键审计事项与或有负债排查：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "股权质押、减持与重大关联交易穿透：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000197"
     },
     {
-      "rule": "关键审计事项与或有负债排查：不接审计意见真实性的再鉴定；未取得带页码原文时标「待核」，不以转述替代引文。",
+      "rule": "股权质押、减持与重大关联交易穿透：数据以公告披露为准，不接实时盘口监控；平仓线测算的质押率假设按券商通行50%–60%区间标注，不输出单点预警线。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000198"
     },
     {
-      "rule": "关键审计事项与或有负债排查：报表数字真实性找「报表勾稽平衡与重述校验」；关联交易穿透找「股权质押、减持与重大关联交易穿透」。",
+      "rule": "股权质押、减持与重大关联交易穿透：公司治理与护城河研判找「竞争壁垒与核心投资假说验证」；或有负债找「关键审计事项与或有负债排查」。",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-000000000199"
     },
     {
-      "rule": "竞争壁垒与核心投资假说验证·怎样算对：必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b4"
-    },
-    {
-      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「moat_rating」不能空",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b5"
-    },
-    {
-      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「roic_vs_wacc_spread」的数都是用计算工具算的（算式 roic - wacc）",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b6"
-    },
-    {
-      "rule": "竞争壁垒与核心投资假说验证：依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论",
+      "rule": "商誉减值与资产质量压力测试·怎样算对：必须有：「goodwill_to_net_assets」、「cgu_recoverable_amount」、「impairment_stress_headroom」",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001ad"
     },
     {
-      "rule": "竞争壁垒与核心投资假说验证：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "rule": "商誉减值与资产质量压力测试·怎样算对：「goodwill_to_net_assets」的数都是用计算工具算的（算式 goodwill_balance / net_assets）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001ae"
     },
     {
-      "rule": "竞争壁垒与核心投资假说验证：不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。",
+      "rule": "商誉减值与资产质量压力测试·怎样算对：「impairment_stress_headroom」两边相等（容差 0.01）",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001af"
     },
     {
-      "rule": "竞争壁垒与核心投资假说验证：ROIC 与 WACC 的取值口径找「企业自由现金流贴现估值 DCF」；假说涉及的财务证据回到各上游分析方法。",
+      "rule": "商誉减值与资产质量压力测试：依据：财政部《企业会计准则第8号——资产减值》(CAS 8) 及会计监管风险提示第8号——商誉减值",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b0"
+      "ref": "record:00000000-0000-0000-0000-0000000001a6"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」至少 1 项",
+      "rule": "商誉减值与资产质量压力测试：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ca"
+      "ref": "record:00000000-0000-0000-0000-0000000001a7"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "rule": "商誉减值与资产质量压力测试：可收回金额的公允价值测算属评估师工作，本轮只做账面与承诺完成率的压力测试，不输出正式减值结论。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cb"
+      "ref": "record:00000000-0000-0000-0000-0000000001a8"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」与第「报表勾稽平衡与重述校验」步一一对上",
+      "rule": "商誉减值与资产质量压力测试：无形资产与研发资本化质量找「研发投入资本化与产出效能评估」；减值对偿债指标的冲击找「偿债压力与流动性体检」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cc"
+      "ref": "record:00000000-0000-0000-0000-0000000001a9"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cd"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ce"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」与第「偿债压力与流动性体检」步一一对上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cf"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d0"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency」；「metric」、「source」不能为空；「metric」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d1"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」与第「收益质量分析与应计项排雷、FCF」步一一对上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d2"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d3"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality」；「metric」、「source」不能为空；「metric」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d4"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」与第「企业自由现金流贴现估值 DCF」步一一对上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d5"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d6"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d7"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：必须有：「structured_dossier」、「executive_summary」、「risk_factors」、「evidence_audit_trail」",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d8"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「structured_dossier」不能空",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d9"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「executive_summary」不能空",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001da"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」至少 3 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001db"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」每项都有「text」、「source」，「source」只能是「reconciliation」、「dupont」、「solvency」、「earnings_quality」、「valuation」；「text」、「source」不能为空；「text」的组合不重复",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001dc"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001dd"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排：依据：中国证券业协会《发布证券研究报告执业规范》（2020年修订）研报底稿与留痕要求；《证券分析师执业行为准则》信息来源披露义务",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001be"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bf"
-    },
-    {
-      "rule": "结构化研究底稿与报告成稿编排：不接买卖建议、评级与目标价表述（平台红线）；不接未在上游出现的指标，底稿不凭空造数；估值区间与关键假设的对外表述待作者确认。",
+      "rule": "关键审计事项与或有负债排查·怎样算对：必须有：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001c0"
     },
     {
-      "rule": "结构化研究底稿与报告成稿编排：单项指标计算与校验回到各上游方法；缺数据的需求提报走 knowfeed 缺口清单。",
+      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」至少 1 项",
       "source": "user_text",
       "ref": "record:00000000-0000-0000-0000-0000000001c1"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」、「no_kam」；「text」不能为空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c2"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：核对「audit_opinion_type」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c3"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」的说法附原文引文",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c4"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」的说法附原文引文",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c5"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：核对「kam_matters」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c6"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：核对「audit_opinion_type」的交付条件",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c7"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」每项都有「kind」、「matter」、「audit_response」，「kind」只能是「kam」；「matter」、「audit_response」不能为空；「matter」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c8"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」的说法附原文引文",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001c9"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号《在审计报告中沟通关键审计事项》及《企业会计准则第13号——或有事项》",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001b7"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001b8"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：不接审计意见真实性的再鉴定；未取得带页码原文时标「待核」，不以转述替代引文。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001b9"
+    },
+    {
+      "rule": "关键审计事项与或有负债排查：报表数字真实性找「报表勾稽平衡与重述校验」；关联交易穿透找「股权质押、减持与重大关联交易穿透」。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001ba"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证·怎样算对：必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001d8"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「moat_rating」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001d9"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证·怎样算对：「roic_vs_wacc_spread」的数都是用计算工具算的（算式 roic - wacc）",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001da"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证：依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001d1"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001d2"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证：不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001d3"
+    },
+    {
+      "rule": "竞争壁垒与核心投资假说验证：ROIC 与 WACC 的取值口径找「企业自由现金流贴现估值 DCF」；假说涉及的财务证据回到各上游分析方法。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001d4"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001ee"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001ef"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」与第「报表勾稽平衡与重述校验」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f0"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f1"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f2"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」与第「偿债压力与流动性体检」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f3"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f4"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f5"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」与第「收益质量分析与应计项排雷、FCF」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f6"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f7"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f8"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」与第「企业自由现金流贴现估值 DCF」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001f9"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」至少 1 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001fa"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001fb"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：必须有：「structured_dossier」、「executive_summary」、「risk_factors」、「evidence_audit_trail」",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001fc"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「structured_dossier」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001fd"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「executive_summary」不能空",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001fe"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」至少 3 项",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001ff"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」每项都有「text」、「source」，「source」只能是「reconciliation」、「dupont」、「solvency」、「earnings_quality」、「valuation」；「text」、「source」不能为空；「text」的组合不重复",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000200"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-000000000201"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排：依据：中国证券业协会《发布证券研究报告执业规范》（2020年修订）研报底稿与留痕要求；《证券分析师执业行为准则》信息来源披露义务",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001e2"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001e3"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排：不接买卖建议、评级与目标价表述（平台红线）；不接未在上游出现的指标，底稿不凭空造数；估值区间与关键假设的对外表述待作者确认。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001e4"
+    },
+    {
+      "rule": "结构化研究底稿与报告成稿编排：单项指标计算与校验回到各上游方法；缺数据的需求提报走 knowfeed 缺口清单。",
+      "source": "user_text",
+      "ref": "record:00000000-0000-0000-0000-0000000001e5"
     },
     {
       "rule": "planning",
@@ -9088,362 +9968,362 @@
     {
       "rule": "steps/non_recurring_items_purification/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000063"
+      "ref": "record:00000000-0000-0000-0000-000000000064"
     },
     {
       "rule": "steps/non_recurring_items_purification/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000064"
+      "ref": "record:00000000-0000-0000-0000-000000000065"
     },
     {
       "rule": "steps/non_recurring_items_purification/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000065"
+      "ref": "record:00000000-0000-0000-0000-000000000066"
     },
     {
       "rule": "steps/non_recurring_items_purification/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000066"
+      "ref": "record:00000000-0000-0000-0000-000000000067"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000076"
+      "ref": "record:00000000-0000-0000-0000-000000000077"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000077"
+      "ref": "record:00000000-0000-0000-0000-000000000078"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000078"
+      "ref": "record:00000000-0000-0000-0000-000000000079"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000079"
+      "ref": "record:00000000-0000-0000-0000-00000000007a"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008f"
+      "ref": "record:00000000-0000-0000-0000-000000000090"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000090"
+      "ref": "record:00000000-0000-0000-0000-000000000091"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000091"
+      "ref": "record:00000000-0000-0000-0000-000000000092"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000092"
+      "ref": "record:00000000-0000-0000-0000-000000000093"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a7"
+      "ref": "record:00000000-0000-0000-0000-0000000000ad"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a8"
+      "ref": "record:00000000-0000-0000-0000-0000000000ae"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a9"
+      "ref": "record:00000000-0000-0000-0000-0000000000af"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000aa"
+      "ref": "record:00000000-0000-0000-0000-0000000000b0"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b9"
+      "ref": "record:00000000-0000-0000-0000-0000000000bf"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ba"
+      "ref": "record:00000000-0000-0000-0000-0000000000c0"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bb"
+      "ref": "record:00000000-0000-0000-0000-0000000000c1"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bc"
+      "ref": "record:00000000-0000-0000-0000-0000000000c2"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d0"
+      "ref": "record:00000000-0000-0000-0000-0000000000d6"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d1"
+      "ref": "record:00000000-0000-0000-0000-0000000000d7"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d2"
+      "ref": "record:00000000-0000-0000-0000-0000000000d8"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d3"
+      "ref": "record:00000000-0000-0000-0000-0000000000d9"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e1"
+      "ref": "record:00000000-0000-0000-0000-0000000000e7"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e2"
+      "ref": "record:00000000-0000-0000-0000-0000000000e8"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e3"
+      "ref": "record:00000000-0000-0000-0000-0000000000e9"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e4"
+      "ref": "record:00000000-0000-0000-0000-0000000000ea"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f2"
+      "ref": "record:00000000-0000-0000-0000-0000000000f8"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f3"
+      "ref": "record:00000000-0000-0000-0000-0000000000f9"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f4"
+      "ref": "record:00000000-0000-0000-0000-0000000000fa"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f5"
+      "ref": "record:00000000-0000-0000-0000-0000000000fb"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000103"
+      "ref": "record:00000000-0000-0000-0000-000000000109"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000104"
+      "ref": "record:00000000-0000-0000-0000-00000000010a"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000105"
+      "ref": "record:00000000-0000-0000-0000-00000000010b"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000106"
+      "ref": "record:00000000-0000-0000-0000-00000000010c"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000114"
+      "ref": "record:00000000-0000-0000-0000-00000000011a"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000115"
+      "ref": "record:00000000-0000-0000-0000-00000000011b"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000116"
+      "ref": "record:00000000-0000-0000-0000-00000000011c"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000117"
+      "ref": "record:00000000-0000-0000-0000-00000000011d"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000125"
+      "ref": "record:00000000-0000-0000-0000-000000000130"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000126"
+      "ref": "record:00000000-0000-0000-0000-000000000131"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000127"
+      "ref": "record:00000000-0000-0000-0000-000000000132"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000128"
+      "ref": "record:00000000-0000-0000-0000-000000000133"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000149"
+      "ref": "record:00000000-0000-0000-0000-000000000166"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014a"
+      "ref": "record:00000000-0000-0000-0000-000000000167"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014b"
+      "ref": "record:00000000-0000-0000-0000-000000000168"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014c"
+      "ref": "record:00000000-0000-0000-0000-000000000169"
     },
     {
       "rule": "steps/relative_multiple_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000160"
+      "ref": "record:00000000-0000-0000-0000-000000000180"
     },
     {
       "rule": "steps/relative_multiple_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000161"
+      "ref": "record:00000000-0000-0000-0000-000000000181"
     },
     {
       "rule": "steps/relative_multiple_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000162"
+      "ref": "record:00000000-0000-0000-0000-000000000182"
     },
     {
       "rule": "steps/relative_multiple_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000163"
+      "ref": "record:00000000-0000-0000-0000-000000000183"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000171"
+      "ref": "record:00000000-0000-0000-0000-000000000192"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000172"
+      "ref": "record:00000000-0000-0000-0000-000000000193"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000173"
+      "ref": "record:00000000-0000-0000-0000-000000000194"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000174"
+      "ref": "record:00000000-0000-0000-0000-000000000195"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000181"
+      "ref": "record:00000000-0000-0000-0000-0000000001a2"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000182"
+      "ref": "record:00000000-0000-0000-0000-0000000001a3"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000183"
+      "ref": "record:00000000-0000-0000-0000-0000000001a4"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000184"
+      "ref": "record:00000000-0000-0000-0000-0000000001a5"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000192"
+      "ref": "record:00000000-0000-0000-0000-0000000001b3"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000193"
+      "ref": "record:00000000-0000-0000-0000-0000000001b4"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000194"
+      "ref": "record:00000000-0000-0000-0000-0000000001b5"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000195"
+      "ref": "record:00000000-0000-0000-0000-0000000001b6"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a9"
+      "ref": "record:00000000-0000-0000-0000-0000000001cd"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001aa"
+      "ref": "record:00000000-0000-0000-0000-0000000001ce"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ab"
+      "ref": "record:00000000-0000-0000-0000-0000000001cf"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ac"
+      "ref": "record:00000000-0000-0000-0000-0000000001d0"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ba"
+      "ref": "record:00000000-0000-0000-0000-0000000001de"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bb"
+      "ref": "record:00000000-0000-0000-0000-0000000001df"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bc"
+      "ref": "record:00000000-0000-0000-0000-0000000001e0"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bd"
+      "ref": "record:00000000-0000-0000-0000-0000000001e1"
     }
   ]
 }

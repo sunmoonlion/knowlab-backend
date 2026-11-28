@@ -31,5 +31,11 @@ def test_financial_positive_chain_and_single_fault_regressions():
     )
     assert result.returncode == 0, result.stderr
     checks = json.loads(result.stdout)
-    assert len(checks) == 101
+    assert len(checks) == 138
     assert all(checks.values())
+
+
+def test_author_and_runtime_share_delivery_assertion_syntax():
+    author = FIXTURES.parent / "app/domain/knowbots/delivery_assertion_contract.py"
+    runtime = KNOWBENCH_APP_DIR / "app/domain/workbench/delivery_assertion_contract.py"
+    assert author.read_bytes() == runtime.read_bytes()

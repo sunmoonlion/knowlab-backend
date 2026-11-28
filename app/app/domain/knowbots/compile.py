@@ -31,6 +31,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.domain.knowbots.delivery_assertion_contract import parse_assertion
 from app.domain.knowbots.drafts import DYNAMIC_MANIFEST_SCHEMA, MANIFEST_SCHEMA
 from app.domain.knowbots.managed_authoring import MESSAGE, pack_paths, workdraft_paths
 from app.domain.knowbots.managed_capabilities_generated import MethodAccess
@@ -124,6 +125,7 @@ Scalar = str | int | float | bool
 
 # 每个验收模板收哪些参数（必填的、可选的）
 TEMPLATES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "assertion": (frozenset({"path", "expression"}), frozenset()),
     "required": (frozenset({"keys"}), frozenset()),
     "non_empty": (frozenset({"path"}), frozenset()),
     "list_min": (frozenset({"path"}), frozenset({"min"})),
@@ -152,6 +154,7 @@ KIND_OF = {"required": "required_keys", "max_chars": "max_chars"}
 NUMERIC_RULES = frozenset({"computed", "identity", "sourced", "quoted", "covers"})
 ACCEPTANCE_KINDS = frozenset(
     {
+        "assertion",
         "json_object",
         "required_keys",
         "non_empty",
@@ -231,6 +234,13 @@ def check_rule(
             return None, "keys must be outputs of this step"
         rule["keys"] = list(keys)
         label = f"必须有：{_words(keys)}"
+    elif t == "assertion":
+        try:
+            parse_assertion(params["expression"])
+        except ValueError as exc:
+            return None, str(exc)
+        rule["expression"] = params["expression"]
+        label = f"核对「{path}」的交付条件"
     elif t == "non_empty":
         label = f"「{path}」不能空"
     elif t == "list_min":
@@ -969,7 +979,12 @@ def _rule_problems(rule: Any) -> list[str]:
             problems.append(
                 f"{extension} requires its supported rule kind and unique names"
             )
-    if rule.get("expression") is not None and kind != "computed":
+    if kind == "assertion":
+        try:
+            parse_assertion(rule.get("expression"))
+        except ValueError as exc:
+            problems.append(str(exc))
+    if rule.get("expression") is not None and kind not in ("computed", "assertion"):
         problems.append("only computed takes an expression")
     if kind == "each_has" and not rule.get("path"):
         problems.append("each_has needs a path")
@@ -1401,6 +1416,8 @@ def _check_of(
     params["path"] = path
     if kind == "list_min" and rule.get("min_items", 1) != 1:
         params["min"] = rule["min_items"]
+    elif kind == "assertion":
+        params["expression"] = rule.get("expression")
     elif kind == "each_has":
         for extension in ("non_empty_keys", "unique_by"):
             if rule.get(extension):

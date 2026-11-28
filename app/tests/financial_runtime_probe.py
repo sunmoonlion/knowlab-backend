@@ -142,7 +142,7 @@ def outputs(e):
                 }
             )
     all_outputs[M01] = out
-    out = {"reconciliation_status": "已核对"}
+    out = {"reconciliation_status": "平衡"}
     params = {
         "balance_sheet_balance_diff": dict(
             total_assets=100, total_liabilities=40, equity=60
@@ -219,13 +219,23 @@ def outputs(e):
         ("next_quarter", "following_quarter"),
         ("pessimistic", "base", "optimistic"),
     )
+
+    def scenario_value(scenario, metric):
+        index = scenarios.index(scenario)
+        return {
+            "revenue": (80, 100, 120),
+            "parent_net_profit": (4, 8, 12),
+            "operating_cost": (72, 80, 84),
+            "gross_margin": (0.1, 0.2, 0.3),
+        }[metric][index]
+
     out["forecast_income_statement"] = [
         {
             "horizon": h,
             "period": "2025Q1" if h == horizons[0] else "2025Q2",
             "scenario": scenario,
             "metric": metric,
-            **e.compute(x=100),
+            **e.compute(x=scenario_value(scenario, metric)),
         }
         for h, scenario, metric in product(
             horizons, scenarios, ("revenue", "parent_net_profit", "operating_cost")
@@ -257,12 +267,20 @@ def outputs(e):
         {
             "horizon": h,
             "metric": m,
-            "lower": 1,
-            "base": 2,
-            "upper": 3,
-            **e.compute("max(lower-base, base-upper, 0)", lower=1, base=2, upper=3),
+            "period": "2025Q1" if h == horizons[0] else "2025Q2",
+            **bounds,
+            **e.compute("max(lower-base, base-upper, 0)", **bounds),
         }
         for h, m in product(horizons, ("revenue", "parent_net_profit", "gross_margin"))
+        for bounds in [
+            dict(
+                zip(
+                    ("lower", "base", "upper"),
+                    (scenario_value(sc, m) for sc in scenarios),
+                    strict=True,
+                )
+            )
+        ]
     ]
     all_outputs[M13] = out
 
@@ -395,17 +413,24 @@ def outputs(e):
     all_outputs[M11] = out
 
     out = {
-        "revenue_cagr_3yr": e.compute(
-            expression_of(units[M12], "revenue_cagr_3yr"),
-            end_revenue=133.1,
-            start_revenue=100,
-        ),
-        "net_profit_cagr_3yr": 0.08,
+        "cagr_basis": [],
+        "cagr_rates": [],
         "trend_projection_series": [
             {"period": "2022", "value": 100},
             {"period": "2023", "value": 115},
         ],
     }
+    for metric, start, end, key in (
+        ("revenue", 100, 133.1, "revenue_cagr_3yr"),
+        ("profit", 10, 12, "net_profit_cagr_3yr"),
+    ):
+        operands = {"start": start, "end": end}
+        out["cagr_basis"].append(
+            {"metric": metric, **operands, **e.compute("end-start", **operands)}
+        )
+        proof = e.compute("(end/start)**(1/3)-1", **operands)
+        out[key] = proof["value"]
+        out["cagr_rates"].append({"metric": metric, **operands, **proof})
     all_outputs[M12] = out
 
     equity = e.compute(
@@ -443,11 +468,13 @@ def outputs(e):
         "target_pe_ttm": 15,
         "target_pb_lf": 2.1,
         "historical_pe_percentile": 0.35,
-        "implied_market_cap": e.compute(
-            expression_of(units[M15], "implied_market_cap"),
-            purified_net_profit=100,
-            target_pe_ttm=15,
-        ),
+        "earnings": {"address": fact(e, "100"), "value": 100},
+        "valuation_basis": "PE",
+        "implied_market_cap": {
+            "multiple": 15,
+            "base": 100,
+            **e.compute("multiple * base", multiple=15, base=100),
+        },
     }
     all_outputs[M15] = out
 
@@ -560,7 +587,13 @@ async def main():
         assert name not in checks, ("duplicate probe marker", name)
         rules = units[method].acceptance
         v = await judge_numbers(
-            judge(json.dumps(output, ensure_ascii=False), rules),
+            judge(
+                json.dumps(output, ensure_ascii=False),
+                rules,
+                output_shape=units[method].output_schema
+                if method in (M02, M05, M12, M13, M14, M15, M18)
+                else None,
+            ),
             rules,
             repo=e,
             task={"id": "synthetic-test"},
@@ -609,7 +642,7 @@ async def main():
         expr, total_assets=1000099, total_liabilities=40, equity=60
     )
     await expect(
-        "nonzero_matching_computation", M02, bad, False, "balance_sheet_balance_diff"
+        "nonzero_matching_computation", M02, bad, False, "reconciliation_status"
     )
     bad["balance_sheet_balance_diff"] = {
         "value": 999999,
@@ -617,6 +650,117 @@ async def main():
         "right_id": "c1",
     }
     await expect("forged_equal_ids", M02, bad, False, "balance_sheet_balance_diff")
+
+    for delta in (0.99, 1, 2):
+        for reported in ("平衡", "差异已检出"):
+            sample = deepcopy(good[M02])
+            sample["balance_sheet_balance_diff"] = e.compute(
+                expr, total_assets=100 + delta, total_liabilities=40, equity=60
+            )
+            sample["reconciliation_status"] = reported
+            await expect(
+                f"delta:{delta}:{reported}",
+                M02,
+                sample,
+                (reported == "平衡") == (delta < 1),
+            )
+
+    for z, level in ((0.5, "高"), (1.81, "中"), (2.99, "中"), (3.0, "低")):
+        sample = deepcopy(good[M05])
+        sample["altman_z_score"] = z
+        sample["solvency_risk_level"] = level
+        sample["evidence_items"][-1].update(e.compute(x=z))
+        await expect(f"risk:{z}", M05, sample, True)
+        sample["solvency_risk_level"] = "中" if level != "中" else "高"
+        await expect(f"wrong_risk:{z}", M05, sample, False)
+    bad = deepcopy(good[M05])
+    bad["evidence_items"][-1].update(e.compute(x=0.5))
+    await expect("wrong_evidence_score", M05, bad, False, "evidence_items")
+
+    for start, end in ((0, 12), (10, -2), (-10, -5)):
+        sample = deepcopy(good[M12])
+        data = dict(start=start, end=end)
+        sample["cagr_basis"][0] = {
+            "metric": "revenue",
+            **data,
+            **e.compute("end-start", **data),
+        }
+        sample["cagr_rates"].pop(0)
+        sample.pop("revenue_cagr_3yr")
+        sample["reason"] = "起终端点非正，不可计算；见已计算的绝对变动。"
+        await expect(f"undefined:{start}:{end}", M12, sample, True)
+        sample["revenue_cagr_3yr"] = 0
+        await expect(f"fabricated:{start}:{end}", M12, sample, False)
+
+    sample = deepcopy(good[M15])
+    sample.pop("target_pe_ttm")
+    sample.pop("historical_pe_percentile")
+    sample.update(
+        earnings={"address": fact(e, "-2"), "value": -2},
+        valuation_basis="PB",
+        book_equity=80,
+        reason="亏损，改按 PB",
+    )
+    sample["implied_market_cap"] = {
+        "multiple": 2.1,
+        "base": 80,
+        **e.compute("multiple * base", multiple=2.1, base=80),
+    }
+    await expect("loss_pb", M15, sample, True)
+    sample["reason"] = " "
+    await expect("loss_no_reason", M15, sample, False)
+    sample.update(
+        valuation_basis="PS", sales=50, target_ps_ttm=3, reason="亏损，改用销售倍数"
+    )
+    sample.pop("target_pb_lf")
+    sample["implied_market_cap"] = {
+        "multiple": 3,
+        "base": 50,
+        **e.compute("multiple * base", multiple=3, base=50),
+    }
+    await expect("loss_ps", M15, sample, True)
+    sample["earnings"]["value"] = 0
+    await expect("invented_earnings_for_fallback", M15, sample, False, "earnings")
+    sample = deepcopy(good[M15])
+    sample.pop("target_pe_ttm")
+    sample["reason"] = "不适用"
+    await expect("positive_earnings_unexplained_pe", M15, sample, False)
+
+    bad = deepcopy(good[M13])
+    item = bad["forecast_intervals"][0]
+    bounds = {"lower": 1, "base": 2, "upper": 3}
+    item.update(bounds, **e.compute("max(lower-base, base-upper, 0)", **bounds))
+    await expect("disconnected_interval", M13, bad, False, "forecast_intervals")
+
+    bad = deepcopy(good[M13])
+    bad["forecast_intervals"][0]["period"] = "2025Q3"
+    await expect("wrong_quarter_interval", M13, bad, False, "forecast_intervals")
+    for fault, grid in (
+        (
+            "single_axis",
+            [dict(wacc=0.1, growth=g, per_share=8) for g in (0.01, 0.02, 0.03, 0.04)],
+        ),
+        ("missing_corner", good[M14]["sensitivity_table"][:-1]),
+    ):
+        bad = deepcopy(good[M14])
+        bad["sensitivity_table"] = grid
+        await expect(fault, M14, bad, False, "sensitivity_table")
+    sample = deepcopy(good[M18])
+    sample["kam_topics_count"] = 0
+    await expect("zero_with_items", M18, sample, False, "kam_matters")
+    sample["kam_matters"] = []
+    await expect("zero_without_scope", M18, sample, False)
+    page = "合成报告明确无关键审计事项。"
+    material = sample["audit_opinion_type"][0]["quotes"][0]["material_id"]
+    e.pages[(material, 9)] = page
+    sample["audit_opinion_type"].append(
+        {
+            "kind": "no_kam",
+            "text": page,
+            "quotes": [{"material_id": material, "page": 9, "text": page}],
+        }
+    )
+    await expect("zero_with_disclosure", M18, sample, True)
 
     bad = deepcopy(good[M03])
     bad["quarterly_unpacked_profits"] = []
@@ -731,9 +875,21 @@ async def main():
         "empty:trend_projection_series", M12, bad, False, "trend_projection_series"
     )
     bad = deepcopy(good[M12])
-    bad["revenue_cagr_3yr"]["value"] += 99
-    await expect("tampered:revenue_cagr_3yr", M12, bad, False, "revenue_cagr_3yr")
+    bad["revenue_cagr_3yr"] += 99
+    await expect("tampered:revenue_cagr_3yr", M12, bad, False, "cagr_basis")
 
+    for fault, grid in (
+        ("empty", []),
+        ("single_cell", [good[M14]["sensitivity_table"][0]]),
+        ("duplicate_coordinates", [good[M14]["sensitivity_table"][0]] * 4),
+        (
+            "missing_valuation",
+            [dict(wacc=w, growth=g) for w, g in product((0.08, 0.09), (0.01, 0.02))],
+        ),
+    ):
+        bad = deepcopy(good[M14])
+        bad["sensitivity_table"] = grid
+        await expect(fault + ":sensitivity_table", M14, bad, False, "sensitivity_table")
     bad = deepcopy(good[M14])
     bad["evidence_items"] = bad["evidence_items"][:3]
     await expect("short:evidence_items_dcf", M14, bad, False, "evidence_items")

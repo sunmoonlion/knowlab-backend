@@ -124,6 +124,7 @@ class OutputCell(Strict):
 
 
 CheckTemplate = Literal[
+    "assertion",
     "required",  # 必须有
     "non_empty",  # 不能空
     "list_min",  # 列表至少几项
