@@ -12,7 +12,7 @@ from uuid import UUID
 
 import pytest
 
-from app.domain.knowbots.compile import compile_manifest
+from app.domain.knowbots.compile import compile_manifest, pack_problems
 from app.domain.knowbots.methods import (
     BindMethod,
     FreezeMethod,
@@ -62,6 +62,7 @@ def test_author_method_lifecycle_and_multi_expert_immutability() -> None:
     )
     expert_a_draft["steps"][0] = bound_step_a.model_dump(mode="json")
     expert_a_draft["method_refs"] = {"step_report_a": ref_a_v1}
+    expert_a_draft["planning"]["final_units"] = ["step_report_a"]
 
     parsed_a_v1 = WorkdraftBody.model_validate(expert_a_draft)
     sources_a_v1 = {
@@ -82,7 +83,7 @@ def test_author_method_lifecycle_and_multi_expert_immutability() -> None:
             }
         },
     )
-    assert len(problems_a_v1) == 0
+    assert not problems_a_v1 and not pack_problems(manifest_a_v1["pack"])
     pack_a = manifest_a_v1["pack"]
     assert pack_a["runtime_contract"] == "knowbench/dynamic-methods/v2"
     ref_a = pack_a["method_sources"]["step_report_a"]["reference"]
@@ -113,6 +114,7 @@ def test_author_method_lifecycle_and_multi_expert_immutability() -> None:
     )
     expert_b_draft["steps"][0] = bound_step_b.model_dump(mode="json")
     expert_b_draft["method_refs"] = {"my_audit_step": ref_b_v1}
+    expert_b_draft["planning"]["final_units"] = ["my_audit_step"]
 
     parsed_b_v1 = WorkdraftBody.model_validate(expert_b_draft)
     sources_b_v1 = {
@@ -133,7 +135,7 @@ def test_author_method_lifecycle_and_multi_expert_immutability() -> None:
             }
         },
     )
-    assert len(problems_b_v1) == 0
+    assert not problems_b_v1 and not pack_problems(manifest_b_v1["pack"])
     pack_b = manifest_b_v1["pack"]
     assert pack_b["runtime_contract"] == "knowbench/dynamic-methods/v2"
     ref_b = pack_b["method_sources"]["my_audit_step"]["reference"]
@@ -180,7 +182,7 @@ def test_author_method_lifecycle_and_multi_expert_immutability() -> None:
     expert_a_draft["method_refs"] = {"step_report_a": ref_a_v2}
 
     parsed_a_v2 = WorkdraftBody.model_validate(expert_a_draft)
-    manifest_a_v2, _ = compile_manifest(
+    manifest_a_v2, problems_a_v2 = compile_manifest(
         parsed_a_v2,
         sources_a_v1,
         pack_id="expert-a-v2",
@@ -194,6 +196,7 @@ def test_author_method_lifecycle_and_multi_expert_immutability() -> None:
             }
         },
     )
+    assert not problems_a_v2 and not pack_problems(manifest_a_v2["pack"])
     ref_a_upgraded = manifest_a_v2["pack"]["method_sources"]["step_report_a"][
         "reference"
     ]

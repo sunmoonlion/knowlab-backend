@@ -466,6 +466,18 @@ class KnowbotWorkdraftService:
             for v in await self.repo.list_versions([request.id])
         }
 
+    async def _source_problems(self, request, current, body, sources):
+        entries = await self.repo.list_workdraft_entries(record_ids(sources))
+        return source_problems(
+            body,
+            sources,
+            workdraft_id=None if current is None else current.id,
+            owner_subject=request.owner_subject,
+            entries={e.id: e for e in entries},
+            answered=await self._answered(request),
+            ideas=await self._ideas(request),
+        )
+
     async def _compile(
         self, request: RequestRecord, current: WorkdraftRecord | None, version: str
     ) -> tuple[dict[str, Any], list[Problem]]:
@@ -476,16 +488,7 @@ class KnowbotWorkdraftService:
                 code="formal_method_requires_validation",
             )
         sources = {} if current is None else current.sources
-        entries = await self.repo.list_workdraft_entries(record_ids(sources))
-        problems = source_problems(
-            body,
-            sources,
-            workdraft_id=None if current is None else current.id,
-            owner_subject=request.owner_subject,
-            entries={e.id: e for e in entries},
-            answered=await self._answered(request),
-            ideas=await self._ideas(request),
-        )
+        problems = await self._source_problems(request, current, body, sources)
         manifest, compiled = compile_manifest(
             body,
             sources,

@@ -140,21 +140,27 @@ class KnowbotMethodService:
             current = await self.workdrafts.locked(request, command.revision)
             # Reuse author acceptance and compiler checks; don't turn unaccepted
             # AI proposals into methods via a new endpoint.
-            _, problems = await self.workdrafts._compile(request, current, "1")
+            body = parse_body(current.body)
+            selected = {command.step_id, *command.input_slots.keys()}
+            prefixes = tuple(f"steps/{alias}/" for alias in selected)
+            if isinstance(command, FreezeAtomicMethod) and not body.planning and not body.formal_method and not body.method_template:
+                problems = [
+                    issue for issue in await self.workdrafts._source_problems(request,current,body,current.sources)
+                    if issue.path.startswith(prefixes)
+                ]
+            else:
+                _, problems = await self.workdrafts._compile(request, current, "1")
             if problems:
                 raise BadRequestError(
                     "Resolve the workdraft's author/compile checks first",
                     code="method_source_invalid",
                 )
-            body = parse_body(current.body)
             try:
                 definition = freeze(body, command)
             except (ValueError, KeyError):
                 raise BadRequestError(
                     "Invalid method or input slots", code="method_definition_invalid"
                 ) from None
-            selected = {command.step_id, *command.input_slots.keys()}
-            prefixes = tuple(f"steps/{alias}/" for alias in selected)
             provenance = {
                 **command.model_dump(mode="json"),
                 "workdraft_id": str(current.id),
