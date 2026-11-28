@@ -83,7 +83,7 @@ def plan(
     gone = set(dropped or ())
     by_key = {n.key: n for n in needs}
     out = Plan()
-    seen: set[tuple[str, int]] = set()
+    seen: set[tuple[str, int, str | None, int | None]] = set()
     known = {item_ref(i) for i in resolution.get("items") or []}
     if any(ref not in known for ref in list(picks) + list(gone)):
         out.problems.append("换选或去掉的条目不在这张清单里")
@@ -104,7 +104,12 @@ def plan(
         if status == "resolved" or (status == "ambiguous" and chosen):
             for candidate in chosen:
                 pin = _pin(candidate)
-                key = (pin["material_id"], pin["version_no"])
+                key = (
+                    pin["material_id"],
+                    pin["version_no"],
+                    pin["rendition_kind"],
+                    pin["rendition_no"],
+                )
                 if key not in seen:
                     seen.add(key)
                     out.pins.append(pin)

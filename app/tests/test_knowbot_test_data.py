@@ -456,3 +456,98 @@ async def test_the_receiver_takes_only_knowfeed_and_answers_204(world) -> None:
             assert (await c.post(url, json=status_event())).status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("readings", [("pages", "table"), ("table", "pages")])
+def test_one_document_preserves_each_requested_rendition_in_the_grant(readings):
+    from app.domain.knowbots.data_plan import plan
+    from app.domain.knowbots.data_request import DataRequest
+
+    needs = [
+        DataRequest.model_validate(
+            {
+                "key": r,
+                "name": r,
+                "reading": r,
+                "period": {"kind": "none"},
+                "doc_type": "other",
+                "formats": ["pdf"],
+            }
+        )
+        for r in readings
+    ]
+    items = [
+        {
+            "need_key": r,
+            "status": "resolved",
+            "key": {"doc_type": "other"},
+            "chosen": [
+                {
+                    "material_id": "m",
+                    "version_no": 1,
+                    "sha256": "a" * 64,
+                    "rendition_kind": r,
+                    "rendition_no": 1,
+                    "rendition_sha256": ("b" if r == "pages" else "c") * 64,
+                }
+            ],
+        }
+        for r in readings
+    ]
+    result = plan({"items": [*items, items[0]]}, needs)
+    assert [
+        (v["rendition_kind"], v["rendition_sha256"]) for v in result.grant_items
+    ] == [(r, ("b" if r == "pages" else "c") * 64) for r in readings]
+    assert not result.missing and not result.problems
+
+
+async def test_ambiguous_refresh_waits_for_author_choice(world):
+    from unittest.mock import AsyncMock
+
+    service, data, repo, runtime, kb, supply, _, test = world
+    [shown] = await data.pending(OWNER, str(test.id), token)
+    await data.confirm(OWNER, shown["question_id"], token)
+    fresh = kb._latest()
+    choices = [candidate("2024"), {**candidate("2024"), "material_id": "other"}]
+    fresh["items"][1].update(status="ambiguous", chosen=[], candidates=choices)
+    kb.refresh = AsyncMock(return_value=fresh)
+    kb.resolution = AsyncMock(return_value=fresh)
+    supply.status = "ready"
+    await service.refresh(str(test.id))
+    assert runtime.answers == [] and not [c for c in kb.calls if c[0] == "grant"]
+    [shown] = await data.pending(OWNER, str(test.id), token)
+    assert shown["status"] == "proposed" and shown["missing"]
+    await data.confirm(
+        OWNER, shown["question_id"], token, picks={shown["items"][1]["ref"]: choices[1]}
+    )
+    assert len(runtime.answers) == 1
+    assert [
+        p["material_id"] for p in next(iter(repo.questions.values())).data_state["pins"]
+    ] == ["m-2025", "other"]
+
+
+async def test_failed_batch_grant_revokes_the_ones_already_issued():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.application.errors.exceptions import ServiceUnavailableError
+    from app.domain.knowbots.data_plan import _pin
+
+    items = [_pin(candidate("2025"))]
+    repo = AsyncMock()
+    repo.latest_test_set.return_value = SimpleNamespace(
+        cases={i: {"items": items} for i in ("a", "b")}, version=1
+    )
+    kb = AsyncMock()
+    kb.case_grant.side_effect = ["first", ServiceUnavailableError("not available")]
+    data = KnowbotTestData(
+        repo, kb, None, None, supply_enabled=False, max_wait_seconds=600
+    )
+    with pytest.raises(ServiceUnavailableError):
+        await data.with_test_set(
+            SimpleNamespace(id="id", owner_subject=OWNER),
+            [{"case_id": "a"}, {"case_id": "b"}],
+            run_id="id",
+            ttl_seconds=600,
+        )
+    kb.revoke_case_grant.assert_awaited_once_with("first")

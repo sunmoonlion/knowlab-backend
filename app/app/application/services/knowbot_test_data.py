@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
@@ -273,6 +274,8 @@ class KnowbotTestData:
                 dropped=dropped or [],
                 after_supply=True,
             )
+            if await self._needs_confirmation(q, state, latest, draft):
+                return {"status": state["status"], "missing": state["missing"]}
         await self._answer(q, test, request, state, draft)
         return {"status": "answered", "pinned": len(draft.pins)}
 
@@ -314,21 +317,33 @@ class KnowbotTestData:
                 dropped=state.get("dropped") or [],
                 after_supply=True,
             )
-            if done.missing:
-                state.update(
-                    {
-                        "status": "missing",
-                        "missing": done.missing,
-                        "pins": done.pins,
-                        "incomplete": [
-                            i for i in done.incomplete if i not in done.missing
-                        ],
-                    }
-                )
-                async with self.repo.transaction():
-                    await self.repo.update_question(q.id, data_state=state)
+            if await self._needs_confirmation(q, state, latest, done):
                 continue
             await self._answer(q, test, request, state, done)
+
+    async def _needs_confirmation(
+        self,
+        q: QuestionRecord,
+        state: dict[str, Any],
+        latest: dict[str, Any],
+        result: Plan,
+    ) -> bool:
+        if not result.problems and not result.missing:
+            return False
+        state.update(
+            status="proposed" if result.problems else "missing",
+            revision=int(latest["revision"]),
+            missing=result.problems + result.missing,
+            incomplete=[
+                message
+                for message in result.incomplete
+                if message not in result.missing
+            ],
+            pins=result.pins,
+        )
+        async with self.repo.transaction():
+            await self.repo.update_question(q.id, data_state=state)
+        return True
 
     async def on_demand_status(self, demand_id: str, owner: str) -> int:
         """knowfeed 推来需求状态变了（契约 knowfeed-supply-status/v1）：等这张单的那次
@@ -411,37 +426,42 @@ class KnowbotTestData:
         if latest is None:
             return cases, None, []
         out, grants = [], []
-        for case in cases:
-            items = list(
-                (latest.cases.get(str(case.get("case_id"))) or {}).get("items") or []
-            )
-            if not items:
-                out.append(case)
-                continue
-            grant_id = await self.knowbase.case_grant(
-                owner=request.owner_subject,
-                ref=f"{run_id}:{case.get('case_id')}"[:255],
-                items=[
-                    {
-                        k: item[k]
-                        for k in (
-                            "material_id",
-                            "version_no",
-                            "sha256",
-                            "rendition_kind",
-                            "rendition_no",
-                            "rendition_sha256",
-                            "basis",
-                            "basis_ref",
-                        )
-                        if item.get(k) is not None
-                    }
-                    for item in items
-                ],
-                ttl_seconds=ttl_seconds,
-            )
-            grants.append(grant_id)
-            out.append({**case, "data": case_data(items, grant_id)})
+        try:
+            for case in cases:
+                items = list(
+                    (latest.cases.get(str(case.get("case_id"))) or {}).get("items")
+                    or []
+                )
+                if not items:
+                    out.append(case)
+                    continue
+                grant_id = await self.knowbase.case_grant(
+                    owner=request.owner_subject,
+                    ref=f"{run_id}:{case.get('case_id')}"[:255],
+                    items=[
+                        {
+                            k: item[k]
+                            for k in (
+                                "material_id",
+                                "version_no",
+                                "sha256",
+                                "rendition_kind",
+                                "rendition_no",
+                                "rendition_sha256",
+                                "basis",
+                                "basis_ref",
+                            )
+                            if item.get(k) is not None
+                        }
+                        for item in items
+                    ],
+                    ttl_seconds=ttl_seconds,
+                )
+                grants.append(grant_id)
+                out.append({**case, "data": case_data(items, grant_id)})
+        except (Exception, asyncio.CancelledError):
+            await self.revoke(grants)
+            raise
         return out, latest.version, grants
 
     async def revoke(self, grants: list[str]) -> None:
@@ -539,6 +559,7 @@ class KnowbotTestData:
         state.update(
             {
                 "status": "answered",
+                "missing": [],
                 "grant_id": grant_id,
                 "pins": draft.pins,
                 "incomplete": list(state.get("incomplete") or []) + draft.incomplete,
