@@ -143,9 +143,17 @@ class KnowbotMethodService:
             body = parse_body(current.body)
             selected = {command.step_id, *command.input_slots.keys()}
             prefixes = tuple(f"steps/{alias}/" for alias in selected)
-            if isinstance(command, FreezeAtomicMethod) and not body.planning and not body.formal_method and not body.method_template:
+            if (
+                isinstance(command, FreezeAtomicMethod)
+                and not body.planning
+                and not body.formal_method
+                and not body.method_template
+            ):
                 problems = [
-                    issue for issue in await self.workdrafts._source_problems(request,current,body,current.sources)
+                    issue
+                    for issue in await self.workdrafts._source_problems(
+                        request, current, body, current.sources
+                    )
                     if issue.path.startswith(prefixes)
                 ]
             else:
