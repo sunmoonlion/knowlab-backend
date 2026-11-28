@@ -744,14 +744,33 @@ class MemoryKnowlab:
         return self.questions.get(question)
 
     async def list_questions(
-        self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
+        self,
+        *,
+        draft_id: uuid.UUID | None = None,
+        open_only: bool = False,
+        owner_subject: str | None = None,
+        include_unsent: bool = False,
     ) -> Sequence[QuestionRecord]:
         return [
             q
             for q in self.questions.values()
             if q.kind != "gap"
+            and (
+                owner_subject is None
+                or any(
+                    t.run_id == q.run_id
+                    and t.draft_id == q.draft_id
+                    and t.status in ACTIVE_TESTS
+                    and self.requests[t.request_id].owner_subject == owner_subject
+                    for t in self.tests.values()
+                )
+            )
             and (draft_id is None or q.draft_id == draft_id)
-            and (not open_only or q.answer is None)
+            and (
+                not open_only
+                or q.answer is None
+                or (include_unsent and q.sent_at is None)
+            )
         ]
 
     # ---------- AI 孵化的一轮 ----------

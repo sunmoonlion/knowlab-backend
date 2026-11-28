@@ -43,7 +43,7 @@ from app.application.ports.knowbots import (
     TestRecord,
 )
 from app.application.services.knowbot_grants import live_incubation
-from app.domain.knowbots.drafts import case_question_digest
+from app.domain.knowbots.drafts import ask_before_source, case_question_digest
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.domain.knowbots.test_run import CONTRACT, Answer, AnswersV1
 
@@ -163,10 +163,12 @@ class KnowbotQuestionService:
         )
 
     async def _open_questions(
-        self, *, operator: bool = False
+        self, *, operator: bool = False, owner_subject: str | None = None
     ) -> list[tuple[QuestionRecord, DraftRecord, RequestRecord, TestRecord]]:
         out = []
-        for question in await self.repo.list_questions(open_only=True):
+        for question in await self.repo.list_questions(
+            open_only=True, owner_subject=owner_subject, include_unsent=operator
+        ):
             test = await self._running(question)
             if test is None:
                 continue
@@ -190,10 +192,14 @@ class KnowbotQuestionService:
         if (
             test is None
             or draft is None
+            or test.draft_id != draft.id
             or test.mode not in ("platform", "rerun")
             or not await self._shown_to_operator(draft)
         ):
             raise NotFoundError("No such question", code="question_not_found")
+
+        if test.status not in ACTIVE_TESTS:
+            raise _conflict("That test is no longer running", "question_stale")
 
     # ---------- 运营（管理端） ----------
     async def operator_queue(
@@ -208,8 +214,8 @@ class KnowbotQuestionService:
         async with self.repo.transaction():
             question = await self._open(question_id)
             await self._platform_question(question)
-            if question.kind == "tool_approval":
-                raise _conflict("Approvals are answered by us", "question_kind")
+            if question.kind in ("tool_approval", "data"):
+                raise _conflict("This question cannot be reassigned", "question_kind")
             if question.route == "user":
                 raise _conflict("Already with the user", "question_routed")
             await self.repo.update_question(
@@ -226,8 +232,8 @@ class KnowbotQuestionService:
         async with self.repo.transaction():
             question = await self._open(question_id)
             await self._platform_question(question)
-            if question.kind == "tool_approval":
-                raise _conflict("Approvals are answered by us", "question_kind")
+            if question.kind in ("tool_approval", "data"):
+                raise _conflict("This question cannot be reassigned", "question_kind")
             if question.route != "user":
                 raise _conflict("Already ours", "question_taken")
             await self.repo.update_question(
@@ -246,7 +252,9 @@ class KnowbotQuestionService:
         """转给我的问题、我自助测试里的工具审批，和我的孵化缺口（不挂准专家）。"""
         found: list[tuple[QuestionRecord, DraftRecord | None, RequestRecord]] = [
             (q, draft, request)
-            for q, draft, request, test in await self._open_questions()
+            for q, draft, request, test in await self._open_questions(
+                owner_subject=owner_subject
+            )
             if request.owner_subject == owner_subject and _mine(q, test, draft)
         ]
         requests = {
@@ -386,7 +394,7 @@ class KnowbotQuestionService:
         按用例编号记，连同那条用例当时问的是哪一句（摘要）：以后编号换了位置、问题改了字，
         旧答案就不套上去（Fable 评审 P1-6）。先锁名称再读再写，两问同时答不丢一个。
         """
-        value = answer.get("option_id") or answer.get("text")
+        value = answer.get("text") or answer.get("option_id")
         if not value or not question.key:
             return
         version = await self.repo.get_version(request.id, draft.request_version)
@@ -407,6 +415,9 @@ class KnowbotQuestionService:
         entry = answers.get(question.case_id)
         if not isinstance(entry, dict) or entry.get("question") != digest:
             entry = {"question": digest, "answers": {}}
+        entry.setdefault("sources", {})[question.key] = ask_before_source(
+            draft.manifest, question.key, str(draft.id)
+        )
         entry["answers"][question.key] = value
         answers[question.case_id] = entry
         await self.repo.set_case_answers(request.id, answers)

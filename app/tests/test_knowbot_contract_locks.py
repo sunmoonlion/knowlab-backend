@@ -26,15 +26,16 @@ LOCK_REQUEST = PARENT / "contracts/knowbase-data-request-lock.json"
 
 
 def _read_lock(path: Path) -> dict:
-    if not path.exists():
+    if not path.parent.exists() and not (PARENT / ".git").exists():
         pytest.skip("parent contracts/ is not checked out")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _sibling(app: str, lock: dict) -> Path:
     path = PARENT.parent / app / lock["schema"]
-    if not path.exists():
+    if not (PARENT.parent / app).is_dir():
         pytest.skip(f"{app} is not checked out next to knowlab-app")
+    assert path.is_file(), f"Missing provider schema: {path}"
     return path
 
 
@@ -141,3 +142,19 @@ def test_supply_status_lock_matches_knowfeed_and_our_receiver() -> None:
     )
     assert release["receiver_path"] == "/api/internal/v1/knowfeed/demand-status"
     assert release["relation"] == "supply-status"
+
+
+@pytest.mark.parametrize("file", ["lock", "schema"])
+def test_checked_out_project_requires_its_contract_files(tmp_path, monkeypatch, file):
+    import sys
+
+    parent = tmp_path / "knowlab-app"
+    provider = tmp_path / "knowmart-app"
+    for checkout in (parent, provider):
+        (checkout / "contracts").mkdir(parents=True)
+    monkeypatch.setattr(sys.modules[__name__], "PARENT", parent)
+    with pytest.raises((FileNotFoundError, AssertionError)):
+        if file == "lock":
+            _read_lock(parent / "contracts" / "missing-lock.json")
+        else:
+            _sibling("knowmart-app", {"schema": "contracts/missing.json"})

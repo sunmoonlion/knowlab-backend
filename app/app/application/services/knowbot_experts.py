@@ -191,7 +191,11 @@ class KnowbotExpertService:
                 if e.listed_at is not None and e.stopped_at is None
             ),
             # 轮换：最久没取的先取，一轮最多 limit 位，下一轮接着取后面的
-            key=lambda e: str((e.delivery or {}).get("market_checked_at") or ""),
+            key=lambda e: str(
+                (e.delivery or {}).get("market_attempted_at")
+                or (e.delivery or {}).get("market_checked_at")
+                or ""
+            ),
         )[:limit]
         by_request: dict[uuid.UUID, list[ExpertRecord]] = {}
         for expert in listed:
@@ -200,6 +204,7 @@ class KnowbotExpertService:
         for request_id, experts in by_request.items():
             request = await self.repo.get_request(request_id)
             assert request is not None
+            attempted_at = self.now().isoformat()
             try:
                 versions = await self.knowmart.versions(
                     owner_subject=request.owner_subject,
@@ -209,26 +214,29 @@ class KnowbotExpertService:
                 log.warning(
                     "knowmart state not read request=%s code=%s", request_id, exc.code
                 )
-                continue
+                versions = []
             by_version = {str(v.get("version")): v for v in versions}
             for expert in experts:
                 found = by_version.get(str(expert.version))
-                if found is None:
-                    continue
-                state = {
-                    "version_status": found.get("status"),
-                    "held_reason": found.get("held_reason"),
-                }
+                state = {"market_attempted_at": attempted_at}
+                if found is not None:
+                    state.update(
+                        version_status=found.get("status"),
+                        held_reason=found.get("held_reason"),
+                        market_checked_at=attempted_at,
+                    )
                 async with self.repo.transaction():
                     locked = await self._locked(expert.id)
                     current = dict(locked.delivery or {})
-                    moved = any(current.get(k) != v for k, v in state.items())
+                    moved = found is not None and any(
+                        current.get(k) != state[k]
+                        for k in ("version_status", "held_reason")
+                    )
                     await self.repo.update_expert(
                         expert.id,
                         delivery={
                             **current,
                             **state,
-                            "market_checked_at": self.now().isoformat(),
                         },
                     )
                 changed += moved

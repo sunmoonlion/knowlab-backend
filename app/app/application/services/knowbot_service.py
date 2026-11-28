@@ -67,6 +67,7 @@ from app.domain.knowbots.drafts import (
     OUTPUTS_KEEP_DAYS,
     Idea,
     KnowbotRequestIn,
+    ask_before_source,
     can_move,
     case_question_digest,
 )
@@ -160,7 +161,7 @@ def parse_id(value: str | uuid.UUID, kind: str = "draft") -> uuid.UUID:
 
 
 def cases_for_test(
-    cases: list[dict[str, Any]], answers: dict[str, Any]
+    cases: list[dict[str, Any]], answers: dict[str, Any], draft: DraftRecord
 ) -> list[dict[str, Any]]:
     """这一版的用例并上用户答过的开步前提问（用例自己写了的不覆盖）。
 
@@ -176,7 +177,10 @@ def cases_for_test(
             continue
         preset = case.setdefault("input", {}).setdefault("answers", {})
         for key, value in (given.get("answers") or {}).items():
-            preset.setdefault(key, value)
+            if (given.get("sources") or {}).get(key) == ask_before_source(
+                draft.manifest, key, str(draft.id)
+            ):
+                preset.setdefault(key, value)
     return merged
 
 
@@ -434,8 +438,12 @@ class KnowbotCreationService:
         if latest is None:
             return ""
         grants = await self.repo.list_grants([latest.id])
-        asked = any(g.kind == "incubate" for g in grants)
-        return "platform" if asked else "self"
+        previous = next((g for g in reversed(grants) if g.kind == "incubate"), None)
+        if previous is None or (
+            previous.status == "revoked" and previous.ended_by == owner_subject
+        ):
+            return "self"
+        return "platform"
 
     async def revise(
         self, owner_subject: str, request_id: str, body: RevisionIn
@@ -666,8 +674,9 @@ class KnowbotCreationService:
                 await self.repo.add_acceptance(record)
             else:
                 await self.repo.replace_acceptance(record)
-            if grant.status == "pending":
-                if body.accepted:
+            request = await self.repo.get_request(rid)
+            if request and request.latest_version == version:
+                if body.accepted and grant.status == "pending":
                     await self.repo.update_grant(
                         grant.id,
                         status="active",
@@ -675,12 +684,13 @@ class KnowbotCreationService:
                         decided_at=now,
                         expires_at=grant_expiry(now),
                     )
-                else:
+                elif not body.accepted:
                     await self.repo.update_grant(
                         grant.id,
                         status="declined",
                         decided_by=decider,
                         decided_at=now,
+                        ended_at=now,
                         reason=record.reason,
                     )
                     await self.repo.set_incubation_mode(rid, "self")
@@ -834,7 +844,7 @@ class KnowbotCreationService:
                     "run_id": f"knowlab-test-{test_id}",
                     "owner_subject": request.owner_subject,
                     "manifest": draft.manifest,
-                    "cases": cases_for_test(version.cases, request.case_answers),
+                    "cases": cases_for_test(version.cases, request.case_answers, draft),
                     "budget": {"limit": budget_limit},
                     "timeout_seconds": timeout_seconds,
                     "max_wait_seconds": MAX_WAIT_SECONDS,
@@ -1166,14 +1176,27 @@ class KnowbotCreationService:
             if test.status not in ACTIVE_TESTS or test.run_id != result.run_id:
                 return  # 已经结束了：旧结果不算数
             status = status_from_run(result.status)
+            reason = result.error or f"runtime: {result.status}"
+            if status == "passed":
+                draft = await self._locked(test.draft_id)
+                version = await self.repo.get_version(
+                    test.request_id, draft.request_version
+                )
+                expected = (
+                    sorted(case["case_id"] for case in version.cases) if version else []
+                )
+                if (
+                    not expected
+                    or sorted(case.case_id for case in result.cases) != expected
+                ):
+                    status = "platform_error"
+                    reason = "The result cases differ from the submitted test"
             await self.repo.update_test(
                 test.id,
                 status=status,
                 report=result.model_dump(mode="json"),
                 finished_at=self.now(),
-                error=(result.error or f"runtime: {result.status}")
-                if status == "platform_error"
-                else None,
+                error=reason if status == "platform_error" else None,
             )
             if test.mode == "rerun":
                 # 公开交付的平台重跑：只记结果给审核员看，不出专家、不动准专家
@@ -1382,7 +1405,7 @@ class KnowbotCreationService:
                     "run_id": f"knowlab-test-{test_id}",
                     "owner_subject": request.owner_subject,
                     "manifest": draft.manifest,
-                    "cases": cases_for_test(version.cases, request.case_answers),
+                    "cases": cases_for_test(version.cases, request.case_answers, draft),
                     "budget": {"limit": f"{limit:.2f}"},
                     "timeout_seconds": timeout_seconds,
                     "max_wait_seconds": MAX_WAIT_SECONDS,

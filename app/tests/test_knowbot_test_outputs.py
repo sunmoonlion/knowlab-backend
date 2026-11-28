@@ -286,3 +286,18 @@ async def test_retired_draft_has_no_author_or_operator_receipt_or_board_link(par
     assert all(
         life.request.id != request.id for life in await KnowbotBoard(repo).lives(OWNER)
     )
+
+
+async def test_verdict_on_another_case_cannot_create_expert():
+    repo, runtime = MemoryKnowlab(), FakeRuntime()
+    own_computer(repo)
+    service = KnowbotCreationService(repo, runtime)
+    request, _, test = await _testing(service)
+    submitted = runtime.started[-1][1]
+    assert [case.case_id for case in submitted.cases] == ["c1"]
+    case = result(test.run_id).cases[0].model_dump(mode="json")
+    runtime.results[test.run_id] = result(
+        test.run_id, "passed", cases=[{**case, "case_id": "other_case"}]
+    )
+    await service.refresh(str(test.id))
+    assert not await repo.list_experts([request.id])

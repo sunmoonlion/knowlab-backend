@@ -27,7 +27,9 @@ ENV = "7a1f0c2e-5b6d-4e8f-9a0b-1c2d3e4f5a6b"
 
 
 def _require_contract() -> None:
-    if not CONTRACT_DIR.exists():  # 只拿到后端子仓时（例如镜像构建上下文）没有父仓
+    if (
+        not CONTRACT_DIR.exists() and not (CONTRACT_DIR.parents[2] / ".git").exists()
+    ):  # 只拿到后端子仓时（例如镜像构建上下文）没有父仓
         pytest.skip("parent contracts/ is not checked out")
 
 

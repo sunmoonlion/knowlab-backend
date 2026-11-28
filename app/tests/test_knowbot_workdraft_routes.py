@@ -87,6 +87,7 @@ async def test_retired_request_routes_are_absent_even_for_the_owner(wired):
         c.cookies.set(WEB_SID, "member")
         for method, path in [
             ("GET", base),
+            ("POST", f"/api/web/v1/knowbot-drafts/{request.id}/review"),
             ("GET", base + "/workdraft"),
             ("POST", base + "/versions"),
             ("POST", base + "/workdraft/cells"),

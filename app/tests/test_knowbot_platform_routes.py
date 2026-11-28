@@ -59,6 +59,13 @@ async def test_switching_through_the_api(wired) -> None:  # noqa: F811
             "light_pending",
             str(draft.id),
         )
+
+        async def queues():
+            counts = (await c.get("/api/admin/v1/knowbot-counts")).json()["counts"]
+            rows = (await c.get("/api/admin/v1/knowbot-board/tests")).json()["items"]
+            return counts["acceptance"], counts["tests"], [r["category"] for r in rows]
+
+        assert await queues() == (1, 0, [])
         decision = f"/api/admin/v1/knowbot-grants/{gid}/decision"
         c.cookies.set(ADMIN_SID, "base")  # 轻受理要 knowlab:release
         assert (
@@ -67,6 +74,7 @@ async def test_switching_through_the_api(wired) -> None:  # noqa: F811
         c.cookies.set(ADMIN_SID, "admin")
         ok = await c.post(decision, json={"accepted": True}, headers=ADMIN)
         assert ok.json()["grant"]["state"] == "active"
+        assert await queues() == (0, 1, ["to_start"])
     assert repo.requests[next(iter(repo.requests))].owner_subject == OWNER
 
 

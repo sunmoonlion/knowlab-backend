@@ -51,7 +51,9 @@ def test_invalid_row_selection_refused_before_saving(row):
 
 
 def _require_contract() -> None:
-    if not CONTRACT_DIR.exists():  # 只拿到后端子仓时（例如镜像构建上下文）没有父仓
+    if (
+        not CONTRACT_DIR.exists() and not (CONTRACT_DIR.parents[2] / ".git").exists()
+    ):  # 只拿到后端子仓时（例如镜像构建上下文）没有父仓
         pytest.skip("parent contracts/ is not checked out")
 
 

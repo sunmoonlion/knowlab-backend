@@ -37,6 +37,7 @@ from app.application.ports.knowbots import (
     WorkdraftRecord,
 )
 from app.domain.knowbots.drafts import MANIFEST_SCHEMA, OUTPUTS_EXPIRED
+from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.infrastructure.models.knowbots import (
     FormalTestSuite,
     KnowbotAcceptance,
@@ -1390,7 +1391,12 @@ class SqlKnowlabRepository:
         return None if row is None else _question(row)
 
     async def list_questions(
-        self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
+        self,
+        *,
+        draft_id: uuid.UUID | None = None,
+        open_only: bool = False,
+        owner_subject: str | None = None,
+        include_unsent: bool = False,
     ) -> Sequence[QuestionRecord]:
         # 测试中的问题；孵化的缺口另列（list_gaps）
         query = (
@@ -1398,10 +1404,27 @@ class SqlKnowlabRepository:
             .where(KnowbotQuestion.kind != "gap")
             .order_by(KnowbotQuestion.created_at, KnowbotQuestion.question_id)
         )
+        if owner_subject is not None:
+            query = (
+                query.join(
+                    KnowbotTest,
+                    (KnowbotTest.run_id == KnowbotQuestion.run_id)
+                    & (KnowbotTest.draft_id == KnowbotQuestion.draft_id),
+                )
+                .join(KnowbotRequest, KnowbotRequest.id == KnowbotTest.request_id)
+                .where(
+                    KnowbotRequest.owner_subject == owner_subject,
+                    KnowbotTest.status.in_(ACTIVE_TESTS),
+                )
+            )
         if draft_id is not None:
             query = query.where(KnowbotQuestion.draft_id == draft_id)
         if open_only:
-            query = query.where(KnowbotQuestion.answer.is_(None))
+            query = query.where(
+                KnowbotQuestion.sent_at.is_(None)
+                if include_unsent
+                else KnowbotQuestion.answer.is_(None)
+            )
         rows = (
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalars()

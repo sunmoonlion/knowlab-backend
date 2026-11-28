@@ -143,6 +143,15 @@ def _texts(outputs: Mapping[str, Any] | None) -> Iterable[str]:
     deliverable = outputs.get("deliverable")
     if isinstance(deliverable, Mapping) and isinstance(deliverable.get("text"), str):
         yield deliverable["text"]
+    for final in outputs.get("final_outputs") or []:
+        if isinstance(final, Mapping):
+            deliverable = final.get("deliverable")
+            if isinstance(deliverable, Mapping) and isinstance(
+                deliverable.get("text"), str
+            ):
+                yield deliverable["text"]
+            if final.get("artifact") is not None:
+                yield str(final["artifact"])
     for step in outputs.get("steps") or []:
         if isinstance(step, Mapping) and step.get("artifact") is not None:
             yield str(step["artifact"])
@@ -192,7 +201,11 @@ def auto_check(
         findings.append({"kind": "cases_mismatch"})
     for case_id in sorted(case_ids):
         found = outputs.get(case_id)
-        if not found:
+        if (
+            not found
+            or found.get("error")
+            or not any(value.strip() for value in _texts(found))
+        ):
             findings.append({"kind": "outputs_missing", "case_id": case_id})
             continue
         findings.extend(output_findings(case_id, found))

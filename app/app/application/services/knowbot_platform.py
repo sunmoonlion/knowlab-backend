@@ -34,6 +34,7 @@ from app.domain.knowbots.platform_grants import (
     PlatformIncubationIn,
     PlatformTestIn,
     expiry,
+    state,
 )
 
 
@@ -184,6 +185,16 @@ class KnowbotPlatformService:
             raise _conflict("This draft cannot be tested now", "draft_not_testable")
         async with self.repo.transaction():
             await self.repo.lock_request(request.id)
+            now = self.now()
+            for previous in await self.repo.list_grants([request.id]):
+                if (
+                    previous.kind == "test"
+                    and previous.draft_id == draft.id
+                    and state(previous.status, previous.expires_at, now) == "expired"
+                ):
+                    await self.repo.update_grant(
+                        previous.id, status="expired", ended_at=previous.expires_at
+                    )
             grant = GrantRecord(
                 id=uuid.uuid4(),
                 request_id=request.id,

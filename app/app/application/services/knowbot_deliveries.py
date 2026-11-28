@@ -29,7 +29,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Any
 
 from app.application.errors.exceptions import (
@@ -430,7 +430,9 @@ class KnowbotDeliveryService:
         if found.rerun_attempts >= MAX_RERUNS:
             raise _conflict("No more reruns for this delivery", "rerun_attempts_used")
         assert found.budget_limit is not None
-        left = found.budget_limit - spent
+        left = (found.budget_limit - spent).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN
+        )
         if left <= 0:
             raise _conflict("The rerun budget is used up", "rerun_budget_used")
         test = await self.creation.start_rerun(

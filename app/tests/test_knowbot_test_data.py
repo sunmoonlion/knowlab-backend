@@ -532,11 +532,16 @@ async def test_failed_batch_grant_revokes_the_ones_already_issued():
 
     from app.application.errors.exceptions import ServiceUnavailableError
     from app.domain.knowbots.data_plan import _pin
+    from app.domain.knowbots.drafts import case_question_digest
 
     items = [_pin(candidate("2025"))]
     repo = AsyncMock()
     repo.latest_test_set.return_value = SimpleNamespace(
-        cases={i: {"items": items} for i in ("a", "b")}, version=1
+        cases={
+            i: {"items": items, "question": case_question_digest({})}
+            for i in ("a", "b")
+        },
+        version=1,
     )
     kb = AsyncMock()
     kb.case_grant.side_effect = ["first", ServiceUnavailableError("not available")]
@@ -551,3 +556,75 @@ async def test_failed_batch_grant_revokes_the_ones_already_issued():
             ttl_seconds=600,
         )
     kb.revoke_case_grant.assert_awaited_once_with("first")
+
+
+async def test_changed_case_requires_new_material_confirmation(world):
+    from app.domain.knowbots.lifecycle import RevisionIn
+    from tests.knowbot_fakes import all_clear, request_body
+
+    svc, data, repo, runtime, kb, _, draft, test = world
+    [initial] = await data.pending(OWNER, str(test.id), token)
+    kb.fetched = True
+    await data.confirm(OWNER, initial["question_id"], token)
+    runtime.results[test.run_id] = result(test.run_id, "error")
+    await svc.refresh(str(test.id))
+    body = request_body()
+    body["cases"][0]["input"]["question"] = "分析另一家公司 2020 年报"
+    revision = RevisionIn(
+        idea=body["idea"], cases=body["cases"], consent_test_data=True
+    )
+    rid = str(draft.request_id)
+    new = await svc.revise(OWNER, rid, revision)
+    await svc.accept(rid, new.version, all_clear(), "admin-test")
+    revised_draft = await platform_draft(svc, rid, manifest(), new.version)
+    await svc.review_rules(str(revised_draft.id), "admin-test")
+    await svc.start_test(str(revised_draft.id), budget_limit="20", timeout_seconds=600)
+    sent = runtime.started[-1][1].cases[0]
+    assert sent.input.question == body["cases"][0]["input"]["question"]
+    assert sent.data is None
+
+
+async def test_empty_case_stays_explicitly_confirmed(world):
+    svc, data, repo, runtime, _, _, draft, test = world
+    [initial] = await data.pending(OWNER, str(test.id), token)
+    await data.decline(OWNER, initial["question_id"])
+    assert runtime.answers[-1][1].answers[0].data.items == ()
+    runtime.results[test.run_id] = result(test.run_id, "error")
+    await svc.refresh(str(test.id))
+    assert repo.test_sets[-1].cases["c1"]["items"] == []
+    await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    assert runtime.started[-1][1].cases[0].data.items == ()
+
+
+async def test_rejected_pick_preserves_new_resolution_needs(world):
+    _, data, _, _, _, _, _, test = world
+    [shown] = await data.pending(OWNER, str(test.id), token)
+    first = shown["needs"][0]
+    try:
+        await data.confirm(
+            OWNER,
+            shown["question_id"],
+            token,
+            needs=[first],
+            picks={
+                shown["items"][0]["ref"]: {"material_id": "outdated", "version_no": 1}
+            },
+        )
+    except BadRequestError:
+        pass
+    else:
+        raise AssertionError("Expected the unavailable material choice to be refused")
+    [after] = await data.pending(OWNER, str(test.id), token)
+    assert len(after["needs"]) == 1 and len(after["items"]) == 1
+    assert after["items"][0]["need_key"] == first["key"]
+
+
+def test_added_needs_do_not_steal_an_existing_key():
+    from app.application.services.knowbot_test_data import _revised
+
+    new = {"doc_type": "annual_report", "period": {"kind": "none"}}
+    for items in ([{**new, "key": "u2"}, new], [new, {**new, "key": "u1"}]):
+        result = _revised(items, "case1")
+        assert len({r.key for r in result}) == 2
+        explicit = next(i for i in items if "key" in i)
+        assert result[items.index(explicit)].key == explicit["key"]

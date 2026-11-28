@@ -447,6 +447,15 @@ def lab_test_items(
         for draft in reversed(life.drafts):
             if (
                 draft.status == "pending_test"
+                and (
+                    draft.mode == "platform"
+                    or any(
+                        g.kind == "test"
+                        and g.draft_id == draft.id
+                        and g.status == "active"
+                        for g in life.grants
+                    )
+                )
                 and draft.version not in life.expert_versions()
                 and review_state(draft.user_review) not in ("pending", "not_ok")
             ):
@@ -486,7 +495,8 @@ def _ours(life: Life, expert: ExpertRecord) -> bool:
 def admin_counts(lives: Sequence[Life]) -> dict[str, int]:
     """每栏「等我们」的条数。"""
     return {
-        "acceptance": sum(c == "pending" for c, _, _ in acceptance_items(lives)),
+        "acceptance": sum(c == "pending" for c, _, _ in acceptance_items(lives))
+        + sum(c == "light_pending" for c, *_ in light_items(lives)),
         "incubation": sum(c == "todo" for c, _, _ in incubation_items(lives)),
         "tests": sum(
             c == "to_start"

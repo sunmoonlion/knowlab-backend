@@ -683,7 +683,12 @@ class KnowlabRepository(Protocol):
     ) -> QuestionRecord | None: ...
 
     async def list_questions(
-        self, *, draft_id: uuid.UUID | None = None, open_only: bool = False
+        self,
+        *,
+        draft_id: uuid.UUID | None = None,
+        open_only: bool = False,
+        owner_subject: str | None = None,
+        include_unsent: bool = False,
     ) -> Sequence[QuestionRecord]:
         """测试中的问题（孵化的缺口不在里面，另见 list_gaps）。
 

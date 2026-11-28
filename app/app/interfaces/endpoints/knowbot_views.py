@@ -389,6 +389,7 @@ def question_view(
             "route_reason": q.route_reason,
             "owner_subject": request.owner_subject,
             "last_error": q.last_error,
+            "awaiting_delivery": q.answer is not None and q.sent_at is None,
         }
     return view
 
@@ -578,10 +579,6 @@ def incubation_view(
                     proposal, ctx["methods"]
                 )
                 view["selection_issue"] = review_issue(proposal, ctx["patterns"])
-                view["selection"] = {
-                    "patterns": [],  # Older web clients require this response field.
-                    **view["selection"],
-                }
     if gaps is None:
         return view
     handback = record.handback or {}

@@ -127,6 +127,27 @@ async def test_platform_grants_migrate_round_trip_and_hold() -> None:
             with pytest.raises(ValueError):
                 await repo.update_grant(incubate.id, kind="test")
 
+        from app.application.services.knowbot_platform import KnowbotPlatformService
+        from app.domain.knowbots.platform_grants import PlatformTestIn
+
+        async with factory() as session:
+            repo = SqlKnowlabRepository(session)
+            async with repo.transaction():
+                await session.execute(
+                    text("update knowbot_draft set mode='self' where id=:id"),
+                    {"id": DRAFT},
+                )
+                previous = next(
+                    g for g in await repo.list_grants([REQUEST]) if g.kind == "test"
+                )
+                await repo.update_grant(previous.id, status="active", expires_at=AT)
+            platform = KnowbotPlatformService(repo, now=lambda: AT + timedelta(days=1))
+            replacement = await platform.ask_platform_test(
+                OWNER, str(DRAFT), PlatformTestIn(agree=True, budget_limit="5")
+            )
+            assert replacement.id != previous.id and replacement.status == "pending"
+            assert (await repo.get_grant(previous.id)).status == "expired"
+
         for bad in (
             # 测试授权要挂准专家，孵化授权不挂
             "INSERT INTO knowbot_platform_grant (id, request_id, kind, status,"

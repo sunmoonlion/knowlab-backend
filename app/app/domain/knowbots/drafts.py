@@ -51,6 +51,28 @@ def case_question_digest(case: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def ask_before_source(
+    manifest: dict[str, Any], question_key: str, draft_id: str
+) -> str:
+    """Fingerprint the steps and option meanings that can supply this case answer."""
+    pack = manifest.get("pack") or {}
+    steps = pack.get("workflow") or [
+        unit.get("contract") or {} for unit in pack.get("method_units") or []
+    ]
+    definitions = [
+        (step.get("step_id"), ask)
+        for step in steps
+        for ask in step.get("ask_before") or []
+        if ask.get("id") == question_key
+    ]
+    if not definitions:
+        return draft_id
+    body = json.dumps(
+        definitions, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
 def can_move(current: str, target: str) -> bool:
     return (current, target) in TRANSITIONS
 
@@ -224,9 +246,7 @@ def draft_manifest_problems(
     if "data_needs" in doc:
         # 清单 v2 = 逻辑 + 作者挑选的数据（decisions ⑭）：要什么数据每件委托由
         # 第 0 步按问题提出；要提示模型，写在步骤说明里
-        problems.append(
-            "declare data needs in the step"
-        )
+        problems.append("declare data needs in the step")
     if "data_bindings" in doc:
         problems.append("supply data bindings in the test set")
     if "bindings" in doc:

@@ -40,7 +40,7 @@ from app.application.ports.knowbots import (
 )
 from app.domain.knowbots.data_plan import Plan, item_ref, plan
 from app.domain.knowbots.data_request import DataRequest
-from app.domain.knowbots.drafts import MANIFEST_SCHEMA
+from app.domain.knowbots.drafts import MANIFEST_SCHEMA, case_question_digest
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.domain.knowbots.test_run import CaseData
 
@@ -202,7 +202,14 @@ class KnowbotTestData:
             latest = await self.knowbase.revise_needs(
                 token, resolution_id, [n.model_dump(mode="json") for n in asked]
             )
-            state["needs"] = [n.model_dump(mode="json") for n in asked]
+            state.update(
+                needs=[n.model_dump(mode="json") for n in asked],
+                revision=int(latest["revision"]),
+                picks={},
+                dropped=[],
+            )
+            async with self.repo.transaction():
+                await self.repo.update_question(q.id, data_state=state)
         else:
             latest = await self.knowbase.resolution(token, resolution_id)
         draft = plan(
@@ -385,6 +392,25 @@ class KnowbotTestData:
             await self.repo.lock_request(test.request_id)
             latest = await self.repo.latest_test_set(test.request_id)
             cases = dict(latest.cases) if latest else {}
+            draft = await self.repo.get_draft(test.draft_id)
+            version = (
+                await self.repo.get_version(test.request_id, draft.request_version)
+                if draft
+                else None
+            )
+            if version is None:
+                return
+            signatures = {
+                str(case["case_id"]): case_question_digest(case)
+                for case in version.cases
+            }
+            previous = (
+                await self.repo.get_test_set(
+                    test.request_id, version=test.test_set_version
+                )
+                if test.test_set_version
+                else None
+            )
             fresh: dict[str, list[dict[str, Any]]] = {}
             for q in answered:
                 items = list(((q.answer or {}).get("data") or {}).get("items") or [])
@@ -393,11 +419,18 @@ class KnowbotTestData:
                     if item not in fresh[q.case_id]:
                         fresh[q.case_id].append(item)
             for case_id, items in fresh.items():
-                kept = list((cases.get(case_id) or {}).get("items") or [])
+                if case_id not in signatures:
+                    continue
+                prior = (previous.cases.get(case_id) or {}) if previous else {}
+                kept = (
+                    list(prior.get("items") or [])
+                    if prior.get("question") == signatures[case_id]
+                    else []
+                )
                 for item in items:
                     if item not in kept:
                         kept.append(item)
-                cases[case_id] = {"items": kept}
+                cases[case_id] = {"items": kept, "question": signatures[case_id]}
             if latest is not None and cases == latest.cases:
                 return
             await self.repo.add_test_set(
@@ -428,12 +461,13 @@ class KnowbotTestData:
         out, grants = [], []
         try:
             for case in cases:
-                items = list(
-                    (latest.cases.get(str(case.get("case_id"))) or {}).get("items")
-                    or []
-                )
-                if not items:
+                stored = latest.cases.get(str(case.get("case_id")))
+                if not stored or stored.get("question") != case_question_digest(case):
                     out.append(case)
+                    continue
+                items = list(stored.get("items") or [])
+                if not items:
+                    out.append({**case, "data": case_data([], None)})
                     continue
                 grant_id = await self.knowbase.case_grant(
                     owner=request.owner_subject,
@@ -592,11 +626,20 @@ def _revised(given: list[dict[str, Any]], case_id: str) -> list[DataRequest]:
     if not isinstance(given, list) or not 1 <= len(given) <= MAX_ITEMS:
         raise _bad(f"keep 1 to {MAX_ITEMS} items")
     out = []
+    reserved = {
+        item["key"]
+        for item in given
+        if isinstance(item, dict) and isinstance(item.get("key"), str)
+    }
     for n, raw in enumerate(given, start=1):
         if not isinstance(raw, dict):
             raise _bad("each item is an object")
         body = {"formats": ALL_FORMATS, **raw}
-        body.setdefault("key", f"u{n}")
+        if "key" not in body:
+            while f"u{n}" in reserved:
+                n += 1
+            body["key"] = f"u{n}"
+            reserved.add(body["key"])
         body.setdefault("name", str(body.get("doc_type") or "")[:80])
         try:
             out.append(DataRequest.model_validate(body))

@@ -21,7 +21,7 @@ from app.application.services.knowbot_service import (
     KnowbotCreationService,
     cases_for_test,
 )
-from app.domain.knowbots.drafts import case_question_digest
+from app.domain.knowbots.drafts import ask_before_source, case_question_digest
 from app.domain.knowbots.test_run import CONTRACT, Answer, RunResultV1
 from tests.knowbot_fakes import (
     COMPUTER,
@@ -188,7 +188,13 @@ async def test_user_answers_to_ask_before_are_remembered_for_retests(testing) ->
     request = repo.requests[draft.request_id]
     asked = case_question_digest({"input": {"question": "分析 2025 年报"}})
     assert request.case_answers == {
-        "c1": {"question": asked, "answers": {"period": "3y"}}
+        "c1": {
+            "question": asked,
+            "answers": {"period": "3y"},
+            "sources": {
+                "period": ask_before_source(draft.manifest, "period", str(draft.id))
+            },
+        }
     }
     # 创意版本只插不改：答案另记，重测时并进用例，不再问
     assert not repo.versions[(request.id, 1)].cases[0]["input"].get("answers")
@@ -247,9 +253,11 @@ async def test_unsent_answers_are_resent_on_refresh(testing) -> None:
     assert (
         kept.sent_at is None and kept.last_error == "send failed: knowbench_unavailable"
     )
+    assert kept.id in {q.id for q, _, _ in await asks.operator_queue()}
     runtime.fail_answer = False
     await svc.refresh(str(run.id))
     assert repo.questions[kept.id].sent_at is not None
+    assert kept.id not in {q.id for q, _, _ in await asks.operator_queue()}
     assert runtime.answers[-1][1].answers[0].decision == "deny"
 
 
@@ -287,19 +295,49 @@ def test_the_contract_ties_waiting_to_questions() -> None:
 def test_remembered_answers_go_back_only_to_the_same_question() -> None:
     """改创意后编号换了位置、问题改了字：旧答案不当成用户确认过（Fable 评审 P1-6）。"""
     before = {"case_id": "c1", "input": {"question": "分析 2025 年报"}}
+    from types import SimpleNamespace
+
+    def edition(labels):
+        ask = {
+            "id": "period",
+            "question": "选择年份范围",
+            "options": [
+                {"id": f"o{i}", "label": label} for i, label in enumerate(labels, 1)
+            ],
+        }
+        return SimpleNamespace(
+            id="edition",
+            manifest={
+                "pack": {
+                    "method_units": [
+                        {"contract": {"step_id": "s1", "ask_before": [ask]}}
+                    ]
+                }
+            },
+        )
+
+    draft = edition(["三年", "五年"])
     answers = {
-        "c1": {"question": case_question_digest(before), "answers": {"period": "3y"}}
+        "c1": {
+            "question": case_question_digest(before),
+            "answers": {"period": "3y"},
+            "sources": {
+                "period": ask_before_source(draft.manifest, "period", draft.id)
+            },
+        }
     }
-    [same] = cases_for_test([before], answers)
+    [same] = cases_for_test([before], answers, draft)
     assert same["input"]["answers"] == {"period": "3y"}
+    [changed] = cases_for_test([before], answers, edition(["五年", "三年"]))
+    assert "period" not in changed["input"]["answers"]
     moved = {"case_id": "c1", "input": {"question": "毛利率按哪个口径"}}
-    [other] = cases_for_test([moved], answers)
+    [other] = cases_for_test([moved], answers, draft)
     assert "answers" not in other["input"]  # 这一问照样问用户
     written = {
         "case_id": "c1",
         "input": {"question": "分析 2025 年报", "answers": {"period": "5y"}},
     }
-    [kept] = cases_for_test([written], answers)
+    [kept] = cases_for_test([written], answers, draft)
     assert kept["input"]["answers"] == {"period": "5y"}  # 用例自己写了的不覆盖
 
 
@@ -327,3 +365,41 @@ async def test_terminal_refresh_collects_late_charges_without_rewriting_evidence
     }
     runtime.results[run.run_id] = cancelled("1.00")
     assert (await svc.refresh(str(run.id))).report == second.report
+
+
+async def test_closed_trial_cannot_reassign_pending_question(testing):
+    svc, asks, repo, runtime, _, _, run, questions = testing
+    runtime.results[run.run_id] = result(run.run_id, "error")
+    await svc.refresh(str(run.id))
+    q = questions["q-scope"]
+    for operation in [asks.take(str(q.id), "only a test"), asks.to_user(str(q.id))]:
+        with pytest.raises(ConcurrencyConflictError, match="no longer running"):
+            await operation
+    assert repo.questions[q.id].route == "user"
+
+
+async def test_retest_uses_the_authors_extra_text_when_it_accompanies_a_choice(testing):
+    svc, asks, _, runtime, _, draft, run, questions = testing
+    await asks.answer_as_user(
+        OWNER,
+        str(questions["q-scope"].id),
+        AnswerIn(option_id="3y", text="只取有完整披露的年份"),
+    )
+    answer = runtime.answers[-1][1].answers[0]
+    assert (answer.option_id, answer.text) == ("3y", "只取有完整披露的年份")
+    runtime.results[run.run_id] = result(run.run_id, "error")
+    await svc.refresh(str(run.id))
+    await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+    assert runtime.started[-1][1].cases[0].input.answers == {"period": answer.text}
+
+
+async def test_foreign_questions_are_filtered_before_loading_context(
+    testing, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    _, asks, repo, *_ = testing
+    lookup = AsyncMock(wraps=repo.find_test_by_run)
+    monkeypatch.setattr(repo, "find_test_by_run", lookup)
+    assert await asks.user_queue("no-requests") == []
+    lookup.assert_not_awaited()

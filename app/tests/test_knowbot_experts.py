@@ -1464,3 +1464,67 @@ async def test_market_receipt_must_match_before_recording_delivery(p, monkeypatc
     )
     assert ids == [f"knowlab-delivery-{pending.id}"] * 2
     assert len(await p.deliveries.my_deliveries(OWNER, str(expert.id))) == 1
+
+
+async def test_error_only_output_requires_review():
+    parts = Parts()
+
+    def record_collection_failure(run_id, text):
+        parts.runtime.case_outputs[run_id, "c1"] = CaseOutputsV1(
+            contract="knowbot-test-run/v1",
+            run_id=run_id,
+            case_id="c1",
+            error="取产出时平台出了错，这条用例的成稿与交回物没取到",
+        )
+
+    parts.clean_outputs = record_collection_failure
+    _, expert, test = await parts.self_expert()
+    [evidence] = await parts.repo.list_test_outputs(test.draft_id, test.run_id)
+    assert evidence.outputs["error"] and evidence.outputs["deliverable"] is None
+    delivery = await parts.deliveries.submit(OWNER, str(expert.id), SELF, user_token)
+    assert (
+        not delivery.auto_check["passed"]
+        and {"kind": "outputs_missing", "case_id": "c1"}
+        in delivery.auto_check["findings"]
+    )
+
+
+async def test_market_rotation_advances_after_a_missing_version():
+    from unittest.mock import AsyncMock
+
+    parts = Parts()
+    for _ in range(2):
+        _, expert, _ = await parts.self_expert()
+        await parts.deliveries.submit(OWNER, str(expert.id), SELF, user_token)
+    missing = None
+
+    async def lookup(*, owner_subject, knowbot_ref):
+        nonlocal missing
+        if missing is None:
+            missing = knowbot_ref
+        return [] if knowbot_ref == missing else [{"version": "1", "status": "active"}]
+
+    parts.knowmart.versions = AsyncMock(side_effect=lookup)
+    for _ in range(3):
+        await parts.experts.sync_market(limit=1)
+    calls = parts.knowmart.versions.await_args_list
+    assert len(calls) == 3 and {call.kwargs["knowbot_ref"] for call in calls} != {
+        missing
+    }
+
+
+async def test_rerun_budget_never_rounds_up():
+    parts = Parts()
+    _, expert, _ = await parts.self_expert()
+    delivery = await parts.deliveries.submit(OWNER, str(expert.id), PUBLIC, user_token)
+    first = await parts.deliveries.start_rerun(str(delivery.id), "operator")
+    cost = Decimal("0.004")
+    await parts.repo.update_test(
+        first.id,
+        status="platform_error",
+        report={"cost": {"spent": str(cost), "currency": "CNY"}},
+    )
+    await parts.deliveries.start_rerun(str(delivery.id), "operator")
+    assigned = Decimal(parts.runtime.started[-1][1].budget.limit)
+    assert assigned == Decimal("4.99")
+    assert assigned + cost <= delivery.budget_limit
