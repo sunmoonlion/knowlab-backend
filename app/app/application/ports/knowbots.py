@@ -705,6 +705,14 @@ class KnowlabRepository(Protocol):
         self, owner: str, request_id: uuid.UUID, suite_id: uuid.UUID, version: int
     ) -> dict[str, Any] | None: ...
 
+    async def formal_trial_binding(
+        self, run_id: uuid.UUID
+    ) -> tuple[str, uuid.UUID, int] | None: ...
+
+    async def bind_formal_trial(
+        self, run_id: uuid.UUID, request_digest: str, suite_id: uuid.UUID, version: int
+    ) -> None: ...
+
     async def freeze_formal_test_suite(
         self, owner: str, request_id: uuid.UUID, document: dict[str, Any]
     ) -> None: ...

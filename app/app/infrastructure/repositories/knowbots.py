@@ -40,6 +40,7 @@ from app.domain.knowbots.drafts import MANIFEST_SCHEMA, OUTPUTS_EXPIRED
 from app.domain.knowbots.lifecycle import ACTIVE_TESTS
 from app.infrastructure.models.knowbots import (
     FormalTestSuite,
+    FormalTrialBinding,
     KnowbotAcceptance,
     KnowbotDelivery,
     KnowbotDraft,
@@ -1828,6 +1829,33 @@ class SqlKnowlabRepository:
         )
 
     # ---------- 独立作者方法：版本只插，不覆盖 ----------
+    async def formal_trial_binding(self, run_id):
+        row = await self.session.get(FormalTrialBinding, run_id)
+        return (row.request_digest, row.suite_id, row.suite_version) if row else None
+
+    async def bind_formal_trial(self, run_id, request_digest, suite_id, version):
+        from sqlalchemy.dialects.postgresql import insert
+
+        await self.session.flush()
+        await self.session.execute(
+            insert(FormalTrialBinding)
+            .values(
+                run_id=run_id,
+                request_digest=request_digest,
+                suite_id=suite_id,
+                suite_version=version,
+            )
+            .on_conflict_do_nothing(index_elements=["run_id"])
+        )
+        if await self.formal_trial_binding(run_id) != (
+            request_digest,
+            suite_id,
+            version,
+        ):
+            raise ConcurrencyConflictError(
+                "Run already bound to another trial request", code="formal_run_conflict"
+            )
+
     async def formal_test_suite(self, owner, request_id, suite_id, version):
         row = await self.session.get(FormalTestSuite, (suite_id, version))
         if row is None or row.owner_subject != owner or row.request_id != request_id:

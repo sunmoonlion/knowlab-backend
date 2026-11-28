@@ -269,3 +269,15 @@ async def test_add_top_level_text_uses_the_same_path_as_edit(world):
     from app.domain.knowbots.incubation_rounds import apply_suggestion
 
     assert apply_suggestion({}, "name", "add", "核验")["name"] == "核验"
+
+
+async def test_revoke_while_platform_round_is_queued(world):
+    repo, creation, _, _, platform, incubations, runner = world
+    request = await _platform(creation)
+    await creation.accept(str(request.id), 1, all_clear(), "operator")
+    job = await incubations.operator_start(str(request.id), action="draft")
+    assert job.status == "queued"
+    await platform.take_back(OWNER, str(request.id))
+    stopped = await repo.get_incubation(job.id)
+    assert stopped.status == "cancelled" and stopped.finished_at and stopped.error
+    assert all(g.status == "revoked" for g in await repo.list_grants([request.id]))

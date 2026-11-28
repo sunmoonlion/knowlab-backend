@@ -35,6 +35,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.domain.knowbots.selection import Selection, SelectionContext
+from app.domain.knowbots.test_run import RowSelection
 from app.domain.knowbots.workdraft import (
     CELL_ID,
     NAME,
@@ -176,6 +177,9 @@ class LatestTestExpectation(Strict):
     artifact: str = Field(min_length=1, max_length=128)
     path: str = Field(min_length=1, max_length=256)
     kind: Literal["equals", "approx", "contains"]
+    row: RowSelection | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     passed: bool
 
 

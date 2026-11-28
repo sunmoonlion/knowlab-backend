@@ -887,6 +887,20 @@ class FormalTestSuite(Base):
     )
 
 
+class FormalTrialBinding(Base):
+    __tablename__ = "formal_trial_bindings"
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    request_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    suite_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    suite_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["suite_id", "suite_version"],
+            ["formal_test_suites.suite_id", "formal_test_suites.version"],
+        ),
+    )
+
+
 class KnowbotMethod(Base):
     """An author's stable method identity, not an expert-local step alias."""
 

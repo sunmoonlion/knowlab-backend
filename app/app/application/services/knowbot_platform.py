@@ -123,9 +123,9 @@ class KnowbotPlatformService:
                 ):
                     await self.repo.update_incubation(
                         inc.id,
-                        status="canceled",
-                        ended_at=now,
-                        last_error="The author took back the request",
+                        status="cancelled",
+                        finished_at=now,
+                        error="The author took back the request",
                     )
             for t in await self.repo.list_tests(request_ids=[rid]):
                 if t.mode in ("platform", "rerun") and t.status in (
@@ -137,7 +137,7 @@ class KnowbotPlatformService:
                         t.id,
                         status="platform_error",
                         finished_at=now,
-                        last_error="The author took back the request",
+                        error="The author took back the request",
                     )
             # 运营没被接受的提议作废（decisions 10-29）
             for p in await self.repo.list_proposals(rid):

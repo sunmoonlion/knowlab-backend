@@ -558,6 +558,7 @@ class KnowbotIncubationService:
                             "artifact": e.get("artifact"),
                             "path": e.get("path"),
                             "kind": e.get("kind"),
+                            "row": e.get("row"),
                             "passed": bool(passed),
                         }
                         for e, passed in zip(

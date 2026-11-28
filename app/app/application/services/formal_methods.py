@@ -288,21 +288,46 @@ class FormalMethodService:
 
     @staticmethod
     def _execution_cases(result: FormalMethodExecutionResult, suite: FormalTestSuite):
-        expected = {
-            (case.case_id, repetition): case.caller
-            for case in suite.cases
-            for repetition in range(1, case.repetitions + 1)
-        }
-        observed = {
-            (case.case_id, case.repetition): case.caller for case in result.cases
-        }
-        if (
-            any(expected.get(key) != caller for key, caller in observed.items())
-            or result.status == "passed"
-            and observed != expected
+        cases = {case.case_id: case for case in suite.cases}
+        passes = dict.fromkeys(cases, 0)
+        for row in result.cases:
+            case = cases.get(row.case_id)
+            if (
+                case is None
+                or row.repetition > case.repetitions
+                or row.caller != case.caller
+            ):
+                raise BadGatewayError(
+                    "Execution case differs from the frozen suite",
+                    code="formal_execution_invalid",
+                )
+            if row.status not in {"passed", "failed"}:
+                continue
+            expected = case.expected
+            indices = (
+                list(range(len(expected.assertions)))
+                if row.outcome == "succeeded"
+                else []
+            )
+            correct = row.outcome == expected.outcome and (
+                all(a.passed for a in row.assertions)
+                if row.outcome == "succeeded"
+                else row.rejection_code == expected.rejection_code
+            )
+            if [a.index for a in row.assertions] != indices or (
+                row.status == "passed"
+            ) != correct:
+                raise BadGatewayError(
+                    "Case verdict differs from its frozen assertions",
+                    code="formal_execution_invalid",
+                )
+            passes[case.case_id] += int(correct)
+        if result.status == "passed" and (
+            len(result.cases) != sum(c.repetitions for c in suite.cases)
+            or any(passes[c.case_id] < c.minimum_passes for c in suite.cases)
         ):
             raise BadGatewayError(
-                "Execution cases differ from the frozen test suite",
+                "Execution did not meet its frozen thresholds",
                 code="formal_execution_invalid",
             )
 
@@ -337,6 +362,10 @@ class FormalMethodService:
             await self.repo.freeze_formal_test_suite(
                 owner, request.id, payload.execution.suite.model_dump(mode="json")
             )
+            suite = payload.execution.suite
+            await self.repo.bind_formal_trial(
+                payload.run_id, payload.fingerprint(), suite.suite_id, suite.version
+            )
         raw = await self.runtimes.submit_formal_method_execution(
             request.runtime, payload
         )
@@ -368,7 +397,21 @@ class FormalMethodService:
             request_id=request.id,
             method_id=mid,
         )
+        return await self._bound_execution(owner, request, result)
+
+    async def _bound_execution(self, owner, request, result):
         async with self.repo.transaction():
+            binding = await self.repo.formal_trial_binding(result.run_id)
+            if binding != (
+                result.request_digest,
+                result.suite.suite_id,
+                result.suite.version,
+            ):
+                raise BadGatewayError(
+                    "Execution differs from the submitted trial. "
+                    "Resubmit the original request to verify it.",
+                    code="formal_execution_invalid",
+                )
             suite = await self.repo.formal_test_suite(
                 owner, request.id, result.suite.suite_id, result.suite.version
             )
@@ -462,12 +505,13 @@ class FormalMethodService:
         raw = await self.runtimes.cancel_formal_method_execution(
             request.runtime, owner, run_id
         )
-        return self._execution_result(
+        result = self._execution_result(
             raw,
             run_id=parse_id(run_id, "execution"),
             request_id=request.id,
             method_id=parse_id(method_id, "method"),
-        ).model_dump(mode="json")
+        )
+        return await self._bound_execution(owner, request, result)
 
     async def decide_execution(
         self,
@@ -508,12 +552,13 @@ class FormalMethodService:
         raw = await self.runtimes.decide_formal_method_execution(
             request.runtime, run_id, str(cid), decision
         )
-        return self._execution_result(
+        result = self._execution_result(
             raw,
             run_id=current.run_id,
             request_id=request.id,
             method_id=current.method_id,
-        ).model_dump(mode="json")
+        )
+        return await self._bound_execution(owner, request, result)
 
     async def _incubation_basis(self, owner, request_id):
         if request_id is None:

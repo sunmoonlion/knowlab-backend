@@ -72,6 +72,15 @@ class ExecutionRepository(Repository):
     def __init__(self):
         super().__init__()
         self.suites = {}
+        self.bindings = {}
+
+    async def formal_trial_binding(self, run_id):
+        return self.bindings.get(run_id)
+
+    async def bind_formal_trial(self, run_id, request_digest, suite_id, version):
+        value = (request_digest, suite_id, version)
+        if self.bindings.setdefault(run_id, value) != value:
+            raise ConcurrencyConflictError("changed run", code="formal_run_conflict")
 
     async def formal_test_suite(self, owner, request_id, suite_id, version):
         value = self.suites.get((suite_id, version))
@@ -658,3 +667,50 @@ def test_case_and_suite_limits_use_compact_utf8_payloads():
         else:
             with pytest.raises(ValidationError, match="1000000"):
                 FormalTestSuiteDraft.model_validate(base).freeze()
+
+
+@pytest.mark.parametrize(
+    "assertions",
+    [
+        [],
+        [{"index": 0, "passed": False, "detail": "different value"}],
+        [{"index": 1, "passed": True, "detail": "unrequested assertion"}],
+    ],
+)
+async def test_freeze_requires_evidence_for_the_frozen_assertion(assertions):
+    _, runtime, service, method, command = await prepared()
+    await service.execute(OWNER, str(method), command)
+    _, report = complete_trial(runtime, command, business=False)
+    report["cases"][0]["assertions"] = assertions
+    with pytest.raises(BadGatewayError):
+        await service.freeze(
+            OWNER,
+            str(method),
+            1,
+            FreezeFormalMethod(
+                request_id=command.request_id,
+                revision=2,
+                run_id=command.run_id,
+                visibility="private",
+            ),
+        )
+
+
+async def test_poll_binds_suite_to_the_requested_run():
+    from uuid import uuid4
+
+    from app.domain.knowbots.formal_method_execution import ExecuteFormalMethod
+
+    _, runtime, service, method, first = await prepared()
+    await service.execute(OWNER, str(method), first)
+    updated = first.model_dump(mode="json")
+    updated["run_id"] = str(uuid4())
+    updated["execution"]["suite"]["version"] += 1
+    updated["execution"]["suite"]["cases"][0]["input"]["values"]["value"] = 9
+    second = ExecuteFormalMethod.model_validate(updated)
+    reply = await service.execute(OWNER, str(method), second)
+    runtime.executions[first.run_id]["suite"] = reply["suite"]
+    with pytest.raises(BadGatewayError):
+        await service.execution(
+            OWNER, str(method), str(first.request_id), str(first.run_id)
+        )

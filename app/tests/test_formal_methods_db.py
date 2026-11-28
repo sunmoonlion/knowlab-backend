@@ -357,3 +357,26 @@ async def test_plan_adoption_replays_only_the_same_confirmed_revision(db):
     assert newer.revision == 3 and later["digest"] != proof["digest"]
     with pytest.raises(ConcurrencyConflictError):
         await save(1, plan)
+
+
+async def test_formal_trial_binding_survives_reopen_and_rejects_changed_requests(db):
+    from tests.test_formal_method_execution import prepared as prepare_execution
+
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        _, runtime, service, mid, command = await prepare_execution(repo)
+        await service.execute(OWNER, str(mid), command)
+    payload = runtime.submitted[command.run_id]
+    suite = payload.execution.suite
+    async with db() as session:
+        repo = SqlKnowlabRepository(session)
+        assert await repo.formal_trial_binding(command.run_id) == (
+            payload.fingerprint(),
+            suite.suite_id,
+            suite.version,
+        )
+        with pytest.raises(ConcurrencyConflictError):
+            async with repo.transaction():
+                await repo.bind_formal_trial(
+                    command.run_id, "sha256:" + "0" * 64, suite.suite_id, suite.version
+                )
