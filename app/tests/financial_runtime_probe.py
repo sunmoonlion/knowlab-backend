@@ -45,17 +45,13 @@ M20 = "comprehensive_dossier_formatting"
 
 def expression_of(unit, path):
     return next(
-        r.expression
-        for r in unit.acceptance
-        if r.kind == "computed" and r.path == path
+        r.expression for r in unit.acceptance if r.kind == "computed" and r.path == path
     )
 
 
 def each_has_values(unit, path):
     return next(
-        r
-        for r in unit.acceptance
-        if r.kind == "each_has" and r.path == path
+        r for r in unit.acceptance if r.kind == "each_has" and r.path == path
     ).values
 
 
@@ -115,9 +111,18 @@ class Evidence:
 
 def outputs(e):
     all_outputs = {}
-    out = {
-        "reclassification_audit_trail": [{"item": "口径", "reason": "合成同口径数据"}]
-    }
+    # Only operands actually supplied at intake can be used by these two methods.
+    source_facts = dict(
+        net_profit=110, non_recurring_net=10, revenue=1000, roic=0.15, wacc=0.09
+    )
+
+    def source_operands(method, *keys):
+        assert "financial_data_intake" in units[method].input_refs
+        declared = units["financial_data_intake"].output_schema
+        assert set(keys) <= declared.keys()
+        return {key: source_facts[key] for key in keys}
+
+    out = {"reclassification_audit_trail": []}
     for path in (
         "standardized_balance_sheet",
         "standardized_income_statement",
@@ -264,14 +269,13 @@ def outputs(e):
     out = {
         "purified_net_profit": e.compute(
             expression_of(units[M03], "purified_net_profit"),
-            net_profit=110,
-            non_recurring_net=10,
+            **source_operands(M03, "net_profit", "non_recurring_net"),
         )
     }
     out["recurring_profit_margin"] = e.compute(
         expression_of(units[M03], "recurring_profit_margin"),
         purified_net_profit=out["purified_net_profit"]["value"],
-        revenue=1000,
+        **source_operands(M03, "revenue"),
     )
     out["quarterly_unpacked_profits"] = [
         {"quarter": q, "value": v, "address": fact(e, v)}
@@ -477,12 +481,9 @@ def outputs(e):
         "moat_rating": "强",
         "roic_vs_wacc_spread": e.compute(
             expression_of(units[M19], "roic_vs_wacc_spread"),
-            roic=0.15,
-            wacc=0.09,
+            **source_operands(M19, "roic", "wacc"),
         ),
-        "thesis_verification_matrix": [
-            {"source": "无形资产", "evidence": "合成证据"}
-        ],
+        "thesis_verification_matrix": [{"source": "无形资产", "evidence": "合成证据"}],
     }
     all_outputs[M19] = out
 
@@ -585,6 +586,19 @@ async def main():
         bad = deepcopy(good[M01])
         bad[path][0]["value"] += 99
         await expect("unsourced:" + path, M01, bad, False, path)
+    adjusted = deepcopy(good[M01])
+    adjusted["reclassification_audit_trail"] = [
+        {"item": "项目重列", "reason": "同口径比较"}
+    ]
+    await expect("documented_reclassification", M01, adjusted, True)
+    adjusted["reclassification_audit_trail"][0]["reason"] = ""
+    await expect(
+        "unexplained_reclassification",
+        M01,
+        adjusted,
+        False,
+        "reclassification_audit_trail",
+    )
     bad = deepcopy(good[M02])
     expr = next(
         r.expression
@@ -606,16 +620,25 @@ async def main():
 
     bad = deepcopy(good[M03])
     bad["quarterly_unpacked_profits"] = []
-    await expect("empty:quarterly_unpacked_profits", M03, bad, False,
-                 "quarterly_unpacked_profits")
+    await expect(
+        "empty:quarterly_unpacked_profits",
+        M03,
+        bad,
+        False,
+        "quarterly_unpacked_profits",
+    )
     bad = deepcopy(good[M03])
     bad["quarterly_unpacked_profits"][0]["value"] += 99
-    await expect("unsourced:quarterly_unpacked_profits", M03, bad, False,
-                 "quarterly_unpacked_profits")
+    await expect(
+        "unsourced:quarterly_unpacked_profits",
+        M03,
+        bad,
+        False,
+        "quarterly_unpacked_profits",
+    )
     bad = deepcopy(good[M03])
     bad["purified_net_profit"]["value"] += 99
-    await expect("tampered:purified_net_profit", M03, bad, False,
-                 "purified_net_profit")
+    await expect("tampered:purified_net_profit", M03, bad, False, "purified_net_profit")
 
     bad = deepcopy(good[M05])
     bad["evidence_items"] = bad["evidence_items"][:3]
@@ -625,115 +648,137 @@ async def main():
     await expect("tampered:current_ratio", M05, bad, False, "current_ratio")
     bad = deepcopy(good[M05])
     bad["solvency_risk_level"] = " "
-    await expect("blank:solvency_risk_level", M05, bad, False,
-                 "solvency_risk_level")
+    await expect("blank:solvency_risk_level", M05, bad, False, "solvency_risk_level")
 
     bad = deepcopy(good[M06])
     bad["cash_conversion_cycle_days"]["value"] += 99
-    await expect("tampered:cash_conversion_cycle_days", M06, bad, False,
-                 "cash_conversion_cycle_days")
+    await expect(
+        "tampered:cash_conversion_cycle_days",
+        M06,
+        bad,
+        False,
+        "cash_conversion_cycle_days",
+    )
     bad = deepcopy(good[M06])
     bad["cash_conversion_cycle_days"] = e.compute(
         "dio_days + dso_days", dio_days=90, dso_days=60
     )
-    await expect("wrong_expression:cash_conversion_cycle_days", M06, bad, False,
-                 "cash_conversion_cycle_days")
+    await expect(
+        "wrong_expression:cash_conversion_cycle_days",
+        M06,
+        bad,
+        False,
+        "cash_conversion_cycle_days",
+    )
 
     bad = deepcopy(good[M07])
     bad["free_cash_flow_firm"]["value"] += 99
-    await expect("tampered:free_cash_flow_firm", M07, bad, False,
-                 "free_cash_flow_firm")
+    await expect("tampered:free_cash_flow_firm", M07, bad, False, "free_cash_flow_firm")
     bad = deepcopy(good[M07])
     bad["evidence_items"].append(deepcopy(bad["evidence_items"][0]))
     await expect("duplicate:evidence_items", M07, bad, False, "evidence_items")
     bad = deepcopy(good[M07])
     bad["earnings_quality_flag"] = " "
-    await expect("blank:earnings_quality_flag", M07, bad, False,
-                 "earnings_quality_flag")
+    await expect(
+        "blank:earnings_quality_flag", M07, bad, False, "earnings_quality_flag"
+    )
 
     bad = deepcopy(good[M08])
     bad["segment_revenue_shares"] = []
-    await expect("empty:segment_revenue_shares", M08, bad, False,
-                 "segment_revenue_shares")
+    await expect(
+        "empty:segment_revenue_shares", M08, bad, False, "segment_revenue_shares"
+    )
     bad = deepcopy(good[M08])
     bad["segment_revenue_shares"][0]["value"] += 99
-    await expect("unsourced:segment_revenue_shares", M08, bad, False,
-                 "segment_revenue_shares")
+    await expect(
+        "unsourced:segment_revenue_shares", M08, bad, False, "segment_revenue_shares"
+    )
 
     bad = deepcopy(good[M09])
     bad["top5_customer_ratio"]["value"] += 99
-    await expect("unsourced:top5_customer_ratio", M09, bad, False,
-                 "top5_customer_ratio")
+    await expect(
+        "unsourced:top5_customer_ratio", M09, bad, False, "top5_customer_ratio"
+    )
     bad = deepcopy(good[M09])
     bad["concentration_risk_rating"] = " "
-    await expect("blank:concentration_risk_rating", M09, bad, False,
-                 "concentration_risk_rating")
+    await expect(
+        "blank:concentration_risk_rating", M09, bad, False, "concentration_risk_rating"
+    )
 
     bad = deepcopy(good[M10])
     bad["capex_to_depreciation"]["value"] += 99
-    await expect("tampered:capex_to_depreciation", M10, bad, False,
-                 "capex_to_depreciation")
+    await expect(
+        "tampered:capex_to_depreciation", M10, bad, False, "capex_to_depreciation"
+    )
     bad = deepcopy(good[M10])
     bad["capacity_expansion_stage"] = " "
-    await expect("blank:capacity_expansion_stage", M10, bad, False,
-                 "capacity_expansion_stage")
+    await expect(
+        "blank:capacity_expansion_stage", M10, bad, False, "capacity_expansion_stage"
+    )
 
     bad = deepcopy(good[M11])
     bad["rnd_intensity"]["value"] += 99
     await expect("tampered:rnd_intensity", M11, bad, False, "rnd_intensity")
     bad = deepcopy(good[M11])
     bad["capitalization_ratio"]["value"] += 99
-    await expect("tampered:capitalization_ratio", M11, bad, False,
-                 "capitalization_ratio")
+    await expect(
+        "tampered:capitalization_ratio", M11, bad, False, "capitalization_ratio"
+    )
 
     bad = deepcopy(good[M12])
     bad["trend_projection_series"] = []
-    await expect("empty:trend_projection_series", M12, bad, False,
-                 "trend_projection_series")
+    await expect(
+        "empty:trend_projection_series", M12, bad, False, "trend_projection_series"
+    )
     bad = deepcopy(good[M12])
     bad["revenue_cagr_3yr"]["value"] += 99
-    await expect("tampered:revenue_cagr_3yr", M12, bad, False,
-                 "revenue_cagr_3yr")
+    await expect("tampered:revenue_cagr_3yr", M12, bad, False, "revenue_cagr_3yr")
 
     bad = deepcopy(good[M14])
     bad["evidence_items"] = bad["evidence_items"][:3]
     await expect("short:evidence_items_dcf", M14, bad, False, "evidence_items")
     bad = deepcopy(good[M14])
     bad["equity_value_dcf"]["value"] += 99
-    await expect("tampered:equity_value_dcf", M14, bad, False,
-                 "equity_value_dcf")
+    await expect("tampered:equity_value_dcf", M14, bad, False, "equity_value_dcf")
 
     bad = deepcopy(good[M15])
     bad["implied_market_cap"]["value"] += 99
-    await expect("tampered:implied_market_cap", M15, bad, False,
-                 "implied_market_cap")
+    await expect("tampered:implied_market_cap", M15, bad, False, "implied_market_cap")
     bad = deepcopy(good[M15])
     del bad["target_pb_lf"]
     await expect("missing:target_pb_lf", M15, bad, False)
 
     bad = deepcopy(good[M16])
     bad["controlling_shareholder_pledge_ratio"]["value"] += 99
-    await expect("unsourced:controlling_shareholder_pledge_ratio", M16, bad,
-                 False, "controlling_shareholder_pledge_ratio")
+    await expect(
+        "unsourced:controlling_shareholder_pledge_ratio",
+        M16,
+        bad,
+        False,
+        "controlling_shareholder_pledge_ratio",
+    )
     bad = deepcopy(good[M16])
     del bad["major_holder_reduction_plans"]
     await expect("missing:major_holder_reduction_plans", M16, bad, False)
 
     bad = deepcopy(good[M17])
-    bad["impairment_stress_headroom"]["right_id"] = e.compute(x=75)[
-        "compute_id"
-    ]
-    await expect("mismatched:impairment_stress_headroom", M17, bad, False,
-                 "impairment_stress_headroom")
+    bad["impairment_stress_headroom"]["right_id"] = e.compute(x=75)["compute_id"]
+    await expect(
+        "mismatched:impairment_stress_headroom",
+        M17,
+        bad,
+        False,
+        "impairment_stress_headroom",
+    )
     bad = deepcopy(good[M17])
     bad["goodwill_to_net_assets"]["value"] += 99
-    await expect("tampered:goodwill_to_net_assets", M17, bad, False,
-                 "goodwill_to_net_assets")
+    await expect(
+        "tampered:goodwill_to_net_assets", M17, bad, False, "goodwill_to_net_assets"
+    )
 
     bad = deepcopy(good[M19])
     bad["roic_vs_wacc_spread"]["value"] += 99
-    await expect("tampered:roic_vs_wacc_spread", M19, bad, False,
-                 "roic_vs_wacc_spread")
+    await expect("tampered:roic_vs_wacc_spread", M19, bad, False, "roic_vs_wacc_spread")
     bad = deepcopy(good[M19])
     bad["moat_rating"] = " "
     await expect("blank:moat_rating", M19, bad, False, "moat_rating")

@@ -127,6 +127,18 @@ def forecast_balance_checks(
     ]
 
 
+RAW_STATEMENTS = [
+    OutputCell(name="raw_balance_sheet", type="table"),
+    OutputCell(name="raw_income_statement", type="table"),
+    OutputCell(name="raw_cash_flow_statement", type="table"),
+]
+OPERANDS = ("net_profit", "non_recurring_net", "revenue", "roic", "wacc")
+INTAKE_OUTPUTS = [
+    *RAW_STATEMENTS,
+    *(OutputCell(name=key, type="number") for key in OPERANDS),
+]
+
+
 ALL_20_SPECS: list[dict[str, Any]] = [
     # M01: 财务三表标准化重构与口径对齐
     {
@@ -153,11 +165,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "原始数据采集接入属平台数据接入层。"
         ),
         "feeder_outputs": {
-            "raw_data": [
-                OutputCell(name="raw_balance_sheet", type="table"),
-                OutputCell(name="raw_income_statement", type="table"),
-                OutputCell(name="raw_cash_flow_statement", type="table"),
-            ]
+            "raw_data": INTAKE_OUTPUTS,
         },
         "inputs": {"feeder_raw": "raw_data"},
         "expert_inputs": {"raw_data": "financial_data_intake"},
@@ -179,7 +187,6 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             *financial_rows_checks("standardized_balance_sheet"),
             *financial_rows_checks("standardized_income_statement"),
             *financial_rows_checks("standardized_cash_flow"),
-            check("list_min", "reclassification_audit_trail", min=1),
             check(
                 "each_has",
                 "reclassification_audit_trail",
@@ -343,14 +350,18 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "趋势外推找「复合年均增长率与趋势外推」；盈利结构分解找「杜邦五步分解法」。"
         ),
         "feeder_outputs": {
+            "source_facts": INTAKE_OUTPUTS,
             "reconciled": [
                 OutputCell(name="reconciliation_status", type="text"),
                 OutputCell(name="balance_sheet_balance_diff", type="number"),
                 OutputCell(name="audit_reconciliations", type="table"),
-            ]
+            ],
         },
-        "inputs": {"feeder_reconciled": "reconciled"},
-        "expert_inputs": {"reconciled": "accounting_statement_reconciliation"},
+        "inputs": {"feeder_source": "source_facts", "feeder_reconciled": "reconciled"},
+        "expert_inputs": {
+            "source_facts": "financial_data_intake",
+            "reconciled": "accounting_statement_reconciliation",
+        },
         "outputs": [
             OutputCell(name="purified_net_profit", type="number"),
             OutputCell(name="recurring_profit_margin", type="number"),
@@ -1573,6 +1584,7 @@ ALL_20_SPECS: list[dict[str, Any]] = [
             "假说涉及的财务证据回到各上游分析方法。"
         ),
         "feeder_outputs": {
+            "source_facts": INTAKE_OUTPUTS,
             "dupont": [
                 OutputCell(name="roe", type="number"),
                 OutputCell(name="dupont_chain_product", type="number"),
@@ -1587,10 +1599,13 @@ ALL_20_SPECS: list[dict[str, Any]] = [
                     value="number",
                     compute_id="text",
                 ),
-            ]
+            ],
         },
-        "inputs": {"feeder_dupont": "dupont"},
-        "expert_inputs": {"dupont": "dupont_five_way_decomposition"},
+        "inputs": {"feeder_source": "source_facts", "feeder_dupont": "dupont"},
+        "expert_inputs": {
+            "source_facts": "financial_data_intake",
+            "dupont": "dupont_five_way_decomposition",
+        },
         "outputs": [
             OutputCell(name="moat_rating", type="text"),
             OutputCell(name="roic_vs_wacc_spread", type="number"),
@@ -1977,23 +1992,8 @@ def build_financial_expert_manifest(
         title="财务基础数据接入",
         does="读取公司年报与季报原始三表、附注披露及行情数据。",
         selection=MethodSelection(applies_when="初始接入", required=True, max_calls=1),
-        outputs=(
-            OutputCell(name="raw_balance_sheet", type="table"),
-            OutputCell(name="raw_income_statement", type="table"),
-            OutputCell(name="raw_cash_flow_statement", type="table"),
-        ),
-        checks=(
-            CheckCell(
-                template="required",
-                params={
-                    "keys": [
-                        "raw_balance_sheet",
-                        "raw_income_statement",
-                        "raw_cash_flow_statement",
-                    ]
-                },
-            ),
-        ),
+        outputs=tuple(INTAKE_OUTPUTS),
+        checks=(required(*(out.name for out in INTAKE_OUTPUTS)),),
     )
 
     upstream_schemas = {"financial_data_intake": _input_schema(intake_step)}

@@ -241,6 +241,7 @@ valid_steps = (
         instance_id="step_m03",
         method_id="non_recurring_items_purification",
         inputs=(
+            InputBinding(slot="financial_data_intake", instance_id="step_intake"),
             InputBinding(
                 slot="accounting_statement_reconciliation",
                 instance_id="step_m02",

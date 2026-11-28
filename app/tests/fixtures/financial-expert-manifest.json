@@ -39,7 +39,7 @@
           "summary": "读取公司年报与季报原始三表、附注披露及行情数据。",
           "why": "",
           "input_refs": [],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取公司年报与季报原始三表、附注披露及行情数据。\n\n交回一个 JSON，包含：\n- raw_balance_sheet：表\n- raw_income_statement：表\n- raw_cash_flow_statement：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：读取公司年报与季报原始三表、附注披露及行情数据。\n\n交回一个 JSON，包含：\n- raw_balance_sheet：表\n- raw_income_statement：表\n- raw_cash_flow_statement：表\n- net_profit：数\n- non_recurring_net：数\n- revenue：数\n- roic：数\n- wacc：数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -63,7 +63,12 @@
             ],
             "raw_cash_flow_statement": [
               "string"
-            ]
+            ],
+            "net_profit": "number",
+            "non_recurring_net": "number",
+            "revenue": "number",
+            "roic": "number",
+            "wacc": "number"
           },
           "acceptance": [
             {
@@ -76,9 +81,14 @@
               "keys": [
                 "raw_balance_sheet",
                 "raw_income_statement",
-                "raw_cash_flow_statement"
+                "raw_cash_flow_statement",
+                "net_profit",
+                "non_recurring_net",
+                "revenue",
+                "roic",
+                "wacc"
               ],
-              "label": "交回项都在：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」",
+              "label": "交回项都在：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」、「net_profit」、「non_recurring_net」、「revenue」、「roic」、「wacc」",
               "message": "缺交回项"
             },
             {
@@ -86,10 +96,15 @@
               "keys": [
                 "raw_balance_sheet",
                 "raw_income_statement",
-                "raw_cash_flow_statement"
+                "raw_cash_flow_statement",
+                "net_profit",
+                "non_recurring_net",
+                "revenue",
+                "roic",
+                "wacc"
               ],
-              "label": "必须有：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」",
-              "message": "没过：必须有：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」"
+              "label": "必须有：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」、「net_profit」、「non_recurring_net」、「revenue」、「roic」、「wacc」",
+              "message": "没过：必须有：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」、「net_profit」、「non_recurring_net」、「revenue」、「roic」、「wacc」"
             },
             {
               "kind": "no_positioning_advice",
@@ -303,13 +318,6 @@
               "tolerance": 0.01,
               "label": "「standardized_cash_flow」的数和原数据那一格对得上",
               "message": "没过：「standardized_cash_flow」的数和原数据那一格对得上"
-            },
-            {
-              "kind": "list_min",
-              "path": "reclassification_audit_trail",
-              "min_items": 1,
-              "label": "「reclassification_audit_trail」至少 1 项",
-              "message": "没过：「reclassification_audit_trail」至少 1 项"
             },
             {
               "kind": "each_has",
@@ -568,9 +576,10 @@
           "summary": "按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。",
           "why": "剔除一次性与非经营偶发扰动，识别企业不可持续的利润粉饰，核准主业真实造血能力。",
           "input_refs": [
+            "financial_data_intake",
             "accounting_statement_reconciliation"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。\n\n规则：\n1. 依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接非经常性损益认定口径的再裁量（以公告列举为准，列举外项目标存疑列入待确认）；不接年化处理与季节性调整。\n4. 趋势外推找「复合年均增长率与趋势外推」；盈利结构分解找「杜邦五步分解法」。\n\n用上：accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- purified_net_profit：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- recurring_profit_margin：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- quarterly_unpacked_profits：列表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。\n\n规则：\n1. 依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接非经常性损益认定口径的再裁量（以公告列举为准，列举外项目标存疑列入待确认）；不接年化处理与季节性调整。\n4. 趋势外推找「复合年均增长率与趋势外推」；盈利结构分解找「杜邦五步分解法」。\n\n用上：financial_data_intake（财务基础数据接入）、accounting_statement_reconciliation（报表勾稽平衡与重述校验）\n\n交回一个 JSON，包含：\n- purified_net_profit：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- recurring_profit_margin：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- quarterly_unpacked_profits：列表；每个数写成 {address, value}：address 是数据那一格的编号（fact:…），value 是那个数\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -2686,9 +2695,10 @@
           "summary": "综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。",
           "why": "将财务指标升华为商业壁垒研判，验证超额资本回报率的可持续性与竞争护城河深浅。",
           "input_refs": [
+            "financial_data_intake",
             "dupont_five_way_decomposition"
           ],
-          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。\n\n规则：\n1. 依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。\n4. ROIC 与 WACC 的取值口径找「企业自由现金流贴现估值 DCF」；假说涉及的财务证据回到各上游分析方法。\n\n用上：dupont_five_way_decomposition（杜邦五步分解法）\n\n交回一个 JSON，包含：\n- moat_rating：文字\n- roic_vs_wacc_spread：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- thesis_verification_matrix：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
+          "method_text": "你在按一位作者写定的方法做其中一步。方法是作者的：照下面写的做，不加自己的判断，不替作者补口径、阈值、预测方法。只用这一步给你的工具读数据；每个数只能来自数据或上游的交回物，不凭记忆、不自己编。不给买卖建议、评级、目标价。\n\n这一步：综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。\n\n规则：\n1. 依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论\n2. 严禁伪造数据，数值与引文必须精准对齐对应输入源。\n3. 不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。\n4. ROIC 与 WACC 的取值口径找「企业自由现金流贴现估值 DCF」；假说涉及的财务证据回到各上游分析方法。\n\n用上：financial_data_intake（财务基础数据接入）、dupont_five_way_decomposition（杜邦五步分解法）\n\n交回一个 JSON，包含：\n- moat_rating：文字\n- roic_vs_wacc_spread：数；每个数写成 {value, compute_id}：value 是数，compute_id 是 compute 返回的编号\n- thesis_verification_matrix：表\n\n只交回一个 JSON 对象，前后不加说明、不加代码块标记；交回项缺了或类型不对，这一步不算过。这一步不改任何文件。调用工具时照工具说明带上这件委托的委托号。",
           "tools": [
             "compute",
             "describe_items",
@@ -3122,7 +3132,7 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003e8",
           "version": 1,
-          "digest": "sha256:8021b86f284a7f7c1ec4b4f47f55867fbb05aff1604c53385406807fa588fac4",
+          "digest": "sha256:11f949e140a2b4a0185a10b0095439ce1df2d7f552ef66a4cc732fb9f465978d",
           "inputs": {
             "raw_data": "financial_data_intake"
           }
@@ -3347,13 +3357,6 @@
                 }
               },
               {
-                "template": "list_min",
-                "params": {
-                  "path": "reclassification_audit_trail",
-                  "min": 1
-                }
-              },
-              {
                 "template": "each_has",
                 "params": {
                   "path": "reclassification_audit_trail",
@@ -3441,7 +3444,12 @@
               ],
               "raw_cash_flow_statement": [
                 "string"
-              ]
+              ],
+              "net_profit": "number",
+              "non_recurring_net": "number",
+              "revenue": "number",
+              "roic": "number",
+              "wacc": "number"
             }
           }
         }
@@ -3766,8 +3774,9 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003ea",
           "version": 1,
-          "digest": "sha256:5e0bc99a5894716a2d136b0be09366415aa00269c3bf8ee50f23c14c3b004e85",
+          "digest": "sha256:f842c01e434e305335f975b81c7946316b1a27264a54ac79f1c8babc402825f2",
           "inputs": {
+            "source_facts": "financial_data_intake",
             "reconciled": "accounting_statement_reconciliation"
           }
         },
@@ -3779,6 +3788,7 @@
             "does": "按证监会非经常性损益定义逐项剥离政府补助、资产处置损益、公允价值变动等非经常项目，还原扣非净利润；季报为累计披露，按差分法还原单季度（Q1=一季报，Q2=半年报−Q1，Q3=前三季−半年报，Q4=年报−前三季），还原结果与公司披露的单季数据互核。",
             "why": "剔除一次性与非经营偶发扰动，识别企业不可持续的利润粉饰，核准主业真实造血能力。",
             "uses": [
+              "source_facts",
               "reconciled"
             ],
             "rules": [
@@ -3904,6 +3914,22 @@
             }
           },
           "input_schemas": {
+            "source_facts": {
+              "raw_balance_sheet": [
+                "string"
+              ],
+              "raw_income_statement": [
+                "string"
+              ],
+              "raw_cash_flow_statement": [
+                "string"
+              ],
+              "net_profit": "number",
+              "non_recurring_net": "number",
+              "revenue": "number",
+              "roic": "number",
+              "wacc": "number"
+            },
             "reconciled": {
               "reconciliation_status": "string",
               "balance_sheet_balance_diff": {
@@ -7113,8 +7139,9 @@
         "reference": {
           "method_id": "00000000-0000-0000-0000-0000000003fa",
           "version": 1,
-          "digest": "sha256:0275a93da0044c1e38078f51937e95b82c8a3870ab3064de32a28b9fa9fe3511",
+          "digest": "sha256:3305780b88f48437dc14c230b9e5f8fc9ec798151f8eff711cfc8c617e017af0",
           "inputs": {
+            "source_facts": "financial_data_intake",
             "dupont": "dupont_five_way_decomposition"
           }
         },
@@ -7126,6 +7153,7 @@
             "does": "综合ROIC与WACC利差（持续性为核心证据），结合无形资产、转换成本、网络效应、成本优势四类来源逐项举证，对照核心买入假说进行事实证伪；护城河分级判据：利差连续3年为正且至少一类来源有实证为「强」，利差为正但证据不足为「中」，利差为负或转负为「弱」。",
             "why": "将财务指标升华为商业壁垒研判，验证超额资本回报率的可持续性与竞争护城河深浅。",
             "uses": [
+              "source_facts",
               "dupont"
             ],
             "rules": [
@@ -7229,6 +7257,22 @@
             }
           },
           "input_schemas": {
+            "source_facts": {
+              "raw_balance_sheet": [
+                "string"
+              ],
+              "raw_income_statement": [
+                "string"
+              ],
+              "raw_cash_flow_statement": [
+                "string"
+              ],
+              "net_profit": "number",
+              "non_recurring_net": "number",
+              "revenue": "number",
+              "roic": "number",
+              "wacc": "number"
+            },
             "dupont": {
               "roe": {
                 "value": "number",
@@ -7837,1049 +7881,1044 @@
   },
   "rule_sources": [
     {
-      "rule": "财务基础数据接入·怎样算对：必须有：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」",
+      "rule": "财务基础数据接入·怎样算对：必须有：「raw_balance_sheet」、「raw_income_statement」、「raw_cash_flow_statement」、「net_profit」、「non_recurring_net」、「revenue」、「roic」、「wacc」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000023"
+      "ref": "record:00000000-0000-0000-0000-000000000028"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：必须有：「standardized_balance_sheet」、「standardized_income_statement」、「standardized_cash_flow」、「reclassification_audit_trail」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000033"
+      "ref": "record:00000000-0000-0000-0000-000000000038"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」至少 3 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000034"
+      "ref": "record:00000000-0000-0000-0000-000000000039"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」每项都有「item」、「period」、「unit」、「value」、「address」；「item」、「period」、「unit」不能为空；「period」、「item」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000035"
+      "ref": "record:00000000-0000-0000-0000-00000000003a"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_balance_sheet」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000036"
+      "ref": "record:00000000-0000-0000-0000-00000000003b"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_income_statement」至少 3 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000037"
+      "ref": "record:00000000-0000-0000-0000-00000000003c"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_income_statement」每项都有「item」、「period」、「unit」、「value」、「address」；「item」、「period」、「unit」不能为空；「period」、「item」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000038"
+      "ref": "record:00000000-0000-0000-0000-00000000003d"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_income_statement」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000039"
+      "ref": "record:00000000-0000-0000-0000-00000000003e"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_cash_flow」至少 3 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003a"
+      "ref": "record:00000000-0000-0000-0000-00000000003f"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_cash_flow」每项都有「item」、「period」、「unit」、「value」、「address」；「item」、「period」、「unit」不能为空；「period」、「item」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003b"
+      "ref": "record:00000000-0000-0000-0000-000000000040"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「standardized_cash_flow」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003c"
-    },
-    {
-      "rule": "财务三表标准化重构与口径对齐·怎样算对：「reclassification_audit_trail」至少 1 项",
-      "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003d"
+      "ref": "record:00000000-0000-0000-0000-000000000041"
     },
     {
       "rule": "财务三表标准化重构与口径对齐·怎样算对：「reclassification_audit_trail」每项都有「item」、「reason」；「item」、「reason」不能为空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000003e"
+      "ref": "record:00000000-0000-0000-0000-000000000042"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：依据：财政部《企业会计准则第30号——财务报表列报》（2014年修订）及一般企业财务报表格式通知（财会〔2019〕6号）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002b"
+      "ref": "record:00000000-0000-0000-0000-000000000030"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002c"
+      "ref": "record:00000000-0000-0000-0000-000000000031"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：不接数据真实性核验（属勾稽与审计排查），不接合并抵销调整（原始披露已是合并口径）；金融企业专用报表格式未覆盖。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002d"
+      "ref": "record:00000000-0000-0000-0000-000000000032"
     },
     {
       "rule": "财务三表标准化重构与口径对齐：勾稽平衡校验找「报表勾稽平衡与重述校验」；原始数据采集接入属平台数据接入层。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002e"
+      "ref": "record:00000000-0000-0000-0000-000000000033"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：必须有：「reconciliation_status」、「balance_sheet_balance_diff」、「opening_balance_diff」、「retained_earnings_diff」、「cash_flow_diff」、「opening_comparisons」、「audit_reconciliations」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000051"
+      "ref": "record:00000000-0000-0000-0000-000000000055"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「reconciliation_status」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000052"
+      "ref": "record:00000000-0000-0000-0000-000000000056"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「balance_sheet_balance_diff」的数都是用计算工具算的（算式 abs(total_assets - (total_liabilities + equity))），结果应为 0（容差 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000053"
+      "ref": "record:00000000-0000-0000-0000-000000000057"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_balance_diff」的数都是用计算工具算的（算式 abs(opening_assets - (opening_liabilities + opening_equity))），结果应为 0（容差 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000054"
+      "ref": "record:00000000-0000-0000-0000-000000000058"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「retained_earnings_diff」的数都是用计算工具算的（算式 abs(closing_retained - (opening_retained + parent_profit - reserve_transfer - dividends + restatement_adjustment))），结果应为 0（容差 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000055"
+      "ref": "record:00000000-0000-0000-0000-000000000059"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「cash_flow_diff」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000056"
+      "ref": "record:00000000-0000-0000-0000-00000000005a"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000057"
+      "ref": "record:00000000-0000-0000-0000-00000000005b"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」每项都有「item」、「period」；「item」、「period」不能为空；「item」、「period」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000058"
+      "ref": "record:00000000-0000-0000-0000-00000000005c"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「opening_comparisons」的数都是用计算工具算的（算式 abs(opening_value - prior_closing_value)），结果应为 0（容差 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000059"
+      "ref": "record:00000000-0000-0000-0000-00000000005d"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」至少 5 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005a"
+      "ref": "record:00000000-0000-0000-0000-00000000005e"
     },
     {
       "rule": "报表勾稽平衡与重述校验·怎样算对：「audit_reconciliations」每项都有「check_name」、「evidence」，「check_name」只能是「closing_balance」、「opening_balance」、「retained_earnings」、「cash_flow」、「opening_comparisons」；「evidence」不能为空；「check_name…",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005b"
+      "ref": "record:00000000-0000-0000-0000-00000000005f"
     },
     {
       "rule": "报表勾稽平衡与重述校验：依据：《企业会计准则——基本准则》会计等式；中国注册会计师审计准则第1313号《分析程序》；证监会《公开发行证券的公司信息披露编报规则第19号——财务信息的更正及相关披露》（追溯重述部分）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000046"
+      "ref": "record:00000000-0000-0000-0000-00000000004a"
     },
     {
       "rule": "报表勾稽平衡与重述校验：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000047"
+      "ref": "record:00000000-0000-0000-0000-00000000004b"
     },
     {
       "rule": "报表勾稽平衡与重述校验：不接科目口径调整与重分类（前置方法的事），不接审计意见真伪鉴定。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000048"
+      "ref": "record:00000000-0000-0000-0000-00000000004c"
     },
     {
       "rule": "报表勾稽平衡与重述校验：科目重分类与报表标准化找「财务三表标准化重构与口径对齐」；审计意见与关键审计事项找「关键审计事项与或有负债排查」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000049"
+      "ref": "record:00000000-0000-0000-0000-00000000004d"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：必须有：「purified_net_profit」、「recurring_profit_margin」、「quarterly_unpacked_profits」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006a"
+      "ref": "record:00000000-0000-0000-0000-00000000006e"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「purified_net_profit」的数都是用计算工具算的（算式 net_profit - non_recurring_net）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006b"
+      "ref": "record:00000000-0000-0000-0000-00000000006f"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「recurring_profit_margin」的数都是用计算工具算的（算式 purified_net_profit / revenue）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006c"
+      "ref": "record:00000000-0000-0000-0000-000000000070"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006d"
+      "ref": "record:00000000-0000-0000-0000-000000000071"
     },
     {
       "rule": "非经常性损益穿透与扣非还原·怎样算对：「quarterly_unpacked_profits」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000006e"
+      "ref": "record:00000000-0000-0000-0000-000000000072"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：依据：中国证监会《公开发行证券的公司信息披露解释性公告第1号——非经常性损益》（2008年发布、2023年修订）；A股季报累计披露制度下的差分还原惯例",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000063"
+      "ref": "record:00000000-0000-0000-0000-000000000067"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000064"
+      "ref": "record:00000000-0000-0000-0000-000000000068"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：不接非经常性损益认定口径的再裁量（以公告列举为准，列举外项目标存疑列入待确认）；不接年化处理与季节性调整。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000065"
+      "ref": "record:00000000-0000-0000-0000-000000000069"
     },
     {
       "rule": "非经常性损益穿透与扣非还原：趋势外推找「复合年均增长率与趋势外推」；盈利结构分解找「杜邦五步分解法」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000066"
+      "ref": "record:00000000-0000-0000-0000-00000000006a"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：必须有：「roe」、「dupont_chain_product」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」、「dupont_evidence_items」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000082"
+      "ref": "record:00000000-0000-0000-0000-000000000086"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」至少 6 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000083"
+      "ref": "record:00000000-0000-0000-0000-000000000087"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「roe」、「tax_burden」、「interest_burden」、「ebit_margin」、「asset_turnover」、「equity_multiplier」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000084"
+      "ref": "record:00000000-0000-0000-0000-000000000088"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_evidence_items」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000085"
+      "ref": "record:00000000-0000-0000-0000-000000000089"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「roe」的数都是用计算工具算的（算式 tax_burden * interest_burden * ebit_margin * asset_turnover * equity_multiplier）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000086"
+      "ref": "record:00000000-0000-0000-0000-00000000008a"
     },
     {
       "rule": "杜邦五步分解法·怎样算对：「dupont_chain_product」两边相等（容差 0.001）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000087"
+      "ref": "record:00000000-0000-0000-0000-00000000008b"
     },
     {
       "rule": "杜邦五步分解法：依据：杜邦公司财务分析体系（Donaldson Brown, 1914）的五因子扩展；CFA Institute《Financial Reporting and Analysis》杜邦分解框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000076"
+      "ref": "record:00000000-0000-0000-0000-00000000007a"
     },
     {
       "rule": "杜邦五步分解法：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000077"
+      "ref": "record:00000000-0000-0000-0000-00000000007b"
     },
     {
       "rule": "杜邦五步分解法：不接银行、保险、券商等金融企业——其报表结构与监管口径不适用通用杜邦分解，金融版分解另列候选方法，不在本方法内打补丁。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000078"
+      "ref": "record:00000000-0000-0000-0000-00000000007c"
     },
     {
       "rule": "杜邦五步分解法：金融企业盈利结构分析需另行指定方法；估值找「企业自由现金流贴现估值 DCF」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000079"
+      "ref": "record:00000000-0000-0000-0000-00000000007d"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」至少 4 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000099"
+      "ref": "record:00000000-0000-0000-0000-00000000009d"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009a"
+      "ref": "record:00000000-0000-0000-0000-00000000009e"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：「evidence_items」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009b"
+      "ref": "record:00000000-0000-0000-0000-00000000009f"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：必须有：「current_ratio」、「quick_ratio」、「cash_to_current_debt」、「altman_z_score」、「solvency_risk_level」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009c"
+      "ref": "record:00000000-0000-0000-0000-0000000000a0"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：「solvency_risk_level」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009d"
+      "ref": "record:00000000-0000-0000-0000-0000000000a1"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：「current_ratio」的数都是用计算工具算的（算式 current_assets / current_liabilities）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009e"
+      "ref": "record:00000000-0000-0000-0000-0000000000a2"
     },
     {
       "rule": "偿债压力与流动性体检·怎样算对：「quick_ratio」的数都是用计算工具算的（算式 (current_assets - inventory) / current_liabilities）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000009f"
+      "ref": "record:00000000-0000-0000-0000-0000000000a3"
     },
     {
       "rule": "偿债压力与流动性体检：依据：Altman（1968）Z-Score初始模型（制造业上市公司样本）；流动/速动/现金短债比为银行信贷与信用评级通行口径",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008f"
+      "ref": "record:00000000-0000-0000-0000-000000000093"
     },
     {
       "rule": "偿债压力与流动性体检：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000090"
+      "ref": "record:00000000-0000-0000-0000-000000000094"
     },
     {
       "rule": "偿债压力与流动性体检：不接金融机构偿债分析（监管资本口径另行处理）；Z-Score沿用1968年初始模型与阈值，未按行业校准，分级仅供内部参考；利息保障倍数暂不纳入输出，列入候选增强。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000091"
+      "ref": "record:00000000-0000-0000-0000-000000000095"
     },
     {
       "rule": "偿债压力与流动性体检：现金流质量找「收益质量分析与应计项排雷、FCF」；或有负债找「关键审计事项与或有负债排查」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000092"
+      "ref": "record:00000000-0000-0000-0000-000000000096"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC·怎样算对：必须有：「dio_days」、「dso_days」、「dpo_days」、「cash_conversion_cycle_days」、「working_capital_turnover」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b0"
+      "ref": "record:00000000-0000-0000-0000-0000000000b4"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC·怎样算对：「cash_conversion_cycle_days」的数都是用计算工具算的（算式 dio_days + dso_days - dpo_days）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b1"
+      "ref": "record:00000000-0000-0000-0000-0000000000b5"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：依据：现金循环周期模型（Richards & Laughlin, 1980）及营运资本管理通行教材口径",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a7"
+      "ref": "record:00000000-0000-0000-0000-0000000000ab"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a8"
+      "ref": "record:00000000-0000-0000-0000-0000000000ac"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：不接收入确认口径争议（以披露口径为准）；不分行业调整周转基准天数。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a9"
+      "ref": "record:00000000-0000-0000-0000-0000000000ad"
     },
     {
       "rule": "营运资本周转与现金转化周期 CCC：营运假设驱动的预测找「三表联动预测模型」；偿债能力找「偿债压力与流动性体检」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000aa"
+      "ref": "record:00000000-0000-0000-0000-0000000000ae"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「evidence_items」至少 3 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c2"
+      "ref": "record:00000000-0000-0000-0000-0000000000c6"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「operating_cf_to_net_income」、「free_cash_flow_firm」、「accrual_anomaly_score」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c3"
+      "ref": "record:00000000-0000-0000-0000-0000000000c7"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「evidence_items」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c4"
+      "ref": "record:00000000-0000-0000-0000-0000000000c8"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：必须有：「operating_cf_to_net_income」、「free_cash_flow_firm」、「accrual_anomaly_score」、「earnings_quality_flag」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c5"
+      "ref": "record:00000000-0000-0000-0000-0000000000c9"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「earnings_quality_flag」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c6"
+      "ref": "record:00000000-0000-0000-0000-0000000000ca"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「free_cash_flow_firm」的数都是用计算工具算的（算式 operating_cash_flow - capex）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c7"
+      "ref": "record:00000000-0000-0000-0000-0000000000cb"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF·怎样算对：「operating_cf_to_net_income」的数都是用计算工具算的（算式 operating_cash_flow / net_income）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000c8"
+      "ref": "record:00000000-0000-0000-0000-0000000000cc"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：依据：Dechow, Sloan & Sweeney（1995）修正琼斯模型（操纵性应计）与Dechow & Dichev（2002）应计质量框架；FCFF 口径见 Damodaran 估值教材",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b9"
+      "ref": "record:00000000-0000-0000-0000-0000000000bd"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ba"
+      "ref": "record:00000000-0000-0000-0000-0000000000be"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：完整修正琼斯模型需同行业面板回归，本轮以总应计利润率跨期异动替代，不输出行业调整后的操纵性应计估计；不接现金流预测。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bb"
+      "ref": "record:00000000-0000-0000-0000-0000000000bf"
     },
     {
       "rule": "收益质量分析与应计项排雷、FCF：自由现金流预测与贴现找「企业自由现金流贴现估值 DCF」；报表真实性找「报表勾稽平衡与重述校验」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000bc"
+      "ref": "record:00000000-0000-0000-0000-0000000000c0"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：必须有：「segment_revenue_shares」、「volume_growth_rates」、「price_variance_effects」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d7"
+      "ref": "record:00000000-0000-0000-0000-0000000000db"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d8"
+      "ref": "record:00000000-0000-0000-0000-0000000000dc"
     },
     {
       "rule": "主营业务分部量价拆解·怎样算对：「segment_revenue_shares」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d9"
+      "ref": "record:00000000-0000-0000-0000-0000000000dd"
     },
     {
       "rule": "主营业务分部量价拆解：依据：财政部《企业会计准则第35号——分部报告》(CAS 35)；管理会计因素分析（连环替代）法惯例",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d0"
+      "ref": "record:00000000-0000-0000-0000-0000000000d4"
     },
     {
       "rule": "主营业务分部量价拆解：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d1"
+      "ref": "record:00000000-0000-0000-0000-0000000000d5"
     },
     {
       "rule": "主营业务分部量价拆解：不接未披露任何分部数据的公司（输出缺口说明，不编造分部数）；不接分部的盈利能力归因。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d2"
+      "ref": "record:00000000-0000-0000-0000-0000000000d6"
     },
     {
       "rule": "主营业务分部量价拆解：客户与供应商依赖度找「前五大客户与供应商集中度透视」；成长外推找「复合年均增长率与趋势外推」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000d3"
+      "ref": "record:00000000-0000-0000-0000-0000000000d7"
     },
     {
       "rule": "前五大客户与供应商集中度透视·怎样算对：必须有：「top5_customer_ratio」、「top5_supplier_ratio」、「concentration_risk_rating」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e8"
+      "ref": "record:00000000-0000-0000-0000-0000000000ec"
     },
     {
       "rule": "前五大客户与供应商集中度透视·怎样算对：「concentration_risk_rating」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e9"
+      "ref": "record:00000000-0000-0000-0000-0000000000ed"
     },
     {
       "rule": "前五大客户与供应商集中度透视·怎样算对：「top5_customer_ratio」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ea"
+      "ref": "record:00000000-0000-0000-0000-0000000000ee"
     },
     {
       "rule": "前五大客户与供应商集中度透视：依据：中国证监会及沪深交易所《股票上市规则》关于年报前五大客户与供应商披露规范",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e1"
+      "ref": "record:00000000-0000-0000-0000-0000000000e5"
     },
     {
       "rule": "前五大客户与供应商集中度透视：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e2"
+      "ref": "record:00000000-0000-0000-0000-0000000000e6"
     },
     {
       "rule": "前五大客户与供应商集中度透视：客户/供应商以「客户一、客户二」脱敏披露时只做比例统计，不做身份穿透；关联方认定以 CAS 36 披露为准，不自行扩大。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e3"
+      "ref": "record:00000000-0000-0000-0000-0000000000e7"
     },
     {
       "rule": "前五大客户与供应商集中度透视：重大关联交易穿透找「股权质押、减持与重大关联交易穿透」；分部结构找「主营业务分部量价拆解」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e4"
+      "ref": "record:00000000-0000-0000-0000-0000000000e8"
     },
     {
       "rule": "资本开支与产能释放周期追踪·怎样算对：必须有：「capex_to_depreciation」、「cip_turnover_rate」、「capacity_expansion_stage」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f9"
+      "ref": "record:00000000-0000-0000-0000-0000000000fd"
     },
     {
       "rule": "资本开支与产能释放周期追踪·怎样算对：「capacity_expansion_stage」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fa"
+      "ref": "record:00000000-0000-0000-0000-0000000000fe"
     },
     {
       "rule": "资本开支与产能释放周期追踪·怎样算对：「capex_to_depreciation」的数都是用计算工具算的（算式 capex / depreciation_amortization）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000fb"
+      "ref": "record:00000000-0000-0000-0000-0000000000ff"
     },
     {
       "rule": "资本开支与产能释放周期追踪：依据：财政部《企业会计准则第4号——固定资产》(CAS 4) 折旧估计规范及产能周期分析通行框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f2"
+      "ref": "record:00000000-0000-0000-0000-0000000000f6"
     },
     {
       "rule": "资本开支与产能释放周期追踪：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f3"
+      "ref": "record:00000000-0000-0000-0000-0000000000f7"
     },
     {
       "rule": "资本开支与产能释放周期追踪：不评估项目投产后的实际达产率（无披露数据源）；产能爬坡只按在建工程与公告口径定性分级。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f4"
+      "ref": "record:00000000-0000-0000-0000-0000000000f8"
     },
     {
       "rule": "资本开支与产能释放周期追踪：资本开支对应的现金流压力找「收益质量分析与应计项排雷、FCF」；折旧政策变更找「报表勾稽平衡与重述校验」的重述线索。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f5"
+      "ref": "record:00000000-0000-0000-0000-0000000000f9"
     },
     {
       "rule": "研发投入资本化与产出效能评估·怎样算对：必须有：「rnd_intensity」、「capitalization_ratio」、「rnd_revenue_conversion」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010a"
+      "ref": "record:00000000-0000-0000-0000-00000000010e"
     },
     {
       "rule": "研发投入资本化与产出效能评估·怎样算对：「rnd_intensity」的数都是用计算工具算的（算式 rnd_total_expenditure / revenue）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010b"
+      "ref": "record:00000000-0000-0000-0000-00000000010f"
     },
     {
       "rule": "研发投入资本化与产出效能评估·怎样算对：「capitalization_ratio」的数都是用计算工具算的（算式 rnd_capitalized / rnd_total_expenditure）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000010c"
+      "ref": "record:00000000-0000-0000-0000-000000000110"
     },
     {
       "rule": "研发投入资本化与产出效能评估：依据：财政部《企业会计准则第6号——无形资产》(CAS 6) 研发支出资本化条件",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000103"
+      "ref": "record:00000000-0000-0000-0000-000000000107"
     },
     {
       "rule": "研发投入资本化与产出效能评估：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000104"
+      "ref": "record:00000000-0000-0000-0000-000000000108"
     },
     {
       "rule": "研发投入资本化与产出效能评估：不接研发立项质量评估；专利数量与新产品收入以公司披露为准，不做外部专利库核验。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000105"
+      "ref": "record:00000000-0000-0000-0000-000000000109"
     },
     {
       "rule": "研发投入资本化与产出效能评估：研发资本化对利润的影响找「非经常性损益穿透与扣非还原」口径核对；资本化形成的无形资产减值找「商誉减值与资产质量压力测试」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000106"
+      "ref": "record:00000000-0000-0000-0000-00000000010a"
     },
     {
       "rule": "复合年均增长率与趋势外推·怎样算对：必须有：「revenue_cagr_3yr」、「net_profit_cagr_3yr」、「trend_projection_series」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011b"
+      "ref": "record:00000000-0000-0000-0000-00000000011f"
     },
     {
       "rule": "复合年均增长率与趋势外推·怎样算对：「trend_projection_series」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011c"
+      "ref": "record:00000000-0000-0000-0000-000000000120"
     },
     {
       "rule": "复合年均增长率与趋势外推·怎样算对：「revenue_cagr_3yr」的数都是用计算工具算的（算式 (end_revenue / start_revenue) ** (1 / 3) - 1）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000011d"
+      "ref": "record:00000000-0000-0000-0000-000000000121"
     },
     {
       "rule": "复合年均增长率与趋势外推：依据：金融统计学几何平均复合年均增长率(CAGR)及对数线性时序回归模型",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000114"
+      "ref": "record:00000000-0000-0000-0000-000000000118"
     },
     {
       "rule": "复合年均增长率与趋势外推：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000115"
+      "ref": "record:00000000-0000-0000-0000-000000000119"
     },
     {
       "rule": "复合年均增长率与趋势外推：不接未来预测与区间预测（属「三表联动预测模型」）；趋势外推仅作历史参考线，不写成预期。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000116"
+      "ref": "record:00000000-0000-0000-0000-00000000011a"
     },
     {
       "rule": "复合年均增长率与趋势外推：未来两个季度的区间预测找「三表联动预测模型」；单季度还原找「非经常性损益穿透与扣非还原」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000117"
+      "ref": "record:00000000-0000-0000-0000-00000000011b"
     },
     {
       "rule": "三表联动预测模型·怎样算对：必须有：「forecast_income_statement」、「forecast_balance_sheet」、「forecast_cashflow_statement」、「forecast_intervals」、「forecast_assumptions」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012e"
+      "ref": "record:00000000-0000-0000-0000-000000000132"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」至少 18 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000012f"
+      "ref": "record:00000000-0000-0000-0000-000000000133"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项都有「horizon」、「period」、「scenario」、「metric」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」不能为空；「horizon」、「scenario」、「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000130"
+      "ref": "record:00000000-0000-0000-0000-000000000134"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000131"
+      "ref": "record:00000000-0000-0000-0000-000000000135"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」每项，「metric」只能是「revenue」、「parent_net_profit」、「operating_cost」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000132"
+      "ref": "record:00000000-0000-0000-0000-000000000136"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_income_statement」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000133"
+      "ref": "record:00000000-0000-0000-0000-000000000137"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」至少 6 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000134"
+      "ref": "record:00000000-0000-0000-0000-000000000138"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」每项都有「horizon」、「period」、「scenario」、「assets」、「liabilities」、「equity」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」不能为空；「horizon」、「sce…",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000135"
+      "ref": "record:00000000-0000-0000-0000-000000000139"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000136"
+      "ref": "record:00000000-0000-0000-0000-00000000013a"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_balance_sheet」的数都是用计算工具算的（算式 abs(assets - liabilities - equity)），结果应为 0（容差 0.01）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000137"
+      "ref": "record:00000000-0000-0000-0000-00000000013b"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」至少 6 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000138"
+      "ref": "record:00000000-0000-0000-0000-00000000013c"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」每项都有「horizon」、「period」、「scenario」、「opening_cash」、「closing_cash」、「cash_increase」、「value」、「compute_id」，「horizon」只能是「next_quarter」、「following_quarter」；「period」…",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000139"
+      "ref": "record:00000000-0000-0000-0000-00000000013d"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」每项，「scenario」只能是「pessimistic」、「base」、「optimistic」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013a"
+      "ref": "record:00000000-0000-0000-0000-00000000013e"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_cashflow_statement」的数都是用计算工具算的（算式 abs(closing_cash - opening_cash - cash_increase)），结果应为 0（容差 0.01）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013b"
+      "ref": "record:00000000-0000-0000-0000-00000000013f"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_intervals」至少 6 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013c"
+      "ref": "record:00000000-0000-0000-0000-000000000140"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_intervals」每项都有「horizon」、「metric」、「lower」、「base」、「upper」，「horizon」只能是「next_quarter」、「following_quarter」；「horizon」、「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013d"
+      "ref": "record:00000000-0000-0000-0000-000000000141"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_intervals」每项，「metric」只能是「revenue」、「parent_net_profit」、「gross_margin」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013e"
+      "ref": "record:00000000-0000-0000-0000-000000000142"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_intervals」的数都是用计算工具算的（算式 max(lower - base, base - upper, 0)），结果应为 0（容差 0）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000013f"
+      "ref": "record:00000000-0000-0000-0000-000000000143"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_assumptions」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000140"
+      "ref": "record:00000000-0000-0000-0000-000000000144"
     },
     {
       "rule": "三表联动预测模型·怎样算对：「forecast_assumptions」每项都有「name」、「reason」、「source」；「name」、「reason」、「source」不能为空；「name」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000141"
+      "ref": "record:00000000-0000-0000-0000-000000000145"
     },
     {
       "rule": "三表联动预测模型：依据：华尔街专业财务建模(Wall Street Prep)三表动态配平与循环引用解算框架；情景分析见 CFA 财务建模与预测框架",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000125"
+      "ref": "record:00000000-0000-0000-0000-000000000129"
     },
     {
       "rule": "三表联动预测模型：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000126"
+      "ref": "record:00000000-0000-0000-0000-00000000012a"
     },
     {
       "rule": "三表联动预测模型：不接五年以上长期预测；情景参数（收入增速区间、毛利波动）属作者假设，随委托单列示取值与依据，不写死；预测表行结构（季度×情景×科目）待真实数据接入后定形。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000127"
+      "ref": "record:00000000-0000-0000-0000-00000000012b"
     },
     {
       "rule": "三表联动预测模型：历史增长基准找「复合年均增长率与趋势外推」；预测现金流的贴现估值找「企业自由现金流贴现估值 DCF」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000128"
+      "ref": "record:00000000-0000-0000-0000-00000000012c"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」至少 4 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000153"
+      "ref": "record:00000000-0000-0000-0000-000000000157"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」每项都有「metric」、「value」、「compute_id」，「metric」只能是「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000154"
+      "ref": "record:00000000-0000-0000-0000-000000000158"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「evidence_items」的数都是用计算工具算的",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000155"
+      "ref": "record:00000000-0000-0000-0000-000000000159"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：必须有：「enterprise_value_dcf」、「equity_value_dcf」、「per_share_intrinsic_value」、「wacc_used」、「sensitivity_table」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000156"
+      "ref": "record:00000000-0000-0000-0000-00000000015a"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「equity_value_dcf」的数都是用计算工具算的（算式 enterprise_value_dcf - net_debt）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000157"
+      "ref": "record:00000000-0000-0000-0000-00000000015b"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF·怎样算对：「per_share_intrinsic_value」的数都是用计算工具算的（算式 equity_value_dcf / shares_outstanding）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000158"
+      "ref": "record:00000000-0000-0000-0000-00000000015c"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF：依据：纽约大学斯特恩商学院阿斯瓦斯·达摩达兰(Aswath Damodaran)贴现现金流估值专著",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000149"
+      "ref": "record:00000000-0000-0000-0000-00000000014d"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014a"
+      "ref": "record:00000000-0000-0000-0000-00000000014e"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF：不接目标价与买卖建议表述（平台红线）；银行、保险不适用FCFF贴现（应改用DDM或超额收益法，另行立项）。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014b"
+      "ref": "record:00000000-0000-0000-0000-00000000014f"
     },
     {
       "rule": "企业自由现金流贴现估值 DCF：显性期现金流来源找「三表联动预测模型」；市场乘数交叉验证找「相对估值与历史分位数对标」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000014c"
+      "ref": "record:00000000-0000-0000-0000-000000000150"
     },
     {
       "rule": "相对估值与历史分位数对标·怎样算对：必须有：「target_pe_ttm」、「target_pb_lf」、「historical_pe_percentile」、「implied_market_cap」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000168"
+      "ref": "record:00000000-0000-0000-0000-00000000016c"
     },
     {
       "rule": "相对估值与历史分位数对标·怎样算对：「implied_market_cap」的数都是用计算工具算的（算式 purified_net_profit * target_pe_ttm）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000169"
+      "ref": "record:00000000-0000-0000-0000-00000000016d"
     },
     {
       "rule": "相对估值与历史分位数对标：依据：Damodaran 相对估值与乘数对标框架；PE-TTM/PB-LF 为中国市场终端（Wind、同花顺）通行口径",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000160"
+      "ref": "record:00000000-0000-0000-0000-000000000164"
     },
     {
       "rule": "相对估值与历史分位数对标：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000161"
+      "ref": "record:00000000-0000-0000-0000-000000000165"
     },
     {
       "rule": "相对估值与历史分位数对标：不接亏损公司PE（无意义，转PB/PS并标注）；可比公司名单由作者确认，不自动圈选。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000162"
+      "ref": "record:00000000-0000-0000-0000-000000000166"
     },
     {
       "rule": "相对估值与历史分位数对标：内在价值锚找「企业自由现金流贴现估值 DCF」；盈利质量前提找「收益质量分析与应计项排雷、FCF」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000163"
+      "ref": "record:00000000-0000-0000-0000-000000000167"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透·怎样算对：必须有：「controlling_shareholder_pledge_ratio」、「major_holder_reduction_plans」、「related_party_anomaly_score」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000178"
+      "ref": "record:00000000-0000-0000-0000-00000000017c"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透·怎样算对：「controlling_shareholder_pledge_ratio」的数和原数据那一格对得上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000179"
+      "ref": "record:00000000-0000-0000-0000-00000000017d"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透：依据：中国证监会《上市公司股东、董监高减持股份的若干规定》及《企业会计准则第36号——关联方披露》",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000171"
+      "ref": "record:00000000-0000-0000-0000-000000000175"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000172"
+      "ref": "record:00000000-0000-0000-0000-000000000176"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透：数据以公告披露为准，不接实时盘口监控；平仓线测算的质押率假设按券商通行50%–60%区间标注，不输出单点预警线。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000173"
+      "ref": "record:00000000-0000-0000-0000-000000000177"
     },
     {
       "rule": "股权质押、减持与重大关联交易穿透：公司治理与护城河研判找「竞争壁垒与核心投资假说验证」；或有负债找「关键审计事项与或有负债排查」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000174"
+      "ref": "record:00000000-0000-0000-0000-000000000178"
     },
     {
       "rule": "商誉减值与资产质量压力测试·怎样算对：必须有：「goodwill_to_net_assets」、「cgu_recoverable_amount」、「impairment_stress_headroom」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000188"
+      "ref": "record:00000000-0000-0000-0000-00000000018c"
     },
     {
       "rule": "商誉减值与资产质量压力测试·怎样算对：「goodwill_to_net_assets」的数都是用计算工具算的（算式 goodwill_balance / net_assets）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000189"
+      "ref": "record:00000000-0000-0000-0000-00000000018d"
     },
     {
       "rule": "商誉减值与资产质量压力测试·怎样算对：「impairment_stress_headroom」两边相等（容差 0.01）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000018a"
+      "ref": "record:00000000-0000-0000-0000-00000000018e"
     },
     {
       "rule": "商誉减值与资产质量压力测试：依据：财政部《企业会计准则第8号——资产减值》(CAS 8) 及会计监管风险提示第8号——商誉减值",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000181"
+      "ref": "record:00000000-0000-0000-0000-000000000185"
     },
     {
       "rule": "商誉减值与资产质量压力测试：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000182"
+      "ref": "record:00000000-0000-0000-0000-000000000186"
     },
     {
       "rule": "商誉减值与资产质量压力测试：可收回金额的公允价值测算属评估师工作，本轮只做账面与承诺完成率的压力测试，不输出正式减值结论。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000183"
+      "ref": "record:00000000-0000-0000-0000-000000000187"
     },
     {
       "rule": "商誉减值与资产质量压力测试：无形资产与研发资本化质量找「研发投入资本化与产出效能评估」；减值对偿债指标的冲击找「偿债压力与流动性体检」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000184"
+      "ref": "record:00000000-0000-0000-0000-000000000188"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：必须有：「audit_opinion_type」、「kam_topics_count」、「kam_matters」、「external_guarantee_ratio」、「contingent_liability_risk_verdict」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000019b"
+      "ref": "record:00000000-0000-0000-0000-00000000019f"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000019c"
+      "ref": "record:00000000-0000-0000-0000-0000000001a0"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」每项都有「kind」、「text」，「kind」只能是「opinion」；「text」不能为空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000019d"
+      "ref": "record:00000000-0000-0000-0000-0000000001a1"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：「audit_opinion_type」的说法附原文引文",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000019e"
+      "ref": "record:00000000-0000-0000-0000-0000000001a2"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000019f"
+      "ref": "record:00000000-0000-0000-0000-0000000001a3"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」每项都有「kind」、「matter」、「audit_response」，「kind」只能是「kam」；「matter」、「audit_response」不能为空；「matter」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a0"
+      "ref": "record:00000000-0000-0000-0000-0000000001a4"
     },
     {
       "rule": "关键审计事项与或有负债排查·怎样算对：「kam_matters」的说法附原文引文",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a1"
+      "ref": "record:00000000-0000-0000-0000-0000000001a5"
     },
     {
       "rule": "关键审计事项与或有负债排查：依据：中国注册会计师审计准则第1504号《在审计报告中沟通关键审计事项》及《企业会计准则第13号——或有事项》",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000192"
+      "ref": "record:00000000-0000-0000-0000-000000000196"
     },
     {
       "rule": "关键审计事项与或有负债排查：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000193"
+      "ref": "record:00000000-0000-0000-0000-000000000197"
     },
     {
       "rule": "关键审计事项与或有负债排查：不接审计意见真实性的再鉴定；未取得带页码原文时标「待核」，不以转述替代引文。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000194"
+      "ref": "record:00000000-0000-0000-0000-000000000198"
     },
     {
       "rule": "关键审计事项与或有负债排查：报表数字真实性找「报表勾稽平衡与重述校验」；关联交易穿透找「股权质押、减持与重大关联交易穿透」。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000195"
+      "ref": "record:00000000-0000-0000-0000-000000000199"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证·怎样算对：必须有：「moat_rating」、「roic_vs_wacc_spread」、「thesis_verification_matrix」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b0"
+      "ref": "record:00000000-0000-0000-0000-0000000001b4"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证·怎样算对：「moat_rating」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b1"
+      "ref": "record:00000000-0000-0000-0000-0000000001b5"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证·怎样算对：「roic_vs_wacc_spread」的数都是用计算工具算的（算式 roic - wacc）",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b2"
+      "ref": "record:00000000-0000-0000-0000-0000000001b6"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证：依据：晨星(Morningstar)经济护城河评级标准及格林沃尔德(Greenwald)竞争优势理论",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a9"
+      "ref": "record:00000000-0000-0000-0000-0000000001ad"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001aa"
+      "ref": "record:00000000-0000-0000-0000-0000000001ae"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证：不接品牌价值评估；分级为内部分析标签，不对标晨星对外评级结果。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ab"
+      "ref": "record:00000000-0000-0000-0000-0000000001af"
     },
     {
       "rule": "竞争壁垒与核心投资假说验证：ROIC 与 WACC 的取值口径找「企业自由现金流贴现估值 DCF」；假说涉及的财务证据回到各上游分析方法。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ac"
+      "ref": "record:00000000-0000-0000-0000-0000000001b0"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001c6"
+      "ref": "record:00000000-0000-0000-0000-0000000001ca"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」每项都有「metric」、「source」，「source」只能是「dupont」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001c7"
+      "ref": "record:00000000-0000-0000-0000-0000000001cb"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」与第「报表勾稽平衡与重述校验」步一一对上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001c8"
+      "ref": "record:00000000-0000-0000-0000-0000000001cc"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001c9"
+      "ref": "record:00000000-0000-0000-0000-0000000001cd"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「reconciliation_evidence」每项都有「metric」、「source」，「source」只能是「reconciliation」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ca"
+      "ref": "record:00000000-0000-0000-0000-0000000001ce"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」与第「偿债压力与流动性体检」步一一对上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cb"
+      "ref": "record:00000000-0000-0000-0000-0000000001cf"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cc"
+      "ref": "record:00000000-0000-0000-0000-0000000001d0"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「solvency_evidence」每项都有「metric」、「source」，「source」只能是「solvency」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cd"
+      "ref": "record:00000000-0000-0000-0000-0000000001d1"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」与第「收益质量分析与应计项排雷、FCF」步一一对上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ce"
+      "ref": "record:00000000-0000-0000-0000-0000000001d2"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001cf"
+      "ref": "record:00000000-0000-0000-0000-0000000001d3"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「earnings_evidence」每项都有「metric」、「source」，「source」只能是「earnings_quality」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d0"
+      "ref": "record:00000000-0000-0000-0000-0000000001d4"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」与第「企业自由现金流贴现估值 DCF」步一一对上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d1"
+      "ref": "record:00000000-0000-0000-0000-0000000001d5"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」至少 1 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d2"
+      "ref": "record:00000000-0000-0000-0000-0000000001d6"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「valuation_evidence」每项都有「metric」、「source」，「source」只能是「valuation」；「metric」、「source」不能为空；「metric」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d3"
+      "ref": "record:00000000-0000-0000-0000-0000000001d7"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：必须有：「structured_dossier」、「executive_summary」、「risk_factors」、「evidence_audit_trail」",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d4"
+      "ref": "record:00000000-0000-0000-0000-0000000001d8"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「structured_dossier」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d5"
+      "ref": "record:00000000-0000-0000-0000-0000000001d9"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「executive_summary」不能空",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d6"
+      "ref": "record:00000000-0000-0000-0000-0000000001da"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」至少 3 项",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d7"
+      "ref": "record:00000000-0000-0000-0000-0000000001db"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「risk_factors」每项都有「text」、「source」，「source」只能是「reconciliation」、「dupont」、「solvency」、「earnings_quality」、「valuation」；「text」、「source」不能为空；「text」的组合不重复",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d8"
+      "ref": "record:00000000-0000-0000-0000-0000000001dc"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排·怎样算对：「evidence_audit_trail」与第「杜邦五步分解法」步一一对上",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001d9"
+      "ref": "record:00000000-0000-0000-0000-0000000001dd"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：依据：中国证券业协会《发布证券研究报告执业规范》（2020年修订）研报底稿与留痕要求；《证券分析师执业行为准则》信息来源披露义务",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001ba"
+      "ref": "record:00000000-0000-0000-0000-0000000001be"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：严禁伪造数据，数值与引文必须精准对齐对应输入源。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bb"
+      "ref": "record:00000000-0000-0000-0000-0000000001bf"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：不接买卖建议、评级与目标价表述（平台红线）；不接未在上游出现的指标，底稿不凭空造数；估值区间与关键假设的对外表述待作者确认。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bc"
+      "ref": "record:00000000-0000-0000-0000-0000000001c0"
     },
     {
       "rule": "结构化研究底稿与报告成稿编排：单项指标计算与校验回到各上游方法；缺数据的需求提报走 knowfeed 缺口清单。",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001bd"
+      "ref": "record:00000000-0000-0000-0000-0000000001c1"
     },
     {
       "rule": "planning",
@@ -9009,402 +9048,402 @@
     {
       "rule": "steps/fin_statement_restructure/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000027"
+      "ref": "record:00000000-0000-0000-0000-00000000002c"
     },
     {
       "rule": "steps/fin_statement_restructure/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000028"
+      "ref": "record:00000000-0000-0000-0000-00000000002d"
     },
     {
       "rule": "steps/fin_statement_restructure/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000029"
+      "ref": "record:00000000-0000-0000-0000-00000000002e"
     },
     {
       "rule": "steps/fin_statement_restructure/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000002a"
+      "ref": "record:00000000-0000-0000-0000-00000000002f"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000042"
+      "ref": "record:00000000-0000-0000-0000-000000000046"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000043"
+      "ref": "record:00000000-0000-0000-0000-000000000047"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000044"
+      "ref": "record:00000000-0000-0000-0000-000000000048"
     },
     {
       "rule": "steps/accounting_statement_reconciliation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000045"
+      "ref": "record:00000000-0000-0000-0000-000000000049"
     },
     {
       "rule": "steps/non_recurring_items_purification/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000005f"
+      "ref": "record:00000000-0000-0000-0000-000000000063"
     },
     {
       "rule": "steps/non_recurring_items_purification/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000060"
+      "ref": "record:00000000-0000-0000-0000-000000000064"
     },
     {
       "rule": "steps/non_recurring_items_purification/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000061"
+      "ref": "record:00000000-0000-0000-0000-000000000065"
     },
     {
       "rule": "steps/non_recurring_items_purification/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000062"
+      "ref": "record:00000000-0000-0000-0000-000000000066"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000072"
+      "ref": "record:00000000-0000-0000-0000-000000000076"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000073"
+      "ref": "record:00000000-0000-0000-0000-000000000077"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000074"
+      "ref": "record:00000000-0000-0000-0000-000000000078"
     },
     {
       "rule": "steps/dupont_five_way_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000075"
+      "ref": "record:00000000-0000-0000-0000-000000000079"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008b"
+      "ref": "record:00000000-0000-0000-0000-00000000008f"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008c"
+      "ref": "record:00000000-0000-0000-0000-000000000090"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008d"
+      "ref": "record:00000000-0000-0000-0000-000000000091"
     },
     {
       "rule": "steps/solvency_liquidity_stress_check/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000008e"
+      "ref": "record:00000000-0000-0000-0000-000000000092"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a3"
+      "ref": "record:00000000-0000-0000-0000-0000000000a7"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a4"
+      "ref": "record:00000000-0000-0000-0000-0000000000a8"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a5"
+      "ref": "record:00000000-0000-0000-0000-0000000000a9"
     },
     {
       "rule": "steps/working_capital_cash_cycle_analysis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000a6"
+      "ref": "record:00000000-0000-0000-0000-0000000000aa"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b5"
+      "ref": "record:00000000-0000-0000-0000-0000000000b9"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b6"
+      "ref": "record:00000000-0000-0000-0000-0000000000ba"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b7"
+      "ref": "record:00000000-0000-0000-0000-0000000000bb"
     },
     {
       "rule": "steps/earnings_quality_accrual_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000b8"
+      "ref": "record:00000000-0000-0000-0000-0000000000bc"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cc"
+      "ref": "record:00000000-0000-0000-0000-0000000000d0"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cd"
+      "ref": "record:00000000-0000-0000-0000-0000000000d1"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ce"
+      "ref": "record:00000000-0000-0000-0000-0000000000d2"
     },
     {
       "rule": "steps/segment_volume_price_decomposition/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000cf"
+      "ref": "record:00000000-0000-0000-0000-0000000000d3"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000dd"
+      "ref": "record:00000000-0000-0000-0000-0000000000e1"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000de"
+      "ref": "record:00000000-0000-0000-0000-0000000000e2"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000df"
+      "ref": "record:00000000-0000-0000-0000-0000000000e3"
     },
     {
       "rule": "steps/customer_supplier_concentration_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000e0"
+      "ref": "record:00000000-0000-0000-0000-0000000000e4"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ee"
+      "ref": "record:00000000-0000-0000-0000-0000000000f2"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ef"
+      "ref": "record:00000000-0000-0000-0000-0000000000f3"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f0"
+      "ref": "record:00000000-0000-0000-0000-0000000000f4"
     },
     {
       "rule": "steps/capex_capacity_cycle_tracker/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000f1"
+      "ref": "record:00000000-0000-0000-0000-0000000000f5"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000000ff"
+      "ref": "record:00000000-0000-0000-0000-000000000103"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000100"
+      "ref": "record:00000000-0000-0000-0000-000000000104"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000101"
+      "ref": "record:00000000-0000-0000-0000-000000000105"
     },
     {
       "rule": "steps/rnd_capitalization_efficiency_eval/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000102"
+      "ref": "record:00000000-0000-0000-0000-000000000106"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000110"
+      "ref": "record:00000000-0000-0000-0000-000000000114"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000111"
+      "ref": "record:00000000-0000-0000-0000-000000000115"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000112"
+      "ref": "record:00000000-0000-0000-0000-000000000116"
     },
     {
       "rule": "steps/historical_cagr_trend_extrapolation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000113"
+      "ref": "record:00000000-0000-0000-0000-000000000117"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000121"
+      "ref": "record:00000000-0000-0000-0000-000000000125"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000122"
+      "ref": "record:00000000-0000-0000-0000-000000000126"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000123"
+      "ref": "record:00000000-0000-0000-0000-000000000127"
     },
     {
       "rule": "steps/three_statement_linked_forecasting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000124"
+      "ref": "record:00000000-0000-0000-0000-000000000128"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000145"
+      "ref": "record:00000000-0000-0000-0000-000000000149"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000146"
+      "ref": "record:00000000-0000-0000-0000-00000000014a"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000147"
+      "ref": "record:00000000-0000-0000-0000-00000000014b"
     },
     {
       "rule": "steps/dcf_intrinsic_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000148"
+      "ref": "record:00000000-0000-0000-0000-00000000014c"
     },
     {
       "rule": "steps/relative_multiple_valuation/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015c"
+      "ref": "record:00000000-0000-0000-0000-000000000160"
     },
     {
       "rule": "steps/relative_multiple_valuation/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015d"
+      "ref": "record:00000000-0000-0000-0000-000000000161"
     },
     {
       "rule": "steps/relative_multiple_valuation/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015e"
+      "ref": "record:00000000-0000-0000-0000-000000000162"
     },
     {
       "rule": "steps/relative_multiple_valuation/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000015f"
+      "ref": "record:00000000-0000-0000-0000-000000000163"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000016d"
+      "ref": "record:00000000-0000-0000-0000-000000000171"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000016e"
+      "ref": "record:00000000-0000-0000-0000-000000000172"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000016f"
+      "ref": "record:00000000-0000-0000-0000-000000000173"
     },
     {
       "rule": "steps/pledge_reduction_related_transaction_scan/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000170"
+      "ref": "record:00000000-0000-0000-0000-000000000174"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000017d"
+      "ref": "record:00000000-0000-0000-0000-000000000181"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000017e"
+      "ref": "record:00000000-0000-0000-0000-000000000182"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000017f"
+      "ref": "record:00000000-0000-0000-0000-000000000183"
     },
     {
       "rule": "steps/goodwill_asset_impairment_stress_test/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000180"
+      "ref": "record:00000000-0000-0000-0000-000000000184"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000018e"
+      "ref": "record:00000000-0000-0000-0000-000000000192"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-00000000018f"
+      "ref": "record:00000000-0000-0000-0000-000000000193"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000190"
+      "ref": "record:00000000-0000-0000-0000-000000000194"
     },
     {
       "rule": "steps/kam_contingent_liability_audit/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-000000000191"
+      "ref": "record:00000000-0000-0000-0000-000000000195"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a5"
+      "ref": "record:00000000-0000-0000-0000-0000000001a9"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a6"
+      "ref": "record:00000000-0000-0000-0000-0000000001aa"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a7"
+      "ref": "record:00000000-0000-0000-0000-0000000001ab"
     },
     {
       "rule": "steps/competitive_moat_thesis_synthesis/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001a8"
+      "ref": "record:00000000-0000-0000-0000-0000000001ac"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/selection",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b6"
+      "ref": "record:00000000-0000-0000-0000-0000000001ba"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/uses",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b7"
+      "ref": "record:00000000-0000-0000-0000-0000000001bb"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/advanced",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b8"
+      "ref": "record:00000000-0000-0000-0000-0000000001bc"
     },
     {
       "rule": "steps/comprehensive_dossier_formatting/on_fail",
       "source": "user_text",
-      "ref": "record:00000000-0000-0000-0000-0000000001b9"
+      "ref": "record:00000000-0000-0000-0000-0000000001bd"
     }
   ]
 }
