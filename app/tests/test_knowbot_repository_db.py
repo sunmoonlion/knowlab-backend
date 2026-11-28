@@ -962,3 +962,32 @@ async def test_fixed_only_application_retires_from_detail_and_both_boards(db):
             {"id": old.id},
         )
         assert await repo.get_request(old.id) is not None
+
+
+async def test_poll_window_reaches_other_active_trials_after_worker_restart(db):
+    from datetime import UTC, datetime, timedelta
+
+    from app.domain.knowbots.lifecycle import ACTIVE_TESTS
+
+    async with db() as session:
+        svc = service(session)
+        for owner in ("poll-a", "poll-b", "poll-c"):
+            await _own_computer(db, owner)
+            req = await accepted_request(svc, owner)
+            draft = await platform_draft(svc, str(req.id), manifest())
+            await svc.review_rules(str(draft.id), "admin-1")
+            await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
+
+    now = datetime.now(UTC)
+
+    async def poll(at):
+        async with db() as session:
+            repo = SqlKnowlabRepository(session)
+            async with repo.transaction():
+                return [
+                    r.id for r in await repo.next_tests_to_refresh(ACTIVE_TESTS, 2, at)
+                ]
+
+    first = await poll(now)
+    second = await poll(now + timedelta(minutes=1))
+    assert len(first) == len(second) == 2 and len(set(first + second)) == 3

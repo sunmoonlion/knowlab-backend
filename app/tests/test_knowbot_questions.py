@@ -301,3 +301,29 @@ def test_remembered_answers_go_back_only_to_the_same_question() -> None:
     }
     [kept] = cases_for_test([written], answers)
     assert kept["input"]["answers"] == {"period": "5y"}  # 用例自己写了的不覆盖
+
+
+async def test_terminal_refresh_collects_late_charges_without_rewriting_evidence(
+    testing,
+):
+    from app.domain.knowbots.test_run import RunResultV1
+
+    svc, _, _, runtime, _, _, run, _ = testing
+
+    def cancelled(spent):
+        return RunResultV1(
+            contract="knowbot-test-run/v1",
+            run_id=run.run_id,
+            status="cancelled",
+            cost={"spent": spent},
+        )
+
+    runtime.results[run.run_id] = cancelled("1.00")
+    first = await svc.refresh(str(run.id))
+    runtime.results[run.run_id] = cancelled("1.25")
+    second = await svc.refresh(str(run.id))
+    assert second.report == first.report | {
+        "cost": {"spent": "1.25", "currency": "CNY"}
+    }
+    runtime.results[run.run_id] = cancelled("1.00")
+    assert (await svc.refresh(str(run.id))).report == second.report

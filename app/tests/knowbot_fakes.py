@@ -215,6 +215,7 @@ class MemoryKnowlab:
         self.versions: dict[tuple[uuid.UUID, int], RequestVersionRecord] = {}
         self.acceptances: dict[tuple[uuid.UUID, int], AcceptanceRecord] = {}
         self.tests: dict[uuid.UUID, TestRecord] = {}
+        self.last_polled: dict[uuid.UUID, datetime] = {}
         self.experts: dict[uuid.UUID, ExpertRecord] = {}
         self.drafts: dict[uuid.UUID, DraftRecord] = {}
         self.questions: dict[uuid.UUID, QuestionRecord] = {}
@@ -500,6 +501,15 @@ class MemoryKnowlab:
         if owner_subject in self.earlier_self_tests:
             found.append(self.earlier_self_tests[owner_subject])
         return max(found, key=lambda t: t.started_at, default=None)
+
+    async def next_tests_to_refresh(self, statuses, limit, at):
+        eligible = (test for test in self.tests.values() if test.status in statuses)
+        batch = sorted(
+            eligible,
+            key=lambda t: (t.id in self.last_polled, self.last_polled.get(t.id), t.id),
+        )[:limit]
+        self.last_polled.update((test.id, at) for test in batch)
+        return batch
 
     async def list_tests(
         self,

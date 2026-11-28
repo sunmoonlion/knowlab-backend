@@ -866,6 +866,21 @@ class SqlKnowlabRepository:
         ).scalar_one_or_none()
         return None if row is None else _test(row)
 
+    async def next_tests_to_refresh(
+        self, statuses: Collection[str], limit: int, at: datetime
+    ) -> Sequence[TestRecord]:
+        query = (
+            select(KnowbotTest)
+            .where(KnowbotTest.status.in_(statuses))
+            .order_by(KnowbotTest.last_polled_at.asc().nulls_first(), KnowbotTest.id)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        rows = (await self.session.scalars(query)).all()
+        for row in rows:
+            row.last_polled_at = at
+        return [_test(row) for row in rows]
+
     async def list_tests(
         self,
         *,

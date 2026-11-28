@@ -344,9 +344,14 @@ async def test_a_runtime_error_is_a_platform_error_and_the_retest_is_a_new_numbe
     runtime.fail_start = False
     second = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     assert second.number == 2 and second.run_id != first.run_id
-    runtime.results[second.run_id] = result(second.run_id, "error")
+    runtime.results[second.run_id] = result(
+        second.run_id, "error", error="the computer refused the clean folder"
+    )
     ended = await svc.refresh(str(second.id))
-    assert ended.status == "platform_error" and ended.error == "runtime: error"
+    assert (
+        ended.status == "platform_error"
+        and ended.error == "the computer refused the clean folder"
+    )
     assert repo.drafts[draft.id].status == "pending_test"
     third = await svc.start_test(str(draft.id), budget_limit="20", timeout_seconds=600)
     assert third.number == 3

@@ -556,6 +556,10 @@ class KnowlabRepository(Protocol):
         self, test_id: uuid.UUID, *, for_update: bool = False
     ) -> TestRecord | None: ...
 
+    async def next_tests_to_refresh(
+        self, statuses: Collection[str], limit: int, at: datetime
+    ) -> Sequence[TestRecord]: ...
+
     async def list_tests(
         self,
         *,

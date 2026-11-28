@@ -1026,9 +1026,33 @@ class KnowbotCreationService:
                 await self._progress(test.id, result)
             await self._collect_outputs(test, request, result)
         elif test.report:
-            await self._collect_outputs(
-                test, request, RunResultV1.model_validate(test.report)
-            )
+            previous = RunResultV1.model_validate(test.report)
+            try:
+                latest = await self.runtimes.status(request.runtime, test.run_id)
+            except AppException as exc:
+                if exc.status_code not in (404, 410, 502, 503, 504):
+                    raise
+            else:
+                if latest.run_id != test.run_id:
+                    raise _conflict("The runtime answered another run", "run_mismatch")
+                if latest.cost:
+                    async with self.repo.transaction():
+                        current = await self.repo.get_test(test.id, for_update=True)
+                        if (
+                            current
+                            and current.run_id == latest.run_id
+                            and current.report
+                        ):
+                            stored = RunResultV1.model_validate(current.report)
+                            if stored.cost is None or Decimal(
+                                latest.cost.spent
+                            ) > Decimal(stored.cost.spent):
+                                await self.repo.update_test(
+                                    test.id,
+                                    report=current.report
+                                    | {"cost": latest.cost.model_dump(mode="json")},
+                                )
+            await self._collect_outputs(test, request, previous)
         found = await self.repo.get_test(test.id)
         assert found is not None
         return found
@@ -1037,8 +1061,11 @@ class KnowbotCreationService:
         """后台定时刷新（作者不开页面也更新）：在跑的测试每个刷新一次，同页面轮询
         （refresh）。一个出错记一条日志，不挡别的。回刷新了几个。"""
         done = 0
-        tests = await self.repo.list_tests(statuses=ACTIVE_TESTS)
-        for test in tests[:REFRESH_BATCH]:
+        async with self.repo.transaction():
+            tests = await self.repo.next_tests_to_refresh(
+                ACTIVE_TESTS, REFRESH_BATCH, self.now()
+            )
+        for test in tests:
             try:
                 await self.refresh(str(test.id))
             except AppException as exc:
@@ -1144,7 +1171,7 @@ class KnowbotCreationService:
                 status=status,
                 report=result.model_dump(mode="json"),
                 finished_at=self.now(),
-                error=f"runtime: {result.status}"
+                error=(result.error or f"runtime: {result.status}")
                 if status == "platform_error"
                 else None,
             )

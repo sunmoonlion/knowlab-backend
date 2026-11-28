@@ -241,6 +241,8 @@ class KnowbotTest(Base):
     # 测试证据写进作者产出区的那一份 {material_id, version_no}（0043 第 4.2 节）
     evidence: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     __table_args__ = (
         UniqueConstraint("request_id", "number", name="uq_knowbot_test_number"),
         UniqueConstraint("run_id", name="uq_knowbot_test_run"),
@@ -251,6 +253,12 @@ class KnowbotTest(Base):
             "uq_knowbot_test_one_active",
             "request_id",
             unique=True,
+            postgresql_where=text(f"status IN {ACTIVE_TESTS}"),
+        ),
+        Index(
+            "ix_knowbot_test_poll",
+            last_polled_at.asc().nulls_first(),
+            "id",
             postgresql_where=text(f"status IN {ACTIVE_TESTS}"),
         ),
         Index("ix_knowbot_test_draft", "draft_id"),
