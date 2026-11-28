@@ -181,9 +181,10 @@ async def test_operators_publish_a_platform_draft_from_an_accepted_version(
     rid = str(request.id)
     await svc.accept(rid, 1, all_clear(), "admin-1")
     await works.save(OWNER, rid, revision=0, edits=CELLS)
-    manifest, problems, version = await works.operator_preview(rid)
+    manifest, problems, version, token = await works.operator_preview(rid)
     assert problems == [] and version == "1"
-    draft = await works.operator_publish(rid)
+    draft = await works.operator_publish(rid, token)
+    assert (await works.operator_publish(rid, token)).id == draft.id
     assert (draft.mode, draft.version, draft.request_version) == ("platform", "1", 1)
     assert await svc.operator_draft(str(draft.id)) == draft
     # 作者改了创意出 v2，还没受理：不能出
@@ -196,7 +197,7 @@ async def test_operators_publish_a_platform_draft_from_an_accepted_version(
         ),
     )
     with pytest.raises(ConcurrencyConflictError) as raised:
-        await works.operator_publish(rid)
+        await works.operator_publish(rid, token)
     assert raised.value.code == "version_not_accepted"
     # 出处对不上的照样出不了（运营写不进格子，作者没写的格子没有出处）
     await svc.accept(rid, 2, all_clear(), "admin-1")
@@ -213,7 +214,13 @@ async def test_operators_publish_a_platform_draft_from_an_accepted_version(
         ],
     )
     assert len(repo.drafts) == 1
-    again = await works.operator_publish(rid)  # 没接受的提议不进稿，照旧能出
+    *_, token = await works.operator_preview(rid)
+    await works.save(OWNER, rid, revision=1, edits=[("name", "新名称")])
+    with pytest.raises(ConcurrencyConflictError) as stale:
+        await works.operator_publish(rid, token)
+    assert stale.value.code == "workdraft_preview_stale"
+    *_, token = await works.operator_preview(rid)
+    again = await works.operator_publish(rid, token)  # 没接受的提议不进稿，照旧能出
     assert again.revision == 2
 
 
@@ -233,6 +240,16 @@ async def test_operators_start_a_round_on_the_authors_account(world) -> None:
     [sent] = incubator.started
     assert sent.owner_subject == OWNER and sent.budget.limit == "20.00"
     assert [r.id for r in await incubations.operator_rounds(rid)] == [record.id]
+    from dataclasses import replace
+    from uuid import uuid4
+
+    for number, mode in ((2, "self"), (3, "platform"), (4, "platform")):
+        row = replace(record, id=uuid4(), round=number, mode=mode)
+        repo.incubations[row.id] = row
+    page = await incubations.operator_rounds(rid, limit=2)
+    assert [r.round for r in page] == [4, 3]
+    earlier = await incubations.operator_rounds(rid, before=page[-1].round, limit=2)
+    assert [r.round for r in earlier] == [1]
 
 
 async def test_operator_propose_remove_step_with_none_value(world) -> None:

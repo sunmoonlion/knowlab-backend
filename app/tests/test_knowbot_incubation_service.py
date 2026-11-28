@@ -273,6 +273,24 @@ async def test_unconfigured_or_unreachable_knowbench(w: Wired) -> None:
 
 
 @pytest.mark.asyncio
+async def test_lost_start_receipt_recovers_the_same_running_round(
+    w: Wired, monkeypatch
+) -> None:
+    request = await w.request()
+    start = w.incubator.start
+
+    async def lose_reply(command):
+        await start(command)
+        raise ServiceUnavailableError("reply lost", code="knowbench_unavailable")
+
+    monkeypatch.setattr(w.incubator, "start", lose_reply)
+    recovered = await w.inc.start(OWNER, str(request.id), action="draft")
+    assert recovered.status == "running"
+    assert [req.incubation_id for req in w.incubator.started] == [recovered.run_id]
+    assert len(w.repo.incubations) == 1
+
+
+@pytest.mark.asyncio
 async def test_the_last_computer_is_the_later_of_test_and_round(w: Wired) -> None:
     request = await w.request()
     other = "44444444-4444-4444-8444-444444444444"
@@ -459,6 +477,12 @@ async def test_unverified_only_edited_then_accepted_and_reject(w) -> None:
     assert caught.value.code == "suggestion_unverified"
     with pytest.raises(BadRequestError):
         await w.inc.decide(OWNER, rid, iid, "s3", action="accept_edited", revision=0)
+    original = next(s["value"] for s in FIRST["suggestions"] if s["id"] == "s3")
+    with pytest.raises(ConcurrencyConflictError) as unchanged:
+        await w.inc.decide(
+            OWNER, rid, iid, "s3", action="accept_edited", revision=0, value=original
+        )
+    assert unchanged.value.code == "suggestion_unverified"
     stored, record = await w.inc.decide(
         OWNER,
         rid,
@@ -476,7 +500,7 @@ async def test_unverified_only_edited_then_accepted_and_reject(w) -> None:
     assert (entry.kind, entry.text, entry.suggestion_ref) == (
         "edit",
         "按我自己的口径分析财报",
-        None,
+        f"{done.id}:s3",
     )
     assert record.decisions["s3"]["state"] == "accepted_edited"
     # 不要：不碰工作稿
@@ -692,3 +716,69 @@ async def test_a_question_idea_and_a_skill_seed(w: Wired) -> None:
     await w.inc.start(OWNER, str(request.id), action="draft")
     sent = w.incubator.started[-1]
     assert (sent.seed.kind, sent.seed.text) == ("skill", "# skill\n先看表")
+
+
+@pytest.mark.asyncio
+async def test_quote_from_six_question_heading_is_not_author_text(w):
+    request = await w.request()
+    rid = str(request.id)
+    record = await w.inc.start(OWNER, rid, action="draft")
+    w.hand_back(
+        record,
+        {
+            "sources": [
+                {"path": "scope/does", "kind": "idea", "quote": "问：解决什么"}
+            ],
+            "suggestions": [
+                {
+                    "id": "s",
+                    "op": "set",
+                    "path": "scope/does",
+                    "value": "按年预测三年利润",
+                    "reason": "补全范围",
+                }
+            ],
+        },
+    )
+    done = await w.inc.refresh(OWNER, rid, str(record.id))
+    assert not done.review["s"]["verified"]
+
+
+@pytest.mark.asyncio
+async def test_answer_history_can_span_multiple_full_rounds(w):
+    request = await w.request()
+    rid = str(request.id)
+    for total in (200, 1):
+        record = await w.inc.start(OWNER, rid, action="draft")
+        w.hand_back(
+            record,
+            {
+                "gaps": [
+                    {"id": f"g{i}", "question": f"口径 {i}？", "proposal": "按金额"}
+                    for i in range(total)
+                ]
+            },
+        )
+        done = await w.inc.refresh(OWNER, rid, str(record.id))
+        for gap in await w.inc.gaps(done):
+            await w.questions.answer_as_user(
+                OWNER, str(gap.id), AnswerIn(option_id="proposal")
+            )
+    await w.inc.start(OWNER, rid, action="revise", instruction="继续按已答口径整理")
+    assert len(w.incubator.started[-1].answers) == 200
+
+
+@pytest.mark.asyncio
+async def test_replacing_author_seed_keeps_the_selected_template(w):
+    request = await w.request(
+        idea={
+            "kind": "question",
+            "question": "核对收入",
+            "method_template": "checked_delivery/v1",
+        }
+    )
+    number = await w.works.seed_skill(OWNER, str(request.id), "逐期核对")
+    assert (
+        w.repo.versions[request.id, number].idea["method_template"]
+        == "checked_delivery/v1"
+    )

@@ -471,6 +471,10 @@ class KnowlabRepository(Protocol):
         self, request_ids: Collection[uuid.UUID] | None = None
     ) -> Sequence[AcceptanceRecord]: ...
 
+    async def request_by_origin(
+        self, owner_subject: str, key: str
+    ) -> RequestRecord | None: ...
+
     async def list_requests_for_owner(
         self, owner_subject: str
     ) -> Sequence[RequestRecord]: ...
@@ -482,6 +486,7 @@ class KnowlabRepository(Protocol):
     async def create_draft(
         self,
         *,
+        draft_id: uuid.UUID | None = None,
         request_id: uuid.UUID,
         request_version: int,
         revision: int,
@@ -825,6 +830,9 @@ class KnowlabRepository(Protocol):
     async def list_incubations(
         self,
         *,
+        mode: str | None = None,
+        before: int | None = None,
+        latest_limit: int | None = None,
         request_id: uuid.UUID | None = None,
         owner_subject: str | None = None,
         statuses: Collection[str] | None = None,
@@ -847,6 +855,7 @@ class KnowlabRepository(Protocol):
         self,
         *,
         request_ids: Collection[uuid.UUID] | None = None,
+        incubation_ids: Collection[uuid.UUID] | None = None,
         incubation_id: uuid.UUID | None = None,
         open_only: bool = False,
     ) -> Sequence[QuestionRecord]:

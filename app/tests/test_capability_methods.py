@@ -250,3 +250,35 @@ def test_author_models_match_the_runtime_catalog_field_by_field(model, name):
     schema = parent.parent / lock["provider"] / lock["schema"]
     assert hashlib.sha256(schema.read_bytes()).hexdigest() == lock["sha256"]
     assert model_vs_provider(model, json.loads(schema.read_text()), name) == []
+
+
+def test_author_paragraph_and_explicit_required_check_survive_import():
+    doc = capability_body()
+    step = doc["steps"][0]
+    step["does"] = "按顺序检查。\n\n规则：\n1. 优先核实原始数据。"
+    step["checks"].append(
+        {
+            "template": "required",
+            "params": {"keys": [o["name"] for o in step["outputs"]]},
+        }
+    )
+    manifest, errors = compile_body(WorkdraftBody.model_validate(doc))
+    assert not errors and not pack_problems(manifest["pack"])
+    restored, _ = decompile(manifest)
+    assert restored.steps[0].does == step["does"]
+    assert restored.steps[0].checks[-1].template == "required"
+
+
+def test_invalid_return_and_unconnected_required_method_have_author_diagnostics():
+    doc = capability_body()
+    doc["steps"][0]["on_fail"] = {"kind": "back", "back_to": "other"}
+    _, errors = compile_body(WorkdraftBody.model_validate(doc))
+    assert any(p.path.endswith("/on_fail") for p in errors)
+    doc = capability_body()
+    extra = dict(doc["steps"][0], id="separate")
+    doc["steps"].append(extra)
+    doc["planning"]["capability_bindings"]["double_check"]["required_units"].append(
+        "separate"
+    )
+    _, errors = compile_body(WorkdraftBody.model_validate(doc))
+    assert any("contribute" in p.message for p in errors)

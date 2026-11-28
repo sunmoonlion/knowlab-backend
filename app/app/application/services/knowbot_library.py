@@ -180,6 +180,19 @@ class KnowbotLibraryService:
                 ).model_dump(mode="json")
         async with self.repo.transaction():
             current = await self.workdrafts.locked(request, revision)
+            original = parse_body(current.body)
+            if (
+                original.formal_method
+                and original.method_template
+                and (
+                    list(original.data_picks) != wanted
+                    or current.data_formats != formats
+                )
+            ):
+                raise BadRequestError(
+                    "Withdraw the formal draft before changing its brief",
+                    code="method_template_locked",
+                )
             body = parse_body(apply(current.body, "data_picks", wanted))
             doc = body.model_dump(mode="json")
             await self.repo.update_workdraft(

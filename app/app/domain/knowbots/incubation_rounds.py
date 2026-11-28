@@ -67,7 +67,11 @@ def related(entries: Iterable[SourceEntry], path: str) -> list[SourceEntry]:
 
 
 def review(
-    handback: Handback, *, seed_text: str, answer_ids: Collection[str]
+    handback: Handback,
+    *,
+    seed_text: str,
+    answer_ids: Collection[str],
+    author_texts: Collection[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """每条建议：出处核得上没有（verified）、引的是哪几种（idea / answer / proposal；
     一条都没引的算提议）、核不上的是哪几行。"""
@@ -76,7 +80,14 @@ def review(
         entries = related(handback.sources, suggestion.path)
         problems: list[dict[str, str]] = []
         for entry in entries:
-            if entry.kind == "idea" and (entry.quote or "") not in seed_text:
+            if entry.kind == "idea" and (
+                not entry.quote
+                or not any(
+                    entry.quote in text
+                    for text in ((seed_text,) if author_texts is None else author_texts)
+                    if isinstance(text, str)
+                )
+            ):
                 problems.append({"path": entry.path, "problem": QUOTE_NOT_IN_IDEA})
             if entry.kind == "answer" and entry.ref not in answer_ids:
                 problems.append({"path": entry.path, "problem": ANSWER_NOT_FOUND})

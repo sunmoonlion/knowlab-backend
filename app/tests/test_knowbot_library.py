@@ -239,3 +239,46 @@ async def test_unreadable_table_axes_still_save_the_pick(w: Wired):
     )
     assert picked.data_formats[MATERIAL]["tables"] == []
     assert picked.data_formats[MATERIAL]["readings"]
+
+
+@pytest.mark.asyncio
+async def test_library_picks_respect_confirmed_brief():
+    import copy
+
+    import pytest
+
+    from app.application.errors.exceptions import BadRequestError
+    from app.application.services.knowbot_library import KnowbotLibraryService
+    from app.application.services.knowbot_workdraft import KnowbotWorkdraftService
+    from tests.knowbot_fakes import MATERIAL, FakeLibrary, shelf_entry
+    from tests.test_delivery_template import BINDING
+    from tests.test_formal_method_execution import prepared
+    from tests.test_knowbot_library import token
+
+    repo, _, _, _, old = await prepared()
+    works = KnowbotWorkdraftService(repo)
+    rid = str(old.request_id)
+    _, original = await works.get(OWNER, rid)
+    method = copy.deepcopy(original.body["formal_method"])
+    await works.save(OWNER, rid, revision=2, edits=[("formal_method", None)])
+    await works.save(OWNER, rid, revision=3, edits=[("method_template", BINDING)])
+    definition = method["definition"]
+    definition["capability_declaration"]["purpose"] = BINDING["goal"]
+    definition["capability_declaration"]["promises"]["template_delivery"] = BINDING[
+        "deliverable"
+    ]
+    definition["how_to_validate"].append(
+        dict(
+            promise_id="template_delivery",
+            outputs=["result"],
+            check=BINDING["check"],
+            evidence=BINDING["evidence"],
+            on_failure="fail",
+        )
+    )
+    await works.save(
+        OWNER, rid, revision=4, edits=[("formal_method", method)], confirm_brief=True
+    )
+    library = KnowbotLibraryService(repo, FakeLibrary([shelf_entry()]))
+    with pytest.raises(BadRequestError, match="Withdraw"):
+        await library.pick(OWNER, rid, revision=5, picks=[MATERIAL], user_token=token)

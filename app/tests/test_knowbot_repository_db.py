@@ -860,7 +860,9 @@ async def test_0012_stops_and_names_the_rows_its_backfill_cannot_take() -> None:
                 {"d": ids["d2"]},
             )
         path = ROOT / "alembic/versions/20261024_0012_knowbot_lifecycle.py"
-        with pytest.raises(RuntimeError, match="not a whole number") as stopped:
+        with pytest.raises(
+            RuntimeError, match="not a positive PostgreSQL integer"
+        ) as stopped:
             async with engine.begin() as c:
                 await c.run_sync(lambda conn: _run(conn, [path]))
         assert str(ids["d2"]) in str(stopped.value)

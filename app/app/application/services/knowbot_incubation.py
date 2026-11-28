@@ -416,7 +416,13 @@ class KnowbotIncubationService:
             kind, text = seed_of(version.idea)
             if not text.strip():
                 raise BadRequestError("The idea is empty", code="seed_empty")
-            answered = await self._answers(fresh, mode=mode)
+            answered = sorted(
+                await self._answers(fresh, mode=mode),
+                key=lambda q: (
+                    q.answered_at.isoformat() if q.answered_at else q.asked_at,
+                    str(q.id),
+                ),
+            )[-200:]
             incubation_id = uuid.uuid4()
             run_id = f"knowlab-incubation-{incubation_id}"
             try:
@@ -507,8 +513,23 @@ class KnowbotIncubationService:
         try:
             result = await self.incubator.start(sent)
         except AppException as exc:
-            await self._end(record.id, f"start failed: {exc.code}")
-            raise
+            if 400 <= exc.status_code < 500 and exc.status_code not in (408, 409, 429):
+                await self._end(record.id, f"start failed: {exc.code}")
+                raise
+            async with self.repo.transaction():
+                active = await self.repo.get_incubation(record.id, for_update=True)
+                if active and active.status == "queued" and not active.task_id:
+                    await self.repo.update_incubation(
+                        record.id, error="dispatch_unconfirmed"
+                    )
+            await self._refresh_record(record)
+            found = await self.repo.get_incubation(record.id)
+            if found is None or found.error in (
+                "dispatch_unconfirmed",
+                "dispatch_not_found",
+            ):
+                raise
+            return found
         await self._take(record.id, result)
         found = await self.repo.get_incubation(record.id)
         assert found is not None
@@ -578,6 +599,28 @@ class KnowbotIncubationService:
             "cases": cases,
         }
 
+    async def _refresh_record(self, record: IncubationRecord) -> None:
+        try:
+            result = await self.incubator.status(record.run_id)
+        except AppException as exc:
+            if exc.status_code in (404, 410):
+                async with self.repo.transaction():
+                    current = await self.repo.get_incubation(record.id, for_update=True)
+                    if (
+                        current
+                        and current.status == "queued"
+                        and current.error == "dispatch_unconfirmed"
+                    ):
+                        await self.repo.update_incubation(
+                            record.id,
+                            status="failed",
+                            error="dispatch_not_found",
+                            finished_at=self.now(),
+                        )
+                        return
+            raise
+        await self._take(record.id, result)
+
     async def refresh_active(self) -> int:
         """后台定时刷新（第 8.2 节第 5 条「同测试的轮询」，作者不开页面也更新）：没结束
         的每一轮问一次运行方，成了的存交回、核出处、缺口进待办。一轮出错记一条日志，
@@ -586,7 +629,7 @@ class KnowbotIncubationService:
         rounds = await self.repo.list_incubations(statuses=ACTIVE_ROUNDS)
         for record in rounds[:REFRESH_BATCH]:
             try:
-                await self._take(record.id, await self.incubator.status(record.run_id))
+                await self._refresh_record(record)
             except AppException as exc:
                 log.warning(
                     "incubation round not refreshed incubation=%s code=%s",
@@ -626,7 +669,9 @@ class KnowbotIncubationService:
             mode="platform",
         )
 
-    async def operator_rounds(self, request_id: str) -> Sequence[IncubationRecord]:
+    async def operator_rounds(
+        self, request_id: str, *, before: int | None = None, limit: int = 20
+    ) -> Sequence[IncubationRecord]:
         """孵化授权已生效时运营看的各轮：只有平台模式的（作者自助的那几轮看不到）。"""
         request = await self.repo.get_request(parse_id(request_id, "request"))
         grant = (
@@ -636,11 +681,19 @@ class KnowbotIncubationService:
         )
         if request is None or grant is None or grant.status != "active":
             raise NotFoundError("No such request", code="request_not_found")
-        return [
-            r
-            for r in await self.repo.list_incubations(request_id=request.id)
-            if r.mode == "platform"
-        ]
+        return await self.repo.list_incubations(
+            request_id=request.id, mode="platform", before=before, latest_limit=limit
+        )
+
+    async def gaps_for_rounds(
+        self, records: Sequence[IncubationRecord]
+    ) -> dict[uuid.UUID, list[QuestionRecord]]:
+        grouped: dict[uuid.UUID, list[QuestionRecord]] = {r.id: [] for r in records}
+        if grouped:
+            for gap in await self.repo.list_gaps(incubation_ids=grouped.keys()):
+                if gap.incubation_id in grouped:
+                    grouped[gap.incubation_id].append(gap)
+        return grouped
 
     async def _end(self, incubation_id: uuid.UUID, error: str) -> None:
         async with self.repo.transaction():
@@ -697,9 +750,20 @@ class KnowbotIncubationService:
                 return
             if handback is not None:
                 changes["handback"] = handback.model_dump(mode="json")
+                version = await self.repo.get_version(
+                    record.request_id, record.request_version
+                )
+                author_texts = None
+                if record.seed.get("kind") == "six_questions":
+                    author_texts = (
+                        tuple((version.idea.get("answers") or {}).values())
+                        if version
+                        else ()
+                    )
                 changes["review"] = review(
                     handback,
                     seed_text=str(record.seed.get("text") or ""),
+                    author_texts=author_texts,
                     answer_ids=set(record.answer_ids),
                 )
             await self.repo.update_incubation(record.id, **changes)
@@ -728,7 +792,7 @@ class KnowbotIncubationService:
         """页面轮询：没结束的问一次运行方。"""
         _, record = await self.mine(owner_subject, request_id, incubation_id)
         if record.status in ACTIVE_ROUNDS:
-            await self._take(record.id, await self.incubator.status(record.run_id))
+            await self._refresh_record(record)
         found = await self.repo.get_incubation(record.id)
         assert found is not None
         return found
@@ -762,6 +826,13 @@ class KnowbotIncubationService:
         if record.status != "succeeded":
             raise _conflict("This round handed nothing back", "incubation_state")
         suggestion = _suggestion(record, suggestion_id)
+        if action == "accept_edited" and (
+            suggestion.op in ("remove", "move")
+            and value is None
+            or value is not None
+            and value == suggestion.value
+        ):
+            action = "accept"
         if action not in ("accept", "accept_edited", "reject"):
             raise BadRequestError("Unknown action", code="decision_invalid")
         stored: WorkdraftRecord | None = None
@@ -858,11 +929,26 @@ class KnowbotIncubationService:
         sources = {p: s for p, s in start_sources.items() if p in after}
         handback = Handback.model_validate(record.handback or {})
         rows = related(handback.sources, suggestion.path)
+        suggested = {}
+        if action == "accept_edited":
+            try:
+                suggested = cells(
+                    parse_body(
+                        apply_suggestion(
+                            start.model_dump(mode="json"),
+                            suggestion.path,
+                            suggestion.op,
+                            suggestion.value,
+                        )
+                    )
+                )
+            except (ValueError, BadRequestError):
+                pass
         pending_entries: list[dict[str, Any]] = []
         for path, text in after.items():
             if before.get(path) == text and path in sources:
                 continue
-            if action == "accept_edited":
+            if action == "accept_edited" and suggested.get(path) != text:
                 pending_entries.append(
                     {
                         "kind": "edit",
@@ -870,10 +956,15 @@ class KnowbotIncubationService:
                         "text": text,
                         "source_kind": "user_text",
                         "explicit_ref": None,
-                        "suggestion_ref": None,
+                        "suggestion_ref": f"{record.id}:{suggestion.id}",
                     }
                 )
                 continue
+            if action == "accept_edited" and not checked.get("verified"):
+                raise _conflict(
+                    "The unchanged field still has unverified provenance",
+                    "suggestion_unverified",
+                )
             row = source_of(rows, path)
             explicit_ref: str | None = None
             if row is not None and row.kind == "idea":

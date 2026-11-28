@@ -38,7 +38,7 @@ def add_input_slots(
         for alias in step.uses
     }
     if contract.get("back_to"):
-        contract["back_to"] = aliases[contract["back_to"]]
+        contract["back_to"] = aliases.get(contract["back_to"], contract["back_to"])
     for rule in contract["acceptance"]:
         if "when_input_present" in rule:
             rule["when_input_present"] = aliases[rule["when_input_present"]]
@@ -174,8 +174,17 @@ def _validate_capability_closures(body: WorkdraftBody) -> None:
     common = set(planning.final_units) | {
         step.id for step in body.steps if step.selection and step.selection.required
     }
+    reachable = set(planning.final_units)
+    upstream = list(reachable)
+    while upstream:
+        for source in units[upstream.pop()].uses:
+            if source not in reachable:
+                reachable.add(source)
+                upstream.append(source)
     for binding in planning.capability_bindings.values():
         needed = common | set(binding.required_units)
+        if not needed <= reachable:
+            raise ValueError("required methods must contribute to a final output")
         pending = list(needed)
         while pending:
             step = units[pending.pop()]

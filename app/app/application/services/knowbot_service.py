@@ -284,9 +284,18 @@ class KnowbotCreationService:
                 )
             return mine, False
 
-        for mine in await self.repo.list_requests_for_owner(owner_subject):
-            if (mine.origin or {}).get("key") == body.key:
-                return existing(mine)
+        async def replay():
+            mine = await self.repo.request_by_origin(owner_subject, body.key)
+            if mine is None:
+                return None
+            if not await self.repo.get_request(mine.id):
+                raise ConcurrencyConflictError(
+                    "This handoff has retired", code="incubation_request_retired"
+                )
+            return existing(mine)
+
+        if previous := await replay():
+            return previous
         title = question.splitlines()[0].strip()[:80] or question[:80]
         try:
             async with self.repo.transaction():
@@ -420,9 +429,8 @@ class KnowbotCreationService:
                     self_acceptance(created.id, 1, self.now())
                 )
         except Exception:
-            for mine in await self.repo.list_requests_for_owner(owner_subject):
-                if (mine.origin or {}).get("key") == body.key:
-                    return existing(mine)
+            if previous := await replay():
+                return previous
             raise
         found = await self.repo.get_request(created.id)
         assert found is not None
@@ -1163,7 +1171,13 @@ class KnowbotCreationService:
                     ],
                 )
 
-    async def _finish(self, test_id: uuid.UUID, result: RunResultV1) -> None:
+    async def _finish(
+        self,
+        test_id: uuid.UUID,
+        result: RunResultV1,
+        *,
+        cancel_reason: str | None = None,
+    ) -> None:
         """有了结论：通过的出专家（版本号就是准专家的 x），没通过的准专家记没通过，
         平台出错的准专家回到待测。"""
         test = await self.repo.get_test(test_id)
@@ -1176,7 +1190,11 @@ class KnowbotCreationService:
             if test.status not in ACTIVE_TESTS or test.run_id != result.run_id:
                 return  # 已经结束了：旧结果不算数
             status = status_from_run(result.status)
-            reason = result.error or f"runtime: {result.status}"
+            reason = (
+                (cancel_reason if result.status == "cancelled" else None)
+                or result.error
+                or f"runtime: {result.status}"
+            )
             if status == "passed":
                 draft = await self._locked(test.draft_id)
                 version = await self.repo.get_version(
@@ -1557,7 +1575,7 @@ class KnowbotCreationService:
 
     async def reset_stuck(self, test_id: str) -> None:
         """在跑的超过超时（再宽限 5 分钟）还没结论：记平台出错（超时）结束这一次。"""
-        test, _ = await self.test_with_request(test_id)
+        test, request = await self.test_with_request(test_id)
         if test.status not in ACTIVE_TESTS:
             raise _conflict("Only a running test is ended", "test_state")
         # 等人回答的时间不计入超时：加上已经等的；正在等的，再给足最长等待
@@ -1572,8 +1590,17 @@ class KnowbotCreationService:
         )
         if self.now() < deadline:
             raise _conflict("The test is still within its time", "not_stuck")
-        await self._end_on_platform(test.id, "timed out")
-        await self._wrap_up(test.id)
+        result = await self.runtimes.status(request.runtime, test.run_id)
+        if result.run_id != test.run_id:
+            raise _conflict("The runtime answered another run", "run_mismatch")
+        if not result.final:
+            result = await self.runtimes.cancel(request.runtime, test.run_id)
+            if result.run_id != test.run_id or not result.final:
+                raise _conflict(
+                    "Stopping this run is unconfirmed", "test_stop_unconfirmed"
+                )
+        await self._finish(test.id, result, cancel_reason="timed out")
+        await self._collect_outputs(test, request, result)
 
 
 def evidence_document(test: TestRecord, draft: DraftRecord) -> dict[str, Any]:

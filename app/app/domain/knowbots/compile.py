@@ -477,6 +477,15 @@ def compile_manifest(
         fallback_name=fallback_name,
         method_sources=method_sources,
     )
+    if isinstance(body.planning, CapabilityPlanningCell) and not problems:
+        from app.domain.knowbots.capability_compilation import (
+            _validate_capability_closures,
+        )
+
+        try:
+            _validate_capability_closures(body)
+        except (KeyError, ValueError) as exc:
+            problems.append(Problem("planning/capability_bindings", str(exc)))
     return manifest, [
         *problems,
         *(
@@ -685,7 +694,13 @@ def _compile_manifest(
                 problems.append(
                     Problem(f"{base}/ask_before/{ask.id}", "write the question")
                 )
-        if step.on_fail.kind == "back" and step.on_fail.back_to not in inputs:
+        if step.on_fail.kind == "back" and (
+            step.on_fail.back_to not in inputs
+            or (
+                isinstance(body.planning, CapabilityPlanningCell)
+                and step.on_fail.back_to not in step.uses
+            )
+        ):
             problems.append(Problem(f"{base}/on_fail", "go back to an earlier step"))
         advanced = step.advanced
         if advanced.tools is not None and not set(advanced.tools) <= V2_TOOLS:
@@ -1284,7 +1299,9 @@ _WORD_TYPE = {v: k for k, v in TYPE_WORDS.items()}
 _FIELD_TYPE = {v: k for k, v in FIELD_WORDS.items()}
 
 
-def _parse_ours(text: str) -> tuple[str, list[str], list[dict[str, Any]]] | None:
+def _parse_ours(
+    text: str, summary: str = ""
+) -> tuple[str, list[str], list[dict[str, Any]]] | None:
     """按第 7.3 节的模板拆回（做什么、规则、交回项）；不是这个模板拼的回 None。"""
     head = PLATFORM_HEAD + "\n\n" + STEP_LINE
     tail = next(
@@ -1323,11 +1340,14 @@ def _parse_ours(text: str) -> tuple[str, list[str], list[dict[str, Any]]] | None
                 )
             output["items"] = fields
         outputs.append(output)
-    uses_cut = front.rfind("\n\n" + USES_LINE)
+    author_end = (
+        len(summary) if isinstance(summary, str) and front.startswith(summary) else 0
+    )
+    uses_cut = front.rfind("\n\n" + USES_LINE, author_end)
     if uses_cut >= 0 and "\n" not in front[uses_cut + 2 :]:
         front = front[:uses_cut]
     rules: list[str] = []
-    rules_cut = front.find("\n\n" + RULES_LINE + "\n1. ")
+    rules_cut = front.find("\n\n" + RULES_LINE + "\n1. ", author_end)
     if rules_cut >= 0:
         listed = front[rules_cut + len(RULES_LINE) + 3 :]
         front = front[:rules_cut]
@@ -1537,7 +1557,7 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
             "ask_before": ask_before,
             "on_fail": on_fail,
         }
-        ours = _parse_ours(text)
+        ours = _parse_ours(text, raw.get("summary", ""))
         if ours is not None:
             does, parsed_rules, outputs = ours
             step |= {
@@ -1558,6 +1578,7 @@ def decompile(manifest: object) -> tuple[WorkdraftBody, list[str]]:
         for check in list(checks):
             if check["template"] == "required" and set(check["params"]["keys"]) == keys:
                 checks.remove(check)
+                break
         step["checks"] = checks
         try:
             cell = StepCell.model_validate(

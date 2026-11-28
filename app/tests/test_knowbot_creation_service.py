@@ -376,6 +376,8 @@ async def test_stuck_tests_end_as_platform_errors_only_after_their_time(parts):
     await svc.reset_stuck(str(test.id))
     assert repo.tests[test.id].status == "platform_error"
     assert repo.tests[test.id].error == "timed out"
+    assert runtime.cancelled == [test.run_id]
+    assert repo.tests[test.id].report["run_id"] == test.run_id
     assert repo.drafts[draft.id].status == "pending_test"
     # 旧那次测试的结果晚到，不算数
     runtime.results[test.run_id] = result(test.run_id, "passed")

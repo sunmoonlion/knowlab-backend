@@ -606,6 +606,17 @@ class SqlKnowlabRepository:
         ).scalar_one_or_none()
         return None if row is None else _request(row)
 
+    async def request_by_origin(
+        self, owner_subject: str, key: str
+    ) -> RequestRecord | None:
+        row = await self.session.scalar(
+            select(KnowbotRequest).where(
+                KnowbotRequest.owner_subject == owner_subject,
+                KnowbotRequest.origin["key"].astext == key,
+            )
+        )
+        return _request(row) if row is not None else None
+
     async def list_requests_for_owner(
         self, owner_subject: str
     ) -> Sequence[RequestRecord]:
@@ -764,6 +775,7 @@ class SqlKnowlabRepository:
     async def create_draft(
         self,
         *,
+        draft_id: uuid.UUID | None = None,
         request_id: uuid.UUID,
         request_version: int,
         revision: int,
@@ -772,7 +784,7 @@ class SqlKnowlabRepository:
         mode: str = "platform",
     ) -> DraftRecord:
         row = KnowbotDraft(
-            id=uuid.uuid4(),
+            id=draft_id or uuid.uuid4(),
             request_id=request_id,
             request_version=request_version,
             revision=revision,
@@ -1195,6 +1207,9 @@ class SqlKnowlabRepository:
                 KnowbotDraft.version,
                 KnowbotDraft.revision,
             )
+            .where(
+                KnowbotDraft.manifest["schema"].astext.is_distinct_from(MANIFEST_SCHEMA)
+            )
             .distinct(KnowbotDraft.request_id)
             .order_by(KnowbotDraft.request_id, KnowbotDraft.revision.desc())
             .subquery()
@@ -1502,6 +1517,9 @@ class SqlKnowlabRepository:
     async def list_incubations(
         self,
         *,
+        mode: str | None = None,
+        before: int | None = None,
+        latest_limit: int | None = None,
         request_id: uuid.UUID | None = None,
         owner_subject: str | None = None,
         statuses: Collection[str] | None = None,
@@ -1515,6 +1533,16 @@ class SqlKnowlabRepository:
             query = query.where(KnowbotIncubation.owner_subject == owner_subject)
         if statuses is not None:
             query = query.where(KnowbotIncubation.status.in_(list(statuses)))
+        if mode is not None:
+            query = query.where(KnowbotIncubation.mode == mode)
+        if before is not None:
+            query = query.where(KnowbotIncubation.round < before)
+        if latest_limit is not None:
+            query = (
+                query.order_by(None)
+                .order_by(KnowbotIncubation.round.desc())
+                .limit(latest_limit)
+            )
         rows = (
             await self.session.execute(query.execution_options(populate_existing=True))
         ).scalars()
@@ -1564,6 +1592,7 @@ class SqlKnowlabRepository:
         self,
         *,
         request_ids: Collection[uuid.UUID] | None = None,
+        incubation_ids: Collection[uuid.UUID] | None = None,
         incubation_id: uuid.UUID | None = None,
         open_only: bool = False,
     ) -> Sequence[QuestionRecord]:
@@ -1574,6 +1603,8 @@ class SqlKnowlabRepository:
         )
         if request_ids is not None:
             query = query.where(KnowbotQuestion.request_id.in_(list(request_ids)))
+        if incubation_ids is not None:
+            query = query.where(KnowbotQuestion.incubation_id.in_(incubation_ids))
         if incubation_id is not None:
             query = query.where(KnowbotQuestion.incubation_id == incubation_id)
         if open_only:
@@ -1869,26 +1900,34 @@ class SqlKnowlabRepository:
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
             {"key": f"knowlab-formal-suite:{suite_id}"},
         )
-        rows = (
-            await self.session.scalars(
-                select(FormalTestSuite)
-                .where(FormalTestSuite.suite_id == suite_id)
-                .order_by(FormalTestSuite.version)
+        stats = (
+            await self.session.execute(
+                select(
+                    func.max(FormalTestSuite.version),
+                    func.bool_and(
+                        (FormalTestSuite.owner_subject == owner)
+                        & (FormalTestSuite.request_id == request_id)
+                    ),
+                ).where(FormalTestSuite.suite_id == suite_id)
             )
-        ).all()
-        if any(r.owner_subject != owner or r.request_id != request_id for r in rows):
+        ).one()
+        if stats[1] is False:
             raise ConcurrencyConflictError(
                 "Test suite belongs to another author request",
                 code="formal_suite_conflict",
             )
-        prior = next((r for r in rows if r.version == version), None)
+        prior = (
+            await self.session.get(FormalTestSuite, (suite_id, version))
+            if version <= (stats[0] or 0)
+            else None
+        )
         if prior is not None:
             if prior.document != document or prior.digest != document["digest"]:
                 raise ConcurrencyConflictError(
                     "A frozen test suite cannot change", code="formal_suite_conflict"
                 )
             return
-        if version != (rows[-1].version + 1 if rows else 1):
+        if version != (stats[0] or 0) + 1:
             raise ConcurrencyConflictError(
                 "Freeze the next test suite version", code="formal_suite_conflict"
             )

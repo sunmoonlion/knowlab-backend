@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -531,16 +532,32 @@ class KnowbotWorkdraftService:
             raise NotFoundError("No such request", code="request_not_found")
         return request
 
+    @staticmethod
+    def _preview_token(request, current, revision, manifest) -> str:
+        fields = [
+            str(request.id),
+            request.latest_version,
+            current.revision if current else 0,
+            revision,
+            manifest,
+        ]
+        return hashlib.sha256(canonical(fields).encode()).hexdigest()
+
     async def operator_preview(
         self, request_id: str
-    ) -> tuple[dict[str, Any], list[Problem], str]:
-        request = await self.platform_request(request_id)
-        current = await self.repo.get_workdraft(request.id)
-        version, _ = await self._next(request)
-        manifest, problems = await self._compile(request, current, version)
-        return manifest, problems, version
+    ) -> tuple[dict[str, Any], list[Problem], str, str]:
+        async with self.repo.transaction():
+            await self.repo.lock_request(parse_id(request_id, "request"))
+            request = await self.platform_request(request_id)
+            current = await self.repo.get_workdraft(request.id, for_update=True)
+            version, revision = await self._next(request)
+            manifest, problems = await self._compile(request, current, version)
+            token = self._preview_token(request, current, revision, manifest)
+            return manifest, problems, version, token
 
-    async def operator_publish(self, request_id: str) -> DraftRecord:
+    async def operator_publish(
+        self, request_id: str, preview_token: str
+    ) -> DraftRecord:
         """平台模式出一版：运营点，准专家记平台（decisions 10-29）。最新一版创意要正式
         受理过（运营孵化受理了的版本）；出处照样只认作者原话与作者接受的。"""
         rid = parse_id(request_id, "request")
@@ -553,6 +570,10 @@ class KnowbotWorkdraftService:
                     "Incubate only from an accepted version",
                     code="version_not_accepted",
                 )
+            draft_id = uuid.uuid5(request.id, f"operator-preview:{preview_token}")
+            published = await self.repo.get_draft(draft_id)
+            if published is not None:
+                return published
             current = await self.repo.get_workdraft(request.id, for_update=True)
             if current is None:
                 raise BadRequestError(
@@ -562,9 +583,14 @@ class KnowbotWorkdraftService:
             assert fresh is not None
             version, revision = await self._next(fresh)
             manifest, problems = await self._compile(fresh, current, version)
+            if self._preview_token(fresh, current, revision, manifest) != preview_token:
+                raise ConcurrencyConflictError(
+                    "Workdraft preview has changed", code="workdraft_preview_stale"
+                )
             if problems:
                 raise BadRequestError(_summary(problems), code="workdraft_invalid")
             draft = await self.repo.create_draft(
+                draft_id=draft_id,
                 request_id=fresh.id,
                 request_version=fresh.latest_version,
                 revision=revision,
@@ -632,7 +658,15 @@ class KnowbotWorkdraftService:
             found = await self.repo.add_version(
                 request_id=current.id,
                 version=current.latest_version + 1,
-                idea={"kind": "skill", "skill": skill},
+                idea={
+                    "kind": "skill",
+                    "skill": skill,
+                    **(
+                        {"method_template": latest.idea["method_template"]}
+                        if latest.idea.get("method_template")
+                        else {}
+                    ),
+                },
                 cases=latest.cases,
                 consent_version=latest.consent_version,
                 created_by=owner_subject,

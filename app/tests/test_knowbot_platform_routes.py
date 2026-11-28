@@ -163,7 +163,11 @@ async def test_operators_propose_and_publish_through_the_api(wired) -> None:  # 
         # 运营出一版：平台模式
         preview = (await c.get(f"{req}/workdraft/preview")).json()
         assert preview["problems"] == []
-        published = await c.post(f"{req}/workdraft/publish", headers=ADMIN)
+        published = await c.post(
+            f"{req}/workdraft/publish",
+            headers=ADMIN,
+            json={"preview_token": preview["preview_token"]},
+        )
         assert published.status_code == 201, published.text
         assert published.json()["mode"] == "platform"
         # 老的「贴清单」路由没了

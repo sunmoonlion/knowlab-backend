@@ -661,23 +661,28 @@ async def operator_preview(
     _: Admin, workdrafts: Workdrafts, request_id: ItemId
 ) -> JSONResponse:
     """编出的清单与出不了版本的地方（不出版本）。"""
-    manifest, problems, version = await workdrafts.operator_preview(request_id)
+    manifest, problems, version, token = await workdrafts.operator_preview(request_id)
     return _ok(
         {
             "version": version,
+            "preview_token": token,
             "manifest": manifest,
             "problems": [{"path": p.path, "message": p.message} for p in problems],
         }
     )
 
 
+class OperatorPublishIn(BaseModel):
+    preview_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 @admin_router.post("/knowbot-requests/{request_id}/workdraft/publish")
 async def operator_publish(
-    _: Releaser, workdrafts: Workdrafts, request_id: ItemId
+    _: Releaser, workdrafts: Workdrafts, request_id: ItemId, body: OperatorPublishIn
 ) -> JSONResponse:
     """平台模式出一版（decisions 10-29）：准专家记平台；最新一版创意要正式受理过，
     出处照样只认作者原话与作者接受的。"""
-    draft = await workdrafts.operator_publish(request_id)
+    draft = await workdrafts.operator_publish(request_id, body.preview_token)
     return _ok(
         {
             "draft_id": str(draft.id),
@@ -692,12 +697,23 @@ async def operator_publish(
 
 @admin_router.get("/knowbot-requests/{request_id}/workdraft/incubations")
 async def operator_rounds(
-    _: Admin, incubations: Incubations, request_id: ItemId
+    _: Admin,
+    incubations: Incubations,
+    request_id: ItemId,
+    before: Annotated[int | None, Query(ge=1)] = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
 ) -> JSONResponse:
-    """平台发起的各轮（作者自助的那几轮看不到），带交回的建议，运营可以改成提议。"""
-    found = await incubations.operator_rounds(request_id)
+    """平台孵化轮次，按轮次倒序分页。"""
+    found = await incubations.operator_rounds(
+        request_id, before=before, limit=limit + 1
+    )
+    page = found[:limit]
+    gaps = await incubations.gaps_for_rounds(page)
     return _ok(
-        {"incubations": [incubation_view(r, await incubations.gaps(r)) for r in found]}
+        {
+            "incubations": [incubation_view(r, gaps[r.id]) for r in page],
+            "next_before": page[-1].round if len(found) > limit else None,
+        }
     )
 
 

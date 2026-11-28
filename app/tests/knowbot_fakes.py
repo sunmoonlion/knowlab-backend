@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Collection, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -444,6 +444,19 @@ class MemoryKnowlab:
     async def update_proposal(self, proposal_id: uuid.UUID, **changes: Any) -> None:
         self.proposals[proposal_id] = replace(self.proposals[proposal_id], **changes)
 
+    async def request_by_origin(
+        self, owner_subject: str, key: str
+    ) -> RequestRecord | None:
+        return next(
+            (
+                row
+                for row in self.requests.values()
+                if row.owner_subject == owner_subject
+                and (row.origin or {}).get("key") == key
+            ),
+            None,
+        )
+
     async def list_requests_for_owner(
         self, owner_subject: str
     ) -> Sequence[RequestRecord]:
@@ -460,7 +473,7 @@ class MemoryKnowlab:
 
     async def create_draft(self, **fields: Any) -> DraftRecord:
         record = DraftRecord(
-            id=uuid.uuid4(),
+            id=fields.pop("draft_id", None) or uuid.uuid4(),
             status="pending_test",
             created_at=self._now(),
             **copy.deepcopy(fields),
@@ -798,6 +811,9 @@ class MemoryKnowlab:
     async def list_incubations(
         self,
         *,
+        mode: str | None = None,
+        before: int | None = None,
+        latest_limit: int | None = None,
         request_id: uuid.UUID | None = None,
         owner_subject: str | None = None,
         statuses: Any = None,
@@ -808,10 +824,13 @@ class MemoryKnowlab:
                 for r in self.incubations.values()
                 if (request_id is None or r.request_id == request_id)
                 and (owner_subject is None or r.owner_subject == owner_subject)
+                and (mode is None or r.mode == mode)
+                and (before is None or r.round < before)
                 and (statuses is None or r.status in statuses)
             ),
             key=lambda r: (str(r.request_id), r.round),
-        )
+            reverse=latest_limit is not None,
+        )[:latest_limit]
 
     async def update_incubation(self, incubation_id: uuid.UUID, **changes: Any) -> None:
         self.incubations[incubation_id] = replace(
@@ -852,6 +871,7 @@ class MemoryKnowlab:
         self,
         *,
         request_ids: Any = None,
+        incubation_ids: Collection[uuid.UUID] | None = None,
         incubation_id: uuid.UUID | None = None,
         open_only: bool = False,
     ) -> Sequence[QuestionRecord]:
@@ -860,6 +880,7 @@ class MemoryKnowlab:
             for q in self.questions.values()
             if q.kind == "gap"
             and (request_ids is None or q.request_id in request_ids)
+            and (incubation_ids is None or q.incubation_id in incubation_ids)
             and (incubation_id is None or q.incubation_id == incubation_id)
             and (not open_only or q.answer is None)
         ]
@@ -1243,6 +1264,10 @@ class FakeIncubator:
         )
 
     async def status(self, incubation_id: str) -> IncubationResultV1:
+        if incubation_id not in self.results and not any(
+            req.incubation_id == incubation_id for req in self.started
+        ):
+            raise NotFoundError("No such incubation", code="incubation_not_found")
         return self.results.get(incubation_id, self._result(incubation_id, "running"))
 
     async def cancel(self, incubation_id: str) -> IncubationResultV1:
